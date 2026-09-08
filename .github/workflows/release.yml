@@ -25,9 +25,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           cache: npm
-          package-manager-cache: false
       - name: Use current npm with trusted publishing support
         run: npm install --global npm@latest
       - run: npm ci
@@ -35,9 +33,7 @@ jobs:
 
       - name: Detect release channel
         id: channel
-        run: |
-          channel="$(node -e "const fs=require('node:fs'); const path='.changeset/pre.json'; if (!fs.existsSync(path)) process.stdout.write('latest'); else { const pre=JSON.parse(fs.readFileSync(path, 'utf8')); process.stdout.write(pre.mode === 'pre' ? pre.tag : 'latest'); }")"
-          echo "name=$channel" >> "$GITHUB_OUTPUT"
+        run: node .github/scripts/release-channel.mjs
 
       - name: Create release PR or publish
         id: changesets
@@ -51,7 +47,6 @@ jobs:
           commitMode: github-api
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
 
       - name: Label the release PR
         if: steps.changesets.outputs.published != 'true'
