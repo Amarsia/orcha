@@ -18,11 +18,12 @@ Read the full concept: [`docs/concept.md`](./docs/concept.md)
 
 ```
 /agentname
-  index.js | index.json     → provider, model, system prompt, output schema
+  index.js | index.json     → provider, model, generation config, output schema
+  instructions.md           → required base agent instructions
   /skills
     /skillname
       index.json              → { name, description, triggers }
-      instruction.md            → procedural knowledge, lazy-loaded into context
+      instructions.md           → procedural knowledge, lazy-loaded into context
   /actions
     /actionname
       index.json                → definition — name, params, when to use it
@@ -77,32 +78,38 @@ No MCP server to stand up, no SDK to pull in, no integration to configure. If yo
 ## Quick start
 
 ```bash
-npm install orcha
+npm install orchajs
+npx orcha init
 ```
 
 ```js
-import orcha from 'orcha';
+// Import the consumer registry once from the application entrypoint.
+import './orcha/index.js';
+import { orcha } from 'orchajs';
 
-// one-shot — structured input to structured output, no session to manage
-const result = await orcha.run('./agents/classifier', { text: 'refund my order' });
-
-// durable — pause, resume, pick up anywhere
-const { sessionId } = await orcha.agent.run('./agents/support-agent', input);
-// ...later, any process...
-const next = await orcha.agent.resume(sessionId, humanReply);
+const execution = orcha.exampleAgent.run({
+  input: 'Help me understand this invoice'
+});
+const result = await execution.result;
 ```
 
-`orcha.run()` — single call, no state to think about. Can still call actions; can't pause.
-`orcha.agent.run()` / `orcha.agent.resume()` — the durable version. Tool calls, context, and any pending human-in-the-loop step persist automatically, locally by default.
+Registered agents are exposed as `orcha.<agentName>`. The first implementation
+supports durable Node.js runs backed by `.orcha/sessions/<sessionId>.jsonl`.
+Single-shot invocation, pause/resume, actions, and streaming will follow.
+
+For esbuild production applications, add `orchaPlugin()` from
+`orchajs/esbuild` to the existing build. It compiles the registry and replaces
+unchanged `orchajs` imports with the self-contained generated runtime. The
+application continues to use its normal `npm run build` command.
 
 ---
 
 ## What's in this repo right now
 
-- [ ] File convention parser + `orcha build`
+- [x] Registry compiler + `orcha build`
 - [ ] Model Action Protocol — schema, sandboxed execution
 - [ ] Compiler — one provider, correct tool calls + streaming
-- [ ] Stateful sessions — local, `agent.run` / `agent.resume`, human-in-the-loop
+- [ ] Stateful sessions — Node JSONL foundation implemented; replay and human-in-the-loop next
 - [ ] `orcha.run()` one-shot entry point
 - [ ] CLI (`orcha init`, `orcha build`, `orcha dev`) + example agents
 
