@@ -51,9 +51,8 @@ jobs:
     name: Changeset
     if: >-
       github.event_name == 'pull_request' &&
-      !contains(github.event.pull_request.labels.*.name, 'release:skip') &&
-      !contains(github.event.pull_request.labels.*.name, 'release:next') &&
-      !contains(github.event.pull_request.labels.*.name, 'release:latest')
+      github.head_ref != 'changeset-release/main' &&
+      !contains(github.event.pull_request.labels.*.name, 'release:skip')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
