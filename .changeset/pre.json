@@ -4,5 +4,7 @@
   "initialVersions": {
     "orchajs": "0.0.1"
   },
-  "changesets": []
+  "changesets": [
+    "early-orcha-foundation"
+  ]
 }
