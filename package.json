@@ -1,4 +1,42 @@
 {
   "name": "orchajs",
-  "version": "0.0.1"
+  "version": "0.0.1",
+  "description": "A filesystem-convention, stateful agent framework for JavaScript.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./esbuild": {
+      "types": "./dist/integrations/esbuild.d.ts",
+      "import": "./dist/integrations/esbuild.js"
+    }
+  },
+  "bin": {
+    "orcha": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "esbuild": "^0.25.9"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.1",
+    "typescript": "^5.9.2"
+  }
 }
