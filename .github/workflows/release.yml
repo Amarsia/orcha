@@ -33,27 +33,35 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      - name: Detect release channel
+        id: channel
+        run: |
+          channel="$(node -e "const fs=require('node:fs'); const path='.changeset/pre.json'; if (!fs.existsSync(path)) process.stdout.write('latest'); else { const pre=JSON.parse(fs.readFileSync(path, 'utf8')); process.stdout.write(pre.mode === 'pre' ? pre.tag : 'latest'); }")"
+          echo "name=$channel" >> "$GITHUB_OUTPUT"
+
       - name: Create release PR or publish
         id: changesets
         uses: changesets/action@v1
         with:
           version: npm run version-packages
           publish: npm run release
-          commit: "chore: release next"
-          title: "chore: release next"
+          commit: "chore: release ${{ steps.channel.outputs.name }}"
+          title: "chore: release ${{ steps.channel.outputs.name }}"
           createGithubReleases: true
           commitMode: github-api
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
 
-      - name: Label the prerelease PR
+      - name: Label the release PR
         if: steps.changesets.outputs.published != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_CHANNEL: ${{ steps.channel.outputs.name }}
         run: |
-          gh label create "release:next" --color "6f42c1" --description "Publishes to the npm next tag" --force
+          label="release:$RELEASE_CHANNEL"
+          gh label create "$label" --color "6f42c1" --description "Publishes to the npm $RELEASE_CHANNEL tag" --force
           pr_number="$(gh pr list --head "changeset-release/main" --state open --json number --jq '.[0].number')"
           if [ -n "$pr_number" ]; then
-            gh pr edit "$pr_number" --add-label "release:next"
+            gh pr edit "$pr_number" --add-label "$label"
           fi
