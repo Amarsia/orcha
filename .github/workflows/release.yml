@@ -35,21 +35,19 @@ jobs:
         id: channel
         run: node .github/scripts/release-channel.mjs
 
-      - name: Create release PR or publish
+      - name: Create or update release PR
         id: changesets
         uses: changesets/action@v1
         with:
           version: npm run version-packages
-          publish: npm run release
           commit: "chore: release ${{ steps.channel.outputs.name }}"
           title: "chore: release ${{ steps.channel.outputs.name }}"
-          createGithubReleases: true
           commitMode: github-api
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Label the release PR
-        if: steps.changesets.outputs.published != 'true'
+        if: steps.changesets.outputs.hasChangesets == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_CHANNEL: ${{ steps.channel.outputs.name }}
@@ -59,4 +57,28 @@ jobs:
           pr_number="$(gh pr list --head "changeset-release/main" --state open --json number --jq '.[0].number')"
           if [ -n "$pr_number" ]; then
             gh pr edit "$pr_number" --add-label "$label"
+          fi
+
+      - name: Check npm release state
+        id: release
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        run: node .github/scripts/release-state.mjs
+
+      - name: Publish to npm
+        if: steps.release.outputs.unpublished == 'true'
+        env:
+          RELEASE_CHANNEL: ${{ steps.channel.outputs.name }}
+        run: npm publish --access public --tag "$RELEASE_CHANNEL"
+
+      - name: Create GitHub release
+        if: steps.release.outputs.unpublished == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_CHANNEL: ${{ steps.channel.outputs.name }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          if [ "$RELEASE_CHANNEL" = "latest" ]; then
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "$RELEASE_TAG" --generate-notes
+          else
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "$RELEASE_TAG" --generate-notes --prerelease
           fi
