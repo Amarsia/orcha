@@ -9,15 +9,16 @@ concurrency:
   group: release-main
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
-
 jobs:
-  release:
-    name: Version or publish
+  release_plan:
+    name: Prepare release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      channel: ${{ steps.channel.outputs.name }}
+      has_changesets: ${{ steps.changesets.outputs.hasChangesets }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -26,8 +27,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - name: Use current npm with trusted publishing support
-        run: npm install --global npm@latest
       - run: npm ci
       - run: npm run build
 
@@ -59,22 +58,42 @@ jobs:
             gh pr edit "$pr_number" --add-label "$label"
           fi
 
+  publish:
+    name: Publish package
+    needs: release_plan
+    if: needs.release_plan.outputs.has_changesets == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Use current npm with trusted publishing support
+        run: npm install --global npm@latest
+      - run: npm ci
+      - run: npm run build
+
       - name: Check npm release state
         id: release
-        if: steps.changesets.outputs.hasChangesets == 'false'
         run: node .github/scripts/release-state.mjs
 
       - name: Publish to npm
         if: steps.release.outputs.unpublished == 'true'
         env:
-          RELEASE_CHANNEL: ${{ steps.channel.outputs.name }}
-        run: npm publish --access public --tag "$RELEASE_CHANNEL"
+          RELEASE_CHANNEL: ${{ needs.release_plan.outputs.channel }}
+        run: npm publish --access public --provenance --tag "$RELEASE_CHANNEL"
 
       - name: Create GitHub release
         if: steps.release.outputs.unpublished == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_CHANNEL: ${{ steps.channel.outputs.name }}
+          RELEASE_CHANNEL: ${{ needs.release_plan.outputs.channel }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           if [ "$RELEASE_CHANNEL" = "latest" ]; then
