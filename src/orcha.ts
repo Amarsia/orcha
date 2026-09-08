@@ -13,7 +13,11 @@ export const orcha = createOrcha((configuration) => {
       "ORCHA_PRODUCTION_BUNDLE_MISSING: configure the Orcha integration in your application build.",
     );
   }
-  const projectRoot = resolve(configuration.root ?? process.cwd());
+  const projectRoot = resolve(
+    configuration.root ??
+      process.env.ORCHA_PROJECT_ROOT ??
+      process.cwd(),
+  );
   const registryRoot = resolve(projectRoot, "orcha");
   return compileRegistry(configuration.agents, registryRoot);
 });

@@ -41,7 +41,9 @@ export async function buildProject(
     });
 
     const previousCompiling = process.env.ORCHA_COMPILING;
+    const previousProjectRoot = process.env.ORCHA_PROJECT_ROOT;
     process.env.ORCHA_COMPILING = "1";
+    process.env.ORCHA_PROJECT_ROOT = projectRoot;
     try {
       await import(
         `${pathToFileURL(registryBundlePath).href}?time=${Date.now()}`
@@ -51,6 +53,11 @@ export async function buildProject(
         delete process.env.ORCHA_COMPILING;
       } else {
         process.env.ORCHA_COMPILING = previousCompiling;
+      }
+      if (previousProjectRoot === undefined) {
+        delete process.env.ORCHA_PROJECT_ROOT;
+      } else {
+        process.env.ORCHA_PROJECT_ROOT = previousProjectRoot;
       }
     }
     const compiledBundle = orcha.getCompiledBundle();
