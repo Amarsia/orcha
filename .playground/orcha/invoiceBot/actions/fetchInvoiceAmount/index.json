@@ -1,0 +1,25 @@
+{
+  "name": "fetch_invoice_amount",
+  "description": "Fetch the amount currently recorded for an invoice.",
+  "execution": "local",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "invoiceId": { "type": "string" }
+    },
+    "required": ["invoiceId"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "invoiceId": { "type": "string" },
+      "amount": { "type": "number" },
+      "currency": { "type": "string" }
+    },
+    "required": ["invoiceId", "amount", "currency"],
+    "additionalProperties": false
+  },
+  "timeoutMs": 2000,
+  "sideEffect": false
+}

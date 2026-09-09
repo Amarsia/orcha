@@ -3,11 +3,12 @@ import type {
   ProviderConfiguration,
   Usage,
 } from "../types.js";
+import { OrchaError } from "../errors.js";
 import { parseStructuredOutput } from "../runtime/structured-output.js";
 
-interface AnthropicMessage {
+export interface AnthropicMessage {
   role: "user" | "assistant";
-  content: string;
+  content: string | unknown[];
 }
 
 export interface AnthropicContentBlock {
@@ -16,6 +17,9 @@ export interface AnthropicContentBlock {
   thinking?: string;
   signature?: string;
   data?: string;
+  id?: string;
+  name?: string;
+  input?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -39,6 +43,11 @@ export interface ModelResponse {
   responseId?: string;
   stopReason?: string | null;
   content: AnthropicContentBlock[];
+  toolCalls: Array<{
+    callId: string;
+    name: string;
+    arguments: Record<string, unknown>;
+  }>;
   usage: Usage;
 }
 
@@ -46,6 +55,8 @@ export async function callAnthropic(
   agent: CompiledAgentManifest,
   provider: ProviderConfiguration,
   messages: AnthropicMessage[],
+  toolNames: string[] = [],
+  prompt = agent.systemPrompt,
 ): Promise<ModelResponse> {
   if (!provider.apiKey?.trim()) {
     throw new Error(
@@ -56,14 +67,25 @@ export async function callAnthropic(
   const reasoning = getReasoningConfiguration(agent);
   const systemPrompt =
     agent.outputType === "json"
-      ? `${agent.systemPrompt}\n\nReturn only valid JSON matching this JSON Schema:\n${JSON.stringify(agent.outputSchema)}`
-      : agent.systemPrompt;
+      ? `${prompt}\n\nReturn only valid JSON matching this JSON Schema:\n${JSON.stringify(agent.outputSchema)}`
+      : prompt;
   const requestBody: Record<string, unknown> = {
     model: agent.model,
     max_tokens: reasoning.maxTokens,
     system: systemPrompt,
-    messages,
+    messages: toAnthropicMessages(messages),
   };
+  const tools = toolNames
+    .map((name) => agent.actions[name])
+    .filter((action) => action !== undefined)
+    .map((action) => ({
+      name: action.name,
+      description: action.description,
+      input_schema: action.parameters,
+    }));
+  if (tools.length > 0) {
+    requestBody.tools = tools;
+  }
 
   if (reasoning.thinking) {
     requestBody.thinking = reasoning.thinking;
@@ -97,8 +119,19 @@ export async function callAnthropic(
     .filter((item) => item.type === "text" && typeof item.text === "string")
     .map((item) => item.text)
     .join("");
+  const toolCalls = content.flatMap((item) =>
+    item.type === "tool_use" && item.id && item.name
+      ? [
+          {
+            callId: item.id,
+            name: item.name,
+            arguments: item.input ?? {},
+          },
+        ]
+      : [],
+  );
   const output =
-    agent.outputType === "json"
+    agent.outputType === "json" && toolCalls.length === 0
       ? parseStructuredOutput(textOutput, agent.outputSchema ?? {})
       : textOutput;
 
@@ -107,6 +140,7 @@ export async function callAnthropic(
     responseId: body.id,
     stopReason: body.stop_reason,
     content,
+    toolCalls,
     usage: {
       inputTokens: body.usage?.input_tokens ?? 0,
       outputTokens: body.usage?.output_tokens ?? 0,
@@ -115,6 +149,66 @@ export async function callAnthropic(
       cacheWriteTokens: body.usage?.cache_creation_input_tokens ?? 0,
     },
   };
+}
+
+function toAnthropicMessages(
+  messages: AnthropicMessage[],
+): AnthropicMessage[] {
+  return messages.map((message) => {
+    if (message.role === "assistant" || typeof message.content === "string") {
+      return message;
+    }
+    return {
+      role: "user",
+      content: message.content.map((block) => {
+        if (!isRecord(block) || typeof block.type !== "string") {
+          throw new OrchaError(
+            "invalid_input",
+            "Anthropic message content contains an invalid block.",
+          );
+        }
+        if (
+          block.type === "text" ||
+          block.type === "tool_result"
+        ) {
+          return block;
+        }
+        if (
+          block.type === "image" &&
+          typeof block.fileUri === "string"
+        ) {
+          return {
+            type: "image",
+            source: {
+              type: "url",
+              url: block.fileUri,
+            },
+          };
+        }
+        if (
+          block.type === "url" &&
+          typeof block.fileUri === "string" &&
+          block.mimeType === "application/pdf"
+        ) {
+          return {
+            type: "document",
+            source: {
+              type: "url",
+              url: block.fileUri,
+            },
+          };
+        }
+        throw new OrchaError(
+          "unsupported_content_type",
+          `Anthropic does not support content type "${block.type}" with MIME type "${String(block.mimeType)}".`,
+        );
+      }),
+    };
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function getReasoningConfiguration(agent: CompiledAgentManifest): {

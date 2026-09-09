@@ -63,7 +63,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: git fetch origin main
+      - run: git fetch origin main:main
       - name: Require a changeset file in this PR
         run: |
           files="$(git diff --name-only --diff-filter=AM origin/main...HEAD -- '.changeset/*.md' ':(exclude).changeset/README.md')"

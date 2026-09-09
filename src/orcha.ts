@@ -19,5 +19,9 @@ export const orcha = createOrcha((configuration) => {
       process.cwd(),
   );
   const registryRoot = resolve(projectRoot, "orcha");
-  return compileRegistry(configuration.agents, registryRoot);
+  return compileRegistry(
+    configuration.agents,
+    registryRoot,
+    configuration.actions?.runtime,
+  );
 });

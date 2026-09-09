@@ -22,4 +22,8 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
   async append(_sessionId: string, _events: SessionEvent[]): Promise<void> {
     throw new Error("React Native JSONL session storage is not implemented yet.");
   }
+
+  async listSessionIds(): Promise<string[]> {
+    throw new Error("React Native JSONL session storage is not implemented yet.");
+  }
 }

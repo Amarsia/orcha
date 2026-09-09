@@ -86,6 +86,21 @@ export async function buildProject(
       target: "node20",
       minify: true,
       legalComments: "none",
+      define: {
+        "process.env.ORCHA_INCLUDE_SANDBOX": JSON.stringify(
+          compiledBundle.actionRuntime === "sandbox" ? "1" : "0",
+        ),
+      },
+      ...(compiledBundle.actionRuntime === "sandbox"
+        ? {
+            banner: {
+              js: [
+                'import { createRequire as __orchaCreateRequire } from "node:module";',
+                "const require = __orchaCreateRequire(import.meta.url);",
+              ].join("\n"),
+            },
+          }
+        : {}),
       logLevel: "silent",
     });
 

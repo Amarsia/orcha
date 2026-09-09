@@ -21,4 +21,8 @@ export class EdgeSessionStore implements SessionStore {
   async append(_sessionId: string, _events: SessionEvent[]): Promise<void> {
     throw new Error("Edge session storage is not implemented yet.");
   }
+
+  async listSessionIds(): Promise<string[]> {
+    throw new Error("Edge session storage is not implemented yet.");
+  }
 }

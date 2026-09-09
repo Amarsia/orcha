@@ -22,4 +22,8 @@ export class BrowserIndexedDbSessionStore implements SessionStore {
   async append(_sessionId: string, _events: SessionEvent[]): Promise<void> {
     throw new Error("Browser IndexedDB session storage is not implemented yet.");
   }
+
+  async listSessionIds(): Promise<string[]> {
+    throw new Error("Browser IndexedDB session storage is not implemented yet.");
+  }
 }

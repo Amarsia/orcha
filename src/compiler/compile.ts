@@ -1,7 +1,11 @@
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { buildSync } from "esbuild";
 import type {
   AgentConfiguration,
+  ActionConfiguration,
+  CompiledActionManifest,
   CompiledAgentManifest,
   CompiledBundle,
   ProviderName,
@@ -12,6 +16,7 @@ const SUPPORTED_PROVIDERS = new Set(["anthropic"]);
 export function compileRegistry(
   registrations: Record<string, string>,
   registryRoot: string,
+  actionRuntime?: "native" | "sandbox",
 ): CompiledBundle {
   if (
     !registrations ||
@@ -111,6 +116,7 @@ export function compileRegistry(
       reasoningLevel: configuration.reasoningLevel ?? "disabled",
       outputType: configuration.outputType ?? "text",
       outputSchema: configuration.outputSchema,
+      actions: compileActions(name, sourceDirectory),
     });
   }
 
@@ -120,8 +126,170 @@ export function compileRegistry(
 
   return Object.freeze({
     schemaVersion: 1,
+    actionRuntime,
     agents: Object.freeze(agents),
   });
+}
+
+function compileActions(
+  agentName: string,
+  sourceDirectory: string,
+): Record<string, CompiledActionManifest> {
+  const actionsDirectory = resolve(sourceDirectory, "actions");
+  if (!existsSync(actionsDirectory)) {
+    return {};
+  }
+
+  const actions: Record<string, CompiledActionManifest> = {};
+  for (const entry of readdirSync(actionsDirectory, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const configurationPath = resolve(
+      actionsDirectory,
+      entry.name,
+      "index.json",
+    );
+    let configuration: ActionConfiguration;
+    try {
+      configuration = JSON.parse(
+        readFileSync(configurationPath, "utf8"),
+      ) as ActionConfiguration;
+    } catch (error) {
+      throw new Error(
+        `Action "${agentName}/${entry.name}" is missing a valid index.json.`,
+        { cause: error },
+      );
+    }
+
+    if (!configuration.name?.trim() || !configuration.description?.trim()) {
+      throw new Error(
+        `Action "${agentName}/${entry.name}" requires name and description.`,
+      );
+    }
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(configuration.name)) {
+      throw new Error(
+        `Action "${agentName}/${entry.name}" has an invalid model-facing name.`,
+      );
+    }
+    if (!["client", "local"].includes(configuration.execution)) {
+      throw new Error(
+        `Action "${agentName}/${entry.name}" has invalid execution "${configuration.execution}".`,
+      );
+    }
+    if (
+      !configuration.parameters ||
+      typeof configuration.parameters !== "object" ||
+      Array.isArray(configuration.parameters)
+    ) {
+      throw new Error(
+        `Action "${agentName}/${entry.name}" requires a parameters JSON Schema.`,
+      );
+    }
+    if (
+      configuration.outputSchema !== undefined &&
+      (typeof configuration.outputSchema !== "object" ||
+        configuration.outputSchema === null ||
+        Array.isArray(configuration.outputSchema))
+    ) {
+      throw new Error(
+        `Action "${agentName}/${entry.name}" has an invalid outputSchema.`,
+      );
+    }
+    validateNumber(
+      `${agentName}/${entry.name}`,
+      "timeoutMs",
+      configuration.timeoutMs,
+      { integer: true, minimum: 1, maximum: 120_000 },
+    );
+    if (
+      configuration.permissions?.env !== undefined &&
+      !Array.isArray(configuration.permissions.env)
+    ) {
+      throw new Error(
+        `Action "${agentName}/${entry.name}" permissions.env must be an array.`,
+      );
+    }
+    if (
+      configuration.permissions?.network !== undefined &&
+      !Array.isArray(configuration.permissions.network)
+    ) {
+      throw new Error(
+        `Action "${agentName}/${entry.name}" permissions.network must be an array.`,
+      );
+    }
+    for (const permission of [
+      ...(configuration.permissions?.env ?? []),
+      ...(configuration.permissions?.network ?? []),
+    ]) {
+      if (typeof permission !== "string" || !permission.trim()) {
+        throw new Error(
+          `Action "${agentName}/${entry.name}" has an invalid permission.`,
+        );
+      }
+    }
+    if (actions[configuration.name]) {
+      throw new Error(
+        `Agent "${agentName}" has duplicate action name "${configuration.name}".`,
+      );
+    }
+
+    const compiledSource =
+      configuration.execution === "local"
+        ? compileLocalAction(agentName, entry.name, actionsDirectory)
+        : undefined;
+    actions[configuration.name] = Object.freeze({
+      ...configuration,
+      directoryName: entry.name,
+      ...compiledSource,
+    });
+  }
+
+  return Object.freeze(actions);
+}
+
+function compileLocalAction(
+  agentName: string,
+  directoryName: string,
+  actionsDirectory: string,
+): { source: string; sourceHash: string } {
+  const entryPath = resolve(actionsDirectory, directoryName, "index.js");
+  if (!existsSync(entryPath)) {
+    throw new Error(
+      `Local action "${agentName}/${directoryName}" requires index.js.`,
+    );
+  }
+
+  let output: string;
+  try {
+    const result = buildSync({
+      entryPoints: [entryPath],
+      bundle: true,
+      write: false,
+      format: "iife",
+      globalName: "__orchaActionModule",
+      platform: "neutral",
+      target: "es2022",
+      logLevel: "silent",
+    });
+    output = result.outputFiles[0]?.text ?? "";
+  } catch (error) {
+    throw new Error(
+      `Local action "${agentName}/${directoryName}" could not be bundled.`,
+      { cause: error },
+    );
+  }
+  if (!output.includes("__orchaActionModule")) {
+    throw new Error(
+      `Local action "${agentName}/${directoryName}" must export a default function.`,
+    );
+  }
+
+  return {
+    source: output,
+    sourceHash: createHash("sha256").update(output).digest("hex"),
+  };
 }
 
 export function serializeBundle(bundle: CompiledBundle): string {

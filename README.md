@@ -26,8 +26,8 @@ Read the full concept: [`docs/concept.md`](./docs/concept.md)
       instructions.md           → procedural knowledge, lazy-loaded into context
   /actions
     /actionname
-      index.json                → definition — name, params, when to use it
-      index.js                   → the code — what actually runs
+      index.json                → definition, schemas, and execution location
+      index.js                   → executable code for local actions only
   /guardrails                     → input/output policy
   /tests                          → test cases, auto-run before every release
   /evaluations                    → metrics each run is judged against
@@ -39,7 +39,8 @@ Placement determines behavior. No manual registration of tools, skills, or route
 
 ## Model Action Protocol
 
-What a model can do lives in `/actions`. Each action is a folder with two files — no server, no protocol handshake, no dependency to install.
+What a model can do lives in `/actions`. Every action has `index.json`; local
+actions additionally have `index.js`.
 
 ```
 actions/
@@ -48,30 +49,86 @@ actions/
     index.js      // the code
 ```
 
-`index.json` — tells the model what the action is and when to use it:
+`index.json` tells the model what the action is, where it executes, and its
+input/output contracts:
 
 ```json
 {
-  "name": "send_refund",
-  "description": "Issues a refund for an order. Use when a customer asks for money back and the order qualifies.",
-  "params": {
-    "orderId": "string",
-    "amount": "number"
+  "name": "request_refund_approval",
+  "description": "Ask the client application to approve a refund.",
+  "execution": "client",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "orderId": { "type": "string" },
+      "amount": { "type": "number" }
+    },
+    "required": ["orderId", "amount"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "approved": { "type": "boolean" }
+    },
+    "required": ["approved"]
   }
 }
 ```
 
-`index.js` — the function that runs when the model calls it, in your own code:
+Client actions pause the durable run. The application advertises only the
+actions available on that client, executes the requested call, then resumes:
 
 ```js
-export default async function sendRefund(params, ctx) {
-  const key = ctx.env.STRIPE_SECRET_KEY;
-  // call Stripe, hit your own API, query your own DB — whatever this needs
-  return { refunded: true, orderId: params.orderId };
+const paused = await orcha.invoiceBot.run({
+  content: "Refund order 123",
+  clientCapabilities: orcha.invoiceBot.clientTools
+}).result;
+
+if (paused.status === "waiting_for_client_action") {
+  const completed = await orcha.invoiceBot.resume(paused.sessionId, {
+    toolResults: paused.clientToolCalls.map((call) => ({
+      callId: call.callId,
+      output: { approved: true }
+    }))
+  }).result;
 }
 ```
 
-No MCP server to stand up, no SDK to pull in, no integration to configure. If you can write the function, the model can call it. Actions run sandboxed with declared permissions (network, env access), the same way in Node or the browser.
+Definitions are compiled from the filesystem and are not submitted again to
+`resume()`. Requests and results are persisted in the session JSONL.
+
+Local actions export their implementation from `index.js` and execute
+automatically inside the model tool loop:
+
+```js
+export default async function sendRefund(parameters, context) {
+  return {
+    refunded: true,
+    orderId: parameters.orderId,
+    idempotencyKey: context.idempotencyKey,
+  };
+}
+```
+
+Projects with local actions must explicitly choose their runtime:
+
+```js
+orcha.init({
+  actions: {
+    runtime: "sandbox", // QuickJS WASM
+    env: {
+      REFUND_API_KEY: process.env.REFUND_API_KEY,
+    },
+  },
+  // providers and agents...
+});
+```
+
+Use `"native"` to execute compiled action JavaScript directly without the
+QuickJS dependency in the production bundle. Native execution is trusted code
+with full host privileges; declared permissions are only securely enforced by
+the sandbox runtime. Native timeouts can reject asynchronous work but cannot
+interrupt a synchronous infinite loop.
 
 ---
 
@@ -88,14 +145,70 @@ import './orcha/index.js';
 import { orcha } from 'orchajs';
 
 const execution = orcha.exampleAgent.run({
-  input: 'Help me understand this invoice'
+  content: 'Help me understand this invoice'
 });
 const result = await execution.result;
+
+// Every later conversational turn uses the returned sessionId.
+const followUp = await orcha.exampleAgent.resume(result.sessionId, {
+  content: 'Now summarize it in one sentence'
+}).result;
 ```
 
 Registered agents are exposed as `orcha.<agentName>`. The first implementation
 supports durable Node.js runs backed by `.orcha/sessions/<sessionId>.jsonl`.
-Single-shot invocation, pause/resume, actions, and streaming will follow.
+Client-action pause/resume is supported; local actions and streaming follow.
+`run()` always starts a new session; `resume()` continues one with either a new
+message or pending client tool results.
+
+Both methods accept text shorthand:
+
+```js
+const first = await orcha.exampleAgent.run("Start").result;
+const second = await orcha.exampleAgent.resume(
+  first.sessionId,
+  "Continue",
+).result;
+```
+
+Canonical input uses a multimodal `content` array:
+
+```js
+const result = await orcha.exampleAgent.run({
+  content: [
+    { type: "text", text: "Summarize this document" },
+    {
+      type: "url",
+      mimeType: "application/pdf",
+      fileUri: "https://example.com/report.pdf",
+    },
+  ],
+  name: "Customer report",
+  metadata: { customerId: "cus_123" },
+  variables: { CUSTOMER_NAME: "Acme" },
+}).result;
+```
+
+Prompt variables replace `{{CUSTOMER_NAME}}` placeholders in
+`instructions.md`. They are fixed when the session is created and persisted
+for deterministic continuation. Do not put secrets in prompt variables; use
+provider or action environment configuration for secrets.
+
+Sessions are managed through the same registered agent:
+
+```js
+await orcha.exampleAgent.get(sessionId);
+await orcha.exampleAgent.history(sessionId, { page: 1, pageSize: 50 });
+await orcha.exampleAgent.list({
+  metadata: { customerId: "cus_123" },
+  page: 1,
+  pageSize: 20,
+});
+await orcha.exampleAgent.update(sessionId, {
+  name: "September invoice",
+  metadata: { approved: true },
+});
+```
 
 For esbuild production applications, add `orchaPlugin()` from
 `orchajs/esbuild` to the existing build. It compiles the registry and replaces
@@ -107,9 +220,9 @@ application continues to use its normal `npm run build` command.
 ## What's in this repo right now
 
 - [x] Registry compiler + `orcha build`
-- [ ] Model Action Protocol — schema, sandboxed execution
+- [x] Model Action Protocol — client actions and opt-in native/sandboxed local actions
 - [ ] Compiler — one provider, correct tool calls + streaming
-- [ ] Stateful sessions — Node JSONL foundation implemented; replay and human-in-the-loop next
+- [x] Stateful sessions — Node JSONL replay and client-action pause/resume
 - [ ] `orcha.run()` one-shot entry point
 - [ ] CLI (`orcha init`, `orcha build`, `orcha dev`) + example agents
 

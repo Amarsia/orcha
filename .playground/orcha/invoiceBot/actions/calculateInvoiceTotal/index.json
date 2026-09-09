@@ -1,0 +1,29 @@
+{
+  "name": "calculate_invoice_total",
+  "description": "Calculate invoice subtotal, tax, and total.",
+  "execution": "local",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "hours": { "type": "number" },
+      "hourlyRate": { "type": "number" },
+      "taxRate": { "type": "number" },
+      "currency": { "type": "string" }
+    },
+    "required": ["hours", "hourlyRate", "taxRate", "currency"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "subtotal": { "type": "number" },
+      "tax": { "type": "number" },
+      "total": { "type": "number" },
+      "currency": { "type": "string" }
+    },
+    "required": ["subtotal", "tax", "total", "currency"],
+    "additionalProperties": false
+  },
+  "timeoutMs": 2000,
+  "sideEffect": false
+}

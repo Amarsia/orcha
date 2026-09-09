@@ -1,0 +1,25 @@
+{
+  "name": "request_invoice_approval",
+  "description": "Ask the client application to collect approval before finalizing an invoice.",
+  "execution": "client",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "invoiceTotal": {
+        "type": "number"
+      }
+    },
+    "required": ["invoiceTotal"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "approved": {
+        "type": "boolean"
+      }
+    },
+    "required": ["approved"],
+    "additionalProperties": false
+  }
+}
