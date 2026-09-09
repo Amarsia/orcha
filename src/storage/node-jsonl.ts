@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { SessionEvent, SessionStore } from "../types.js";
 
@@ -58,6 +58,23 @@ export class NodeJsonlSessionStore implements SessionStore {
         this.#queues.delete(sessionId);
       }
     }
+  }
+
+  async listSessionIds(): Promise<string[]> {
+    let entries;
+    try {
+      entries = await readdir(this.directory, { withFileTypes: true });
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return [];
+      }
+      throw error;
+    }
+
+    return entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+      .map((entry) => entry.name.slice(0, -".jsonl".length))
+      .sort();
   }
 
   #sessionPath(sessionId: string): string {

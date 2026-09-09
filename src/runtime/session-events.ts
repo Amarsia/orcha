@@ -5,12 +5,17 @@ export class SessionEventWriter {
   readonly run: number;
   #sequence: number;
 
-  constructor(sessionId: string, previousEvents: SessionEvent[]) {
+  constructor(
+    sessionId: string,
+    previousEvents: SessionEvent[],
+    existingRun?: number,
+  ) {
     this.sessionId = sessionId;
     this.run =
-      previousEvents.length === 0
+      existingRun ??
+      (previousEvents.length === 0
         ? 1
-        : Math.max(0, ...previousEvents.map((event) => event.run ?? 0)) + 1;
+        : Math.max(0, ...previousEvents.map((event) => event.run ?? 0)) + 1);
     this.#sequence =
       previousEvents.length === 0
         ? 0
@@ -35,10 +40,14 @@ export class SessionEventWriter {
 
 export function messagesFromEvents(
   events: SessionEvent[],
-): Array<{ role: "user" | "assistant"; content: string }> {
+  includeRun?: number,
+): Array<{
+  role: "user" | "assistant";
+  content: string | unknown[];
+}> {
   const messages: Array<{
     role: "user" | "assistant";
-    content: string;
+    content: string | unknown[];
   }> = [];
   const completedRuns = new Set(
     events
@@ -50,42 +59,35 @@ export function messagesFromEvents(
   );
 
   for (const event of events) {
-    if (!event.run || !completedRuns.has(event.run)) {
+    if (
+      !event.run ||
+      (!completedRuns.has(event.run) && event.run !== includeRun)
+    ) {
       continue;
     }
 
     if (
       event.type === "message.created" &&
-      event.data.role === "user" &&
-      typeof event.data.content === "string"
+      (event.data.role === "user" || event.data.role === "tool") &&
+      (typeof event.data.content === "string" ||
+        Array.isArray(event.data.content))
     ) {
-      messages.push({ role: "user", content: event.data.content });
+      messages.push({
+        role: "user",
+        content: event.data.content,
+      });
       continue;
     }
 
     if (
-      event.type !== "message.created" ||
-      event.data.role !== "assistant"
+      event.type === "message.created" &&
+      event.data.role === "assistant" &&
+      Array.isArray(event.data.content)
     ) {
-      continue;
-    }
-
-    const blocks = Array.isArray(event.data.content) ? event.data.content : [];
-    const content = blocks
-      .filter(
-        (block): block is { type: "text"; text: string } =>
-          typeof block === "object" &&
-          block !== null &&
-          "type" in block &&
-          block.type === "text" &&
-          "text" in block &&
-          typeof block.text === "string",
-      )
-      .map((block) => block.text)
-      .join("");
-
-    if (content) {
-      messages.push({ role: "assistant", content });
+      messages.push({
+        role: "assistant",
+        content: event.data.content,
+      });
     }
   }
 

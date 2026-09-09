@@ -45,8 +45,25 @@ class OrchaRuntimeCore implements Orcha {
           typeof provider === "string" ? { apiKey: provider } : provider,
         ]),
       ),
+      actions: configuration.actions,
       storage: configuration.storage,
     };
+    const hasLocalActions = Object.values(bundle.agents).some((agent) =>
+      Object.values(agent.actions).some((action) => action.execution === "local"),
+    );
+    if (hasLocalActions && !configuration.actions?.runtime) {
+      throw new Error(
+        'Local actions require orcha.init({ actions: { runtime: "native" | "sandbox" } }).',
+      );
+    }
+    if (
+      bundle.actionRuntime &&
+      configuration.actions?.runtime !== bundle.actionRuntime
+    ) {
+      throw new Error(
+        `Production bundle expects local action runtime "${bundle.actionRuntime}".`,
+      );
+    }
     const strategy = configuration.storage?.strategy ?? "node-jsonl";
     if (strategy !== "node-jsonl") {
       throw new Error(`Storage strategy "${strategy}" is not implemented yet.`);

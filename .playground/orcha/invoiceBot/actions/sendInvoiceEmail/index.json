@@ -1,0 +1,28 @@
+{
+  "name": "send_invoice_email",
+  "description": "Send an approved invoice by email.",
+  "execution": "local",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "invoiceId": { "type": "string" },
+      "recipient": { "type": "string" },
+      "total": { "type": "number" },
+      "currency": { "type": "string" }
+    },
+    "required": ["invoiceId", "recipient", "total", "currency"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "sent": { "type": "boolean" },
+      "messageId": { "type": "string" },
+      "recipient": { "type": "string" }
+    },
+    "required": ["sent", "messageId", "recipient"],
+    "additionalProperties": false
+  },
+  "timeoutMs": 2000,
+  "sideEffect": true
+}

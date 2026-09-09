@@ -47,7 +47,9 @@
     "node": ">=20"
   },
   "dependencies": {
-    "esbuild": "^0.25.9"
+    "@jitl/quickjs-singlefile-cjs-release-sync": "^0.32.0",
+    "esbuild": "^0.25.9",
+    "quickjs-emscripten-core": "^0.32.0"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.2",

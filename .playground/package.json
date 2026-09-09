@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
+    "dev": "node --env-file=.env --watch --import tsx src/index.ts",
+    "start": "node --env-file=.env --import tsx src/index.ts",
     "build": "node scripts/build.mjs",
-    "start:production": "NODE_ENV=production node dist/index.js"
+    "start:production": "NODE_ENV=production node --env-file=.env dist/index.js"
   },
   "dependencies": {
     "orchajs": "file:.."

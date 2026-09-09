@@ -14,13 +14,20 @@ export function parseStructuredOutput(
     throw new Error("Model response contained invalid JSON.", { cause: error });
   }
 
+  validateStructuredValue(value, schema);
+
+  return value;
+}
+
+export function validateStructuredValue(
+  value: unknown,
+  schema: Record<string, unknown>,
+): void {
   const errors: string[] = [];
   validateSchemaValue(value, schema, "$", errors);
   if (errors.length > 0) {
-    throw new Error(`Model response failed outputSchema: ${errors.join("; ")}`);
+    throw new Error(`Value failed outputSchema: ${errors.join("; ")}`);
   }
-
-  return value;
 }
 
 function extractJsonCandidate(text: string): string | undefined {
