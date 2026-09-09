@@ -35,6 +35,10 @@ import type {
 import { messagesFromEvents, SessionEventWriter } from "./session-events.js";
 import { validateStructuredValue } from "./structured-output.js";
 import { executeLocalAction } from "./actions/execute.js";
+import {
+  createExecution,
+  type OutputSnapshotPublisher,
+} from "./execution.js";
 
 interface ProviderToolResult {
   type: "tool_result";
@@ -85,58 +89,52 @@ export class RuntimeAgent implements AgentRuntime {
       normalized !== null &&
       "sessionId" in normalized
     ) {
-      return {
-        result: Promise.resolve(
-          failure(
+      return createExecution(sessionId, async () =>
+        failure(
             sessionId,
             "invalid_input",
             "run() always creates a new session and does not accept sessionId.",
-          ),
         ),
-      };
+      );
     }
 
-    return {
-      result: this.#start(sessionId, normalized),
-    };
+    return createExecution(sessionId, (publishOutput) =>
+      this.#start(sessionId, normalized, true, publishOutput),
+    );
   }
 
   resume(sessionId: string, input: ResumeInput): Execution {
     if (typeof input === "string") {
-      return {
-        result: this.#start(sessionId, { content: input }, false),
-      };
+      return createExecution(sessionId, (publishOutput) =>
+        this.#start(sessionId, { content: input }, false, publishOutput),
+      );
     }
     if (!input || typeof input !== "object") {
-      return {
-        result: Promise.resolve(
-          failure(
+      return createExecution(sessionId, async () =>
+        failure(
             sessionId,
             "invalid_input",
             "resume() requires content or toolResults.",
-          ),
         ),
-      };
+      );
     }
     const hasMessage = "content" in input;
     const hasToolResults = "toolResults" in input;
     if (hasMessage === hasToolResults) {
-      return {
-        result: Promise.resolve(
-          failure(
+      return createExecution(sessionId, async () =>
+        failure(
             sessionId,
             "invalid_input",
             "resume() requires either content or toolResults, but not both.",
-          ),
         ),
-      };
+      );
     }
 
-    return {
-      result: hasMessage
-        ? this.#start(sessionId, input, false)
-        : this.#resumeToolResults(sessionId, input),
-    };
+    return createExecution(sessionId, (publishOutput) =>
+      hasMessage
+        ? this.#start(sessionId, input, false, publishOutput)
+        : this.#resumeToolResults(sessionId, input, publishOutput),
+    );
   }
 
   async get(sessionId: string): Promise<SessionSnapshot> {
@@ -271,6 +269,7 @@ export class RuntimeAgent implements AgentRuntime {
     sessionId: string,
     input: AgentInput,
     createSession = true,
+    publishOutput?: OutputSnapshotPublisher<unknown>,
   ): Promise<RunResult> {
     const content = normalizeContent(input.content);
     if (!content) {
@@ -395,6 +394,8 @@ export class RuntimeAgent implements AgentRuntime {
         capabilities,
         [...sessionEvents, ...runEvents],
         variables,
+        0,
+        publishOutput,
       );
     });
   }
@@ -402,6 +403,7 @@ export class RuntimeAgent implements AgentRuntime {
   async #resumeToolResults(
     sessionId: string,
     input: ToolResumeInput,
+    publishOutput?: OutputSnapshotPublisher<unknown>,
   ): Promise<RunResult> {
     if (!Array.isArray(input?.toolResults) || input.toolResults.length === 0) {
       return failure(
@@ -505,6 +507,8 @@ export class RuntimeAgent implements AgentRuntime {
         pending.capabilities,
         updatedEvents,
         sessionVariables(events),
+        0,
+        publishOutput,
       );
     });
   }
@@ -517,6 +521,7 @@ export class RuntimeAgent implements AgentRuntime {
     previousEvents: SessionEvent[],
     variables: Record<string, string>,
     toolRound = 0,
+    publishOutput?: OutputSnapshotPublisher<unknown>,
   ): Promise<RunResult> {
     try {
       if (toolRound > 10) {
@@ -546,6 +551,7 @@ export class RuntimeAgent implements AgentRuntime {
           messages,
           availableToolNames,
           renderPrompt(this.#manifest.systemPrompt, variables),
+          publishOutput,
         );
       } catch (error) {
         if (error instanceof OrchaError) {
@@ -640,6 +646,7 @@ export class RuntimeAgent implements AgentRuntime {
           nextEvents,
           variables,
           toolRound + 1,
+          publishOutput,
         );
       }
 

@@ -163,7 +163,19 @@ export type RunResult<TOutput = unknown> =
   | WaitingRunResult<TOutput>
   | FailedRunResult;
 
+export interface StreamingRunSnapshot<TOutput = unknown> {
+  sessionId: string;
+  status: "streaming";
+  output: TOutput;
+}
+
+export type ExecutionSnapshot<TOutput = unknown> =
+  | StreamingRunSnapshot<TOutput>
+  | RunResult<TOutput>;
+
 export interface Execution<TOutput = unknown> {
+  readonly stream: ReadableStream<ExecutionSnapshot<TOutput>>;
+  readonly snapshot: ExecutionSnapshot<TOutput> | undefined;
   readonly result: Promise<RunResult<TOutput>>;
 }
 

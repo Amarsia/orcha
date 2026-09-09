@@ -54,6 +54,35 @@ test("writes a useful JSONL timeline for a successful model run", async () => {
   }
 });
 
+test("streams cumulative model snapshots and preserves the final result", async () => {
+  const fixture = await createRuntimeFixture(() => ({
+    streamText: ["Hello", " world"],
+  }));
+  try {
+    const execution = fixture.client.testAgent.run("hello");
+    const snapshotsPromise = collectStream(execution.stream);
+    const result = await execution.result;
+    const snapshots = await snapshotsPromise;
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "Hello world");
+    assert.equal(execution.snapshot, result);
+    assert.deepEqual(
+      snapshots.map((snapshot) => snapshot.status),
+      ["streaming", "streaming", "completed"],
+    );
+    assert.deepEqual(
+      snapshots
+        .filter((snapshot) => snapshot.status === "streaming")
+        .map((snapshot) => snapshot.output),
+      ["Hello", "Hello world"],
+    );
+    assert.equal(snapshots.at(-1), result);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("reconstructs completed history when continuing a session", async () => {
   const fixture = await createRuntimeFixture();
   try {
@@ -609,8 +638,13 @@ async function createMockAnthropic(responseFactory) {
     }
     requests.push(JSON.parse(body));
     const index = requests.length;
-    response.writeHead(200, { "content-type": "application/json" });
     const generated = responseFactory?.(requests, index);
+    if (generated?.streamText) {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      writeAnthropicStream(response, generated, index);
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
     response.end(
       JSON.stringify({
         id: generated?.id ?? `msg_mock_${index}`,
@@ -643,6 +677,53 @@ async function createMockAnthropic(responseFactory) {
         ),
       ),
   };
+}
+
+function writeAnthropicStream(response, generated, index) {
+  const send = (event) => {
+    response.write(`event: ${event.type}\n`);
+    response.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+  send({
+    type: "message_start",
+    message: {
+      id: generated.id ?? `msg_mock_${index}`,
+      usage: {
+        input_tokens: 7,
+        output_tokens: 0,
+        cache_read_input_tokens: 2,
+        cache_creation_input_tokens: 1,
+      },
+    },
+  });
+  send({
+    type: "content_block_start",
+    index: 0,
+    content_block: { type: "text", text: "" },
+  });
+  for (const text of generated.streamText) {
+    send({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text },
+    });
+  }
+  send({ type: "content_block_stop", index: 0 });
+  send({
+    type: "message_delta",
+    delta: { stop_reason: generated.stop_reason ?? "end_turn" },
+    usage: { output_tokens: 3 },
+  });
+  send({ type: "message_stop" });
+  response.end();
+}
+
+async function collectStream(stream) {
+  const snapshots = [];
+  for await (const snapshot of stream) {
+    snapshots.push(snapshot);
+  }
+  return snapshots;
 }
 
 async function readSessionEvents(root, sessionId) {
