@@ -147,6 +147,15 @@ import { orcha } from 'orchajs';
 const execution = orcha.exampleAgent.run({
   content: 'Help me understand this invoice'
 });
+
+// Native ReadableStream frames contain the complete output generated so far.
+for await (const snapshot of execution.stream) {
+  console.log(snapshot);
+}
+
+// The latest cumulative snapshot is also available without consuming the stream.
+console.log(execution.snapshot);
+
 const result = await execution.result;
 
 // Every later conversational turn uses the returned sessionId.
@@ -157,7 +166,8 @@ const followUp = await orcha.exampleAgent.resume(result.sessionId, {
 
 Registered agents are exposed as `orcha.<agentName>`. The first implementation
 supports durable Node.js runs backed by `.orcha/sessions/<sessionId>.jsonl`.
-Client-action pause/resume is supported; local actions and streaming follow.
+Client-action pause/resume, compiled local actions, and cumulative output
+streaming are supported.
 `run()` always starts a new session; `resume()` continues one with either a new
 message or pending client tool results.
 
