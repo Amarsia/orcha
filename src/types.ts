@@ -117,6 +117,7 @@ export interface Usage {
 export type OrchaErrorCode =
   | "invalid_input"
   | "unsupported_content_type"
+  | "unsupported_provider_capability"
   | "session_not_found"
   | "session_busy"
   | "client_action_required"
