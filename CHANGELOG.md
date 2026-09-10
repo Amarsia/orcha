@@ -1,5 +1,16 @@
 # orchajs
 
+## 0.1.0-next.2
+
+### Minor Changes
+
+- [#12](https://github.com/Amarsia/orcha/pull/12) [`8cbdb7d`](https://github.com/Amarsia/orcha/commit/8cbdb7d21fe7de2150321ef5b059e558e7a3b0b3) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Add a provider-neutral runtime contract for built-in model adapters.
+
+  - Normalize messages, reasoning, tool calls, tool results, streaming, usage, stop reasons, and errors before they reach the runtime.
+  - Move Anthropic request and response translation behind the built-in provider adapter boundary.
+  - Persist provider-neutral assistant and tool messages while retaining compatibility with existing Anthropic-shaped session logs.
+  - Reject unsupported provider capabilities explicitly instead of silently degrading behavior.
+
 ## 0.1.0-next.1
 
 ### Minor Changes

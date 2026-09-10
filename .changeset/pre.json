@@ -6,6 +6,7 @@
   },
   "changesets": [
     "durable-agent-actions",
-    "early-orcha-foundation"
+    "early-orcha-foundation",
+    "neutral-provider-core"
   ]
 }
