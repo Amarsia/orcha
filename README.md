@@ -171,6 +171,12 @@ streaming are supported.
 `run()` always starts a new session; `resume()` continues one with either a new
 message or pending client tool results.
 
+Orcha owns its built-in provider adapters. Messages, tool calls and results,
+streaming snapshots, usage, and errors are normalized before reaching the
+runtime, so application and action APIs do not change when an agent switches
+providers. Provider-specific capabilities that cannot be represented safely
+fail with an explicit Orcha error instead of silently degrading.
+
 Both methods accept text shorthand:
 
 ```js

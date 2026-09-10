@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { OrchaError } from "../errors.js";
-import {
-  callAnthropic,
-  type AnthropicMessage,
-  type ModelResponse,
-} from "../providers/anthropic.js";
+import { generateProviderResponse } from "../providers/index.js";
+import type {
+  ProviderMessage,
+  ProviderResponse,
+  ProviderToolCall,
+  ProviderToolResult,
+} from "../providers/types.js";
 import type {
   AgentInput,
   AgentRuntime,
@@ -32,20 +34,17 @@ import type {
   ToolResumeInput,
   Usage,
 } from "../types.js";
-import { messagesFromEvents, SessionEventWriter } from "./session-events.js";
+import {
+  messagesFromEvents,
+  normalizePersistedToolResults,
+  SessionEventWriter,
+} from "./session-events.js";
 import { validateStructuredValue } from "./structured-output.js";
 import { executeLocalAction } from "./actions/execute.js";
 import {
   createExecution,
   type OutputSnapshotPublisher,
 } from "./execution.js";
-
-interface ProviderToolResult {
-  type: "tool_result";
-  tool_use_id: string;
-  content: string;
-  is_error?: boolean;
-}
 
 interface PendingClientActions {
   run: number;
@@ -383,7 +382,7 @@ export class RuntimeAgent implements AgentRuntime {
       ];
       await this.#store.append(sessionId, runEvents);
 
-      const messages: AnthropicMessage[] = [
+      const messages: ProviderMessage[] = [
         ...messagesFromEvents(previousEvents),
         { role: "user", content },
       ];
@@ -516,7 +515,7 @@ export class RuntimeAgent implements AgentRuntime {
   async #continue(
     sessionId: string,
     writer: SessionEventWriter,
-    messages: AnthropicMessage[],
+    messages: ProviderMessage[],
     capabilities: string[],
     previousEvents: SessionEvent[],
     variables: Record<string, string>,
@@ -535,7 +534,7 @@ export class RuntimeAgent implements AgentRuntime {
       }
 
       const modelStartedAt = performance.now();
-      let response: ModelResponse;
+      let response: ProviderResponse;
       const localActionNames = Object.values(
         this.#manifest.actions ?? {},
       )
@@ -545,13 +544,31 @@ export class RuntimeAgent implements AgentRuntime {
         ...new Set([...localActionNames, ...capabilities]),
       ];
       try {
-        response = await callAnthropic(
-          this.#manifest,
+        response = await generateProviderResponse(
+          this.#manifest.provider,
           provider,
-          messages,
-          availableToolNames,
-          renderPrompt(this.#manifest.systemPrompt, variables),
-          publishOutput,
+          {
+            model: this.#manifest.model,
+            region: this.#manifest.region,
+            maxTokens: this.#manifest.maxTokens,
+            reasoningLevel: this.#manifest.reasoningLevel,
+            outputType: this.#manifest.outputType,
+            outputSchema: this.#manifest.outputSchema,
+            systemPrompt: renderPrompt(
+              this.#manifest.systemPrompt,
+              variables,
+            ),
+            messages,
+            tools: availableToolNames.map((name) => {
+              const action = this.#manifest.actions[name];
+              return {
+                name: action.name,
+                description: action.description,
+                parameters: action.parameters,
+              };
+            }),
+            publishOutput,
+          },
         );
       } catch (error) {
         if (error instanceof OrchaError) {
@@ -588,11 +605,11 @@ export class RuntimeAgent implements AgentRuntime {
         const localCalls = response.toolCalls.filter(
           (call) =>
             this.#manifest.actions[call.name]?.execution === "local",
-        );
+        ).map(toClientToolCall);
         const clientCalls = response.toolCalls.filter(
           (call) =>
             this.#manifest.actions[call.name]?.execution === "client",
-        );
+        ).map(toClientToolCall);
         const localExecution = await this.#executeLocalToolCalls(
           sessionId,
           writer,
@@ -640,7 +657,7 @@ export class RuntimeAgent implements AgentRuntime {
           [
             ...messages,
             { role: "assistant", content: response.content },
-            { role: "user", content: localExecution.results },
+            { role: "tool", results: localExecution.results },
           ],
           capabilities,
           nextEvents,
@@ -720,9 +737,8 @@ export class RuntimeAgent implements AgentRuntime {
           );
         }
         results.push({
-          type: "tool_result",
-          tool_use_id: call.callId,
-          content: JSON.stringify(existing.data.output ?? null),
+          callId: call.callId,
+          output: existing.data.output ?? null,
         });
         continue;
       }
@@ -763,9 +779,8 @@ export class RuntimeAgent implements AgentRuntime {
         await this.#store.append(sessionId, [completed]);
         events.push(completed);
         results.push({
-          type: "tool_result",
-          tool_use_id: call.callId,
-          content: JSON.stringify(output ?? null),
+          callId: call.callId,
+          output: output ?? null,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -782,10 +797,9 @@ export class RuntimeAgent implements AgentRuntime {
         await this.#store.append(sessionId, [failed]);
         events.push(failed);
         results.push({
-          type: "tool_result",
-          tool_use_id: call.callId,
-          content: JSON.stringify({ error: message }),
-          is_error: true,
+          callId: call.callId,
+          output: { error: message },
+          isError: true,
         });
       }
     }
@@ -794,7 +808,7 @@ export class RuntimeAgent implements AgentRuntime {
   }
 
   #assertValidToolCalls(
-    response: ModelResponse,
+    response: ProviderResponse,
     capabilities: string[],
   ): void {
     for (const call of response.toolCalls) {
@@ -953,7 +967,9 @@ function getPendingClientActions(
           (name): name is string => typeof name === "string",
         )
       : [],
-    localResults: parseProviderToolResults(requested.data.localResults) ?? [],
+    localResults: Array.isArray(requested.data.localResults)
+      ? normalizePersistedToolResults(requested.data.localResults) ?? []
+      : [],
     toolCallOrder: Array.isArray(requested.data.toolCallOrder)
       ? requested.data.toolCallOrder.filter(
           (callId): callId is string => typeof callId === "string",
@@ -1007,37 +1023,20 @@ function parseToolResults(value: unknown): ToolResult[] | undefined {
   return results;
 }
 
-function parseProviderToolResults(
-  value: unknown,
-): ProviderToolResult[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const results: ProviderToolResult[] = [];
-  for (const item of value) {
-    if (
-      !isRecord(item) ||
-      item.type !== "tool_result" ||
-      typeof item.tool_use_id !== "string" ||
-      typeof item.content !== "string"
-    ) {
-      return undefined;
-    }
-    results.push({
-      type: "tool_result",
-      tool_use_id: item.tool_use_id,
-      content: item.content,
-      ...(item.is_error === true ? { is_error: true } : {}),
-    });
-  }
-  return results;
-}
-
 function toProviderToolResult(result: ToolResult): ProviderToolResult {
   return {
-    type: "tool_result",
-    tool_use_id: result.callId,
-    content: JSON.stringify(result.output ?? null),
+    callId: result.callId,
+    output: result.output ?? null,
+  };
+}
+
+function toClientToolCall(
+  call: Pick<ProviderToolCall, "callId" | "name" | "arguments">,
+): ClientToolCall {
+  return {
+    callId: call.callId,
+    name: call.name,
+    arguments: call.arguments,
   };
 }
 
@@ -1046,7 +1045,7 @@ function orderProviderToolResults(
   results: ProviderToolResult[],
 ): ProviderToolResult[] {
   const byCallId = new Map(
-    results.map((result) => [result.tool_use_id, result]),
+    results.map((result) => [result.callId, result]),
   );
   return callOrder.flatMap((callId) => {
     const result = byCallId.get(callId);

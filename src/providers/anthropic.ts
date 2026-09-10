@@ -1,15 +1,19 @@
 import type {
-  CompiledAgentManifest,
   ProviderConfiguration,
   Usage,
 } from "../types.js";
 import { OrchaError } from "../errors.js";
 import { parseStructuredOutput } from "../runtime/structured-output.js";
-
-export interface AnthropicMessage {
-  role: "user" | "assistant";
-  content: string | unknown[];
-}
+import type {
+  ProviderAdapter,
+  ProviderAssistantBlock,
+  ProviderMessage,
+  ProviderRequest,
+  ProviderResponse,
+  ProviderStopReason,
+  ProviderTextBlock,
+  ProviderToolCall,
+} from "./types.js";
 
 export interface AnthropicContentBlock {
   type: string;
@@ -38,53 +42,45 @@ interface AnthropicResponse {
   };
 }
 
-export interface ModelResponse {
-  output: unknown;
-  responseId?: string;
-  stopReason?: string | null;
-  content: AnthropicContentBlock[];
-  toolCalls: Array<{
-    callId: string;
-    name: string;
-    arguments: Record<string, unknown>;
-  }>;
-  usage: Usage;
-}
+export const anthropicProvider: ProviderAdapter = {
+  name: "anthropic",
+  generate: generateAnthropic,
+};
 
-export async function callAnthropic(
-  agent: CompiledAgentManifest,
+async function generateAnthropic(
   provider: ProviderConfiguration,
-  messages: AnthropicMessage[],
-  toolNames: string[] = [],
-  prompt = agent.systemPrompt,
-  publishOutput?: (output: string) => void,
-): Promise<ModelResponse> {
+  request: ProviderRequest,
+): Promise<ProviderResponse> {
   if (!provider.apiKey?.trim()) {
     throw new Error(
       'Missing Anthropic API key in orcha.init({ providers: { anthropic: "..." } }).',
     );
   }
 
-  const reasoning = getReasoningConfiguration(agent);
+  if (request.outputType === "image" || request.outputType === "audio") {
+    throw new OrchaError(
+      "unsupported_provider_capability",
+      `Anthropic does not support "${request.outputType}" agent output.`,
+    );
+  }
+
+  const reasoning = getReasoningConfiguration(request);
   const systemPrompt =
-    agent.outputType === "json"
-      ? `${prompt}\n\nReturn only valid JSON matching this JSON Schema:\n${JSON.stringify(agent.outputSchema)}`
-      : prompt;
+    request.outputType === "json"
+      ? `${request.systemPrompt}\n\nReturn only valid JSON matching this JSON Schema:\n${JSON.stringify(request.outputSchema)}`
+      : request.systemPrompt;
   const requestBody: Record<string, unknown> = {
-    model: agent.model,
+    model: request.model,
     max_tokens: reasoning.maxTokens,
     system: systemPrompt,
-    messages: toAnthropicMessages(messages),
-    ...(publishOutput ? { stream: true } : {}),
+    messages: toAnthropicMessages(request.messages),
+    ...(request.publishOutput ? { stream: true } : {}),
   };
-  const tools = toolNames
-    .map((name) => agent.actions[name])
-    .filter((action) => action !== undefined)
-    .map((action) => ({
-      name: action.name,
-      description: action.description,
-      input_schema: action.parameters,
-    }));
+  const tools = request.tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    input_schema: tool.parameters,
+  }));
   if (tools.length > 0) {
     requestBody.tools = tools;
   }
@@ -119,44 +115,35 @@ export async function callAnthropic(
   const body = response.headers
     .get("content-type")
     ?.includes("text/event-stream")
-    ? await readAnthropicStream(response, publishOutput)
+    ? await readAnthropicStream(response, request.publishOutput)
     : ((await response.json()) as AnthropicResponse);
-  return toModelResponse(agent, body, publishOutput);
+  return toProviderResponse(request, body);
 }
 
-function toModelResponse(
-  agent: CompiledAgentManifest,
+function toProviderResponse(
+  request: ProviderRequest,
   body: AnthropicResponse,
-  publishOutput?: (output: string) => void,
-): ModelResponse {
-  const content = body.content ?? [];
+): ProviderResponse {
+  const content = (body.content ?? []).map(toProviderContentBlock);
   const textOutput = content
-    .filter((item) => item.type === "text" && typeof item.text === "string")
+    .filter((item): item is ProviderTextBlock => item.type === "text")
     .map((item) => item.text)
     .join("");
-  const toolCalls = content.flatMap((item) =>
-    item.type === "tool_use" && item.id && item.name
-      ? [
-          {
-            callId: item.id,
-            name: item.name,
-            arguments: item.input ?? {},
-          },
-        ]
-      : [],
+  const toolCalls = content.filter(
+    (item): item is ProviderToolCall => item.type === "tool_call",
   );
   const output =
-    agent.outputType === "json" && toolCalls.length === 0
-      ? parseStructuredOutput(textOutput, agent.outputSchema ?? {})
+    request.outputType === "json" && toolCalls.length === 0
+      ? parseStructuredOutput(textOutput, request.outputSchema ?? {})
       : textOutput;
-  if (textOutput && publishOutput) {
-    publishOutput(textOutput);
+  if (textOutput && request.publishOutput) {
+    request.publishOutput(textOutput);
   }
 
   return {
     output,
     responseId: body.id,
-    stopReason: body.stop_reason,
+    stopReason: normalizeStopReason(body.stop_reason),
     content,
     toolCalls,
     usage: {
@@ -167,6 +154,64 @@ function toModelResponse(
       cacheWriteTokens: body.usage?.cache_creation_input_tokens ?? 0,
     },
   };
+}
+
+function normalizeStopReason(
+  reason: string | null | undefined,
+): ProviderStopReason | undefined {
+  if (reason === undefined || reason === null) {
+    return undefined;
+  }
+  if (reason === "end_turn" || reason === "stop_sequence") {
+    return "end_turn";
+  }
+  if (reason === "tool_use") {
+    return "tool_call";
+  }
+  if (reason === "max_tokens") {
+    return "max_tokens";
+  }
+  if (reason === "refusal") {
+    return "content_filter";
+  }
+  return "unknown";
+}
+
+function toProviderContentBlock(
+  block: AnthropicContentBlock,
+): ProviderAssistantBlock {
+  if (block.type === "text" && typeof block.text === "string") {
+    return { type: "text", text: block.text };
+  }
+  if (block.type === "thinking" && typeof block.thinking === "string") {
+    return {
+      type: "reasoning",
+      text: block.thinking,
+      ...(typeof block.signature === "string"
+        ? { signature: block.signature }
+        : {}),
+    };
+  }
+  if (block.type === "redacted_thinking" && typeof block.data === "string") {
+    return {
+      type: "reasoning",
+      text: "",
+      encryptedContent: block.data,
+    };
+  }
+  if (
+    block.type === "tool_use" &&
+    typeof block.id === "string" &&
+    typeof block.name === "string"
+  ) {
+    return {
+      type: "tool_call",
+      callId: block.id,
+      name: block.name,
+      arguments: block.input ?? {},
+    };
+  }
+  throw new Error(`Anthropic returned unsupported content block "${block.type}".`);
 }
 
 async function readAnthropicStream(
@@ -384,10 +429,49 @@ function numberOrUndefined(value: unknown): number | undefined {
 }
 
 function toAnthropicMessages(
-  messages: AnthropicMessage[],
-): AnthropicMessage[] {
+  messages: ProviderMessage[],
+): Array<{ role: "user" | "assistant"; content: string | unknown[] }> {
   return messages.map((message) => {
-    if (message.role === "assistant" || typeof message.content === "string") {
+    if (message.role === "assistant") {
+      return {
+        role: "assistant",
+        content: message.content.map((block) => {
+          if (block.type === "text") {
+            return block;
+          }
+          if (block.type === "reasoning") {
+            return block.encryptedContent
+              ? {
+                  type: "redacted_thinking",
+                  data: block.encryptedContent,
+                }
+              : {
+                  type: "thinking",
+                  thinking: block.text,
+                  signature: block.signature,
+                };
+          }
+          return {
+            type: "tool_use",
+            id: block.callId,
+            name: block.name,
+            input: block.arguments,
+          };
+        }),
+      };
+    }
+    if (message.role === "tool") {
+      return {
+        role: "user",
+        content: message.results.map((result) => ({
+          type: "tool_result",
+          tool_use_id: result.callId,
+          content: JSON.stringify(result.output ?? null),
+          ...(result.isError ? { is_error: true } : {}),
+        })),
+      };
+    }
+    if (typeof message.content === "string") {
       return message;
     }
     return {
@@ -400,8 +484,7 @@ function toAnthropicMessages(
           );
         }
         if (
-          block.type === "text" ||
-          block.type === "tool_result"
+          block.type === "text"
         ) {
           return block;
         }
@@ -443,18 +526,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function getReasoningConfiguration(agent: CompiledAgentManifest): {
+function getReasoningConfiguration(request: ProviderRequest): {
   maxTokens: number;
   thinking?: Record<string, unknown>;
   outputConfig?: Record<string, unknown>;
 } {
-  const level = agent.reasoningLevel ?? "disabled";
-  const baseMaxTokens = agent.maxTokens ?? 1024;
+  const level = request.reasoningLevel ?? "disabled";
+  const baseMaxTokens = request.maxTokens ?? 1024;
   if (level === "disabled") {
     return { maxTokens: baseMaxTokens };
   }
 
-  if (requiresAdaptiveThinking(agent.model)) {
+  if (requiresAdaptiveThinking(request.model)) {
     return {
       maxTokens: baseMaxTokens,
       thinking: { type: "adaptive" },

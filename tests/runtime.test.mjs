@@ -142,6 +142,42 @@ test("executes local actions and continues the model loop", async () => {
     });
 
     const events = await readSessionEvents(fixture.root, result.sessionId);
+    const toolCallMessage = events.find(
+      (event) =>
+        event.type === "message.created" &&
+        event.data.role === "assistant" &&
+        event.data.content.some?.((block) => block.type === "tool_call"),
+    );
+    assert.ok(toolCallMessage);
+    assert.deepEqual(toolCallMessage.data.content, [
+      {
+        type: "tool_call",
+        callId: "toolu_calculate_1",
+        name: "calculate_invoice_total",
+        arguments: {
+          hours: 2,
+          hourlyRate: 100,
+          taxRate: 0.1,
+          currency: "USD",
+        },
+      },
+    ]);
+    const toolResultMessage = events.find(
+      (event) =>
+        event.type === "message.created" && event.data.role === "tool",
+    );
+    assert.ok(toolResultMessage);
+    assert.deepEqual(toolResultMessage.data.content, [
+      {
+        callId: "toolu_calculate_1",
+        output: {
+          subtotal: 200,
+          tax: 20,
+          total: 220,
+          currency: "USD",
+        },
+      },
+    ]);
     assert.equal(
       events.some((event) => event.type === "action.requested"),
       true,
