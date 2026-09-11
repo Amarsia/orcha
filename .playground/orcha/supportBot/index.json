@@ -1,0 +1,8 @@
+{
+  "provider": "openai",
+  "model": "gpt-5-mini",
+  "region": "provider_managed",
+  "maxTokens": 2048,
+  "reasoningLevel": "minimal",
+  "outputType": "text"
+}

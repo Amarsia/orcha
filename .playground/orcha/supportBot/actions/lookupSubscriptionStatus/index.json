@@ -1,0 +1,36 @@
+{
+  "name": "lookup_subscription_status",
+  "description": "Look up the current and requested subscription plans and the activation status for an account.",
+  "execution": "local",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "accountId": {
+        "type": "string",
+        "description": "The customer's account reference."
+      }
+    },
+    "required": ["accountId"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "accountId": { "type": "string" },
+      "currentPlan": { "type": "string" },
+      "requestedPlan": { "type": "string" },
+      "activationStatus": { "type": "string" },
+      "expectedActivationMinutes": { "type": "number" }
+    },
+    "required": [
+      "accountId",
+      "currentPlan",
+      "requestedPlan",
+      "activationStatus",
+      "expectedActivationMinutes"
+    ],
+    "additionalProperties": false
+  },
+  "timeoutMs": 2000,
+  "sideEffect": false
+}

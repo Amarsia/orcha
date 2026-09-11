@@ -583,7 +583,10 @@ export class RuntimeAgent implements AgentRuntime {
       const modelDurationMs = Math.round(performance.now() - modelStartedAt);
       const usage = aggregateUsage(previousEvents, writer.run, response.usage);
       const assistantEvent = writer.create("message.created", {
-        status: "completed",
+        status:
+          response.stopReason === "max_tokens"
+            ? "incomplete"
+            : "completed",
         provider: this.#manifest.provider,
         model: this.#manifest.model,
         responseId: response.responseId,
@@ -597,6 +600,25 @@ export class RuntimeAgent implements AgentRuntime {
         usage: response.usage,
         durationMs: modelDurationMs,
       });
+
+      if (response.stopReason === "max_tokens") {
+        const message =
+          "The model reached its output-token limit before completing the response.";
+        await this.#store.append(sessionId, [
+          assistantEvent,
+          writer.create("run.failed", {
+            status: "failed",
+            durationMs: elapsedRunDuration(previousEvents, writer.run),
+            usage,
+            error: {
+              code: "provider_error",
+              message,
+              retryable: true,
+            },
+          }),
+        ]);
+        return failure(sessionId, "provider_error", message);
+      }
 
       if (response.toolCalls.length > 0) {
         this.#assertValidToolCalls(response, capabilities);

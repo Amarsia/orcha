@@ -177,6 +177,30 @@ runtime, so application and action APIs do not change when an agent switches
 providers. Provider-specific capabilities that cannot be represented safely
 fail with an explicit Orcha error instead of silently degrading.
 
+Anthropic and OpenAI Responses are built in:
+
+```js
+orcha.init({
+  providers: {
+    anthropic: process.env.ANTHROPIC_API_KEY,
+    openai: process.env.OPENAI_API_KEY,
+  },
+  agents: {
+    invoiceAgent: "./invoiceAgent",
+  },
+});
+```
+
+Choose the adapter and model in the agent's `index.json`:
+
+```json
+{
+  "provider": "openai",
+  "model": "gpt-5",
+  "outputType": "text"
+}
+```
+
 Both methods accept text shorthand:
 
 ```js

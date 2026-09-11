@@ -1,4 +1,8 @@
-import type { SessionEvent, SessionEventType } from "../types.js";
+import type {
+  ProviderName,
+  SessionEvent,
+  SessionEventType,
+} from "../types.js";
 import type {
   ProviderAssistantBlock,
   ProviderMessage,
@@ -99,7 +103,12 @@ export function messagesFromEvents(
       event.data.role === "assistant" &&
       Array.isArray(event.data.content)
     ) {
-      const content = normalizeAssistantBlocks(event.data.content);
+      const content = normalizeAssistantBlocks(
+        event.data.content,
+        isProviderName(event.data.provider)
+          ? event.data.provider
+          : undefined,
+      );
       if (!content) {
         continue;
       }
@@ -115,6 +124,7 @@ export function messagesFromEvents(
 
 function normalizeAssistantBlocks(
   value: unknown[],
+  messageProvider: ProviderName | undefined,
 ): ProviderAssistantBlock[] | undefined {
   const blocks: ProviderAssistantBlock[] = [];
   for (const item of value) {
@@ -126,15 +136,26 @@ function normalizeAssistantBlocks(
       continue;
     }
     if (item.type === "reasoning" && typeof item.text === "string") {
+      const reasoningProvider = isProviderName(item.provider)
+        ? item.provider
+        : messageProvider;
+      if (!reasoningProvider) {
+        return undefined;
+      }
       blocks.push({
         type: "reasoning",
         text: item.text,
-        ...(typeof item.signature === "string"
-          ? { signature: item.signature }
+        provider: reasoningProvider,
+        ...(typeof item.replayId === "string"
+          ? { replayId: item.replayId }
           : {}),
-        ...(typeof item.encryptedContent === "string"
-          ? { encryptedContent: item.encryptedContent }
-          : {}),
+        ...(typeof item.opaqueData === "string"
+          ? { opaqueData: item.opaqueData }
+          : typeof item.signature === "string"
+            ? { opaqueData: item.signature }
+            : typeof item.encryptedContent === "string"
+              ? { opaqueData: item.encryptedContent }
+              : {}),
       });
       continue;
     }
@@ -142,8 +163,9 @@ function normalizeAssistantBlocks(
       blocks.push({
         type: "reasoning",
         text: item.thinking,
+        provider: "anthropic",
         ...(typeof item.signature === "string"
-          ? { signature: item.signature }
+          ? { opaqueData: item.signature }
           : {}),
       });
       continue;
@@ -155,7 +177,8 @@ function normalizeAssistantBlocks(
       blocks.push({
         type: "reasoning",
         text: "",
-        encryptedContent: item.data,
+        provider: "anthropic",
+        opaqueData: item.data,
       });
       continue;
     }
@@ -231,4 +254,10 @@ export function normalizePersistedToolResults(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isProviderName(value: unknown): value is ProviderName {
+  return ["anthropic", "openai", "googlegenai", "amarsia"].includes(
+    String(value),
+  );
 }

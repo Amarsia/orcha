@@ -3,6 +3,5 @@
   "model": "claude-sonnet-4-6",
   "region": "provider_managed",
   "maxTokens": 512,
-  "reasoningLevel": "disabled",
   "outputType": "text"
 }
