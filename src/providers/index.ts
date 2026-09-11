@@ -4,6 +4,7 @@ import type {
   ProviderName,
 } from "../types.js";
 import { anthropicProvider } from "./anthropic.js";
+import { openAIProvider } from "./openai.js";
 import type {
   ProviderAdapter,
   ProviderRequest,
@@ -12,7 +13,14 @@ import type {
 
 const builtInProviders: Partial<Record<ProviderName, ProviderAdapter>> = {
   anthropic: anthropicProvider,
+  openai: openAIProvider,
 };
+
+export function isBuiltInProvider(
+  name: string,
+): name is ProviderName {
+  return Object.hasOwn(builtInProviders, name);
+}
 
 export async function generateProviderResponse(
   name: ProviderName,

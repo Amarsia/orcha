@@ -27,7 +27,7 @@ export interface AgentConfiguration {
   model: string;
   region?: string;
   maxTokens?: number;
-  reasoningLevel?: "disabled" | "low" | "medium" | "high";
+  reasoningLevel?: string;
   outputType?: "text" | "json" | "image" | "audio";
   outputSchema?: Record<string, unknown>;
 }

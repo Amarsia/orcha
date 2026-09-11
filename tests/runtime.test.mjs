@@ -83,6 +83,333 @@ test("streams cumulative model snapshots and preserves the final result", async 
   }
 });
 
+test("runs OpenAI Responses with streaming and normalized local tools", async () => {
+  const fixture = await createRuntimeFixture(
+    (_requests, index) =>
+      index === 1
+        ? {
+            id: "resp_openai_tool",
+            status: "completed",
+            output: [
+              {
+                type: "function_call",
+                id: "fc_openai_1",
+                call_id: "call_openai_1",
+                name: "calculate_invoice_total",
+                arguments: JSON.stringify({
+                  hours: 2,
+                  hourlyRate: 100,
+                  taxRate: 0.1,
+                  currency: "USD",
+                }),
+                status: "completed",
+              },
+            ],
+          }
+        : {
+            id: "resp_openai_complete",
+            status: "completed",
+            streamText: ["The total", " is $220."],
+            output: [
+              {
+                type: "message",
+                role: "assistant",
+                status: "completed",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "The total is $220.",
+                    annotations: [],
+                  },
+                ],
+              },
+            ],
+          },
+    { provider: "openai" },
+  );
+  try {
+    const execution = fixture.client.testAgent.run("Calculate it.");
+    const snapshotsPromise = collectStream(execution.stream);
+    const result = await execution.result;
+    const snapshots = await snapshotsPromise;
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "The total is $220.");
+    assert.deepEqual(
+      snapshots
+        .filter((snapshot) => snapshot.status === "streaming")
+        .map((snapshot) => snapshot.output),
+      ["The total", "The total is $220."],
+    );
+    assert.deepEqual(fixture.requests[1].input.at(-1), {
+      type: "function_call_output",
+      call_id: "call_openai_1",
+      output:
+        '{"subtotal":200,"tax":20,"total":220,"currency":"USD"}',
+    });
+    assert.equal(
+      fixture.requests[1].input.some(
+        (item) =>
+          item.type === "function_call" &&
+          item.call_id === "call_openai_1",
+      ),
+      true,
+    );
+    assert.equal("reasoning" in fixture.requests[0], false);
+
+    const events = await readSessionEvents(fixture.root, result.sessionId);
+    const toolCall = events.find(
+      (event) =>
+        event.type === "message.created" &&
+        event.data.role === "assistant" &&
+        event.data.content.some?.(
+          (block) => block.type === "tool_call",
+        ),
+    );
+    assert.equal(toolCall.data.provider, "openai");
+    assert.equal(toolCall.data.stopReason, "tool_call");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("maps OpenAI multimodal input, structured output, reasoning, and usage", async () => {
+  const outputSchema = {
+    type: "object",
+    properties: {
+      accepted: { type: "boolean" },
+    },
+    required: ["accepted"],
+    additionalProperties: false,
+  };
+  const fixture = await createRuntimeFixture(
+    () => ({
+      id: "resp_openai_structured",
+      status: "completed",
+      streamText: ['{"accepted":', "true}"],
+      output: [
+        {
+          type: "reasoning",
+          id: "rs_openai_structured",
+          summary: [
+            {
+              type: "summary_text",
+              text: "Checked the supplied content.",
+            },
+          ],
+          encrypted_content: "opaque-structured-reasoning",
+          status: "completed",
+        },
+        {
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [
+            {
+              type: "output_text",
+              text: '{"accepted":true}',
+              annotations: [],
+            },
+          ],
+        },
+      ],
+    }),
+    {
+      provider: "openai",
+      outputType: "json",
+      outputSchema,
+      reasoningLevel: "low",
+    },
+  );
+  try {
+    const result = await fixture.client.testAgent.run({
+      content: [
+        { type: "text", text: "Inspect these files." },
+        {
+          type: "image",
+          mimeType: "image/png",
+          fileUri: "https://example.com/image.png",
+        },
+        {
+          type: "url",
+          mimeType: "application/pdf",
+          fileUri: "https://example.com/document.pdf",
+        },
+      ],
+    }).result;
+
+    assert.equal(result.status, "completed");
+    assert.deepEqual(result.output, { accepted: true });
+    assert.deepEqual(result.usage, {
+      inputTokens: 7,
+      outputTokens: 3,
+      reasoningTokens: 1,
+      cacheReadTokens: 2,
+      cacheWriteTokens: 0,
+    });
+    assert.deepEqual(fixture.requests[0].reasoning, {
+      effort: "low",
+      summary: "auto",
+    });
+    assert.deepEqual(fixture.requests[0].include, [
+      "reasoning.encrypted_content",
+    ]);
+    assert.deepEqual(fixture.requests[0].text, {
+      format: {
+        type: "json_schema",
+        name: "orcha_output",
+        schema: outputSchema,
+        strict: true,
+      },
+    });
+    assert.deepEqual(fixture.requests[0].input[0].content, [
+      { type: "input_text", text: "Inspect these files." },
+      {
+        type: "input_image",
+        image_url: "https://example.com/image.png",
+        detail: "auto",
+      },
+      {
+        type: "input_file",
+        file_url: "https://example.com/document.pdf",
+      },
+    ]);
+    const events = await readSessionEvents(fixture.root, result.sessionId);
+    assert.deepEqual(events[3].data.content[0], {
+      type: "reasoning",
+      text: "Checked the supplied content.",
+      provider: "openai",
+      replayId: "rs_openai_structured",
+      opaqueData: "opaque-structured-reasoning",
+    });
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("fails safely when a provider exhausts its output-token budget", async () => {
+  const fixture = await createRuntimeFixture(
+    () => ({
+      id: "resp_openai_incomplete",
+      status: "incomplete",
+      incomplete_details: { reason: "max_output_tokens" },
+      output: [
+        {
+          type: "reasoning",
+          id: "rs_openai_incomplete",
+          summary: [],
+          encrypted_content: "opaque-reasoning",
+          status: "incomplete",
+        },
+      ],
+    }),
+    { provider: "openai" },
+  );
+  try {
+    const result = await fixture.client.testAgent.run("Think deeply.").result;
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.error.code, "provider_error");
+    assert.equal(result.error.retryable, true);
+    const events = await readSessionEvents(fixture.root, result.sessionId);
+    assert.equal(events.at(-2).type, "message.created");
+    assert.equal(events.at(-2).data.status, "incomplete");
+    assert.equal(events.at(-1).type, "run.failed");
+    assert.equal(events.at(-1).data.usage.outputTokens, 3);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("continues a durable session after switching providers", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-provider-switch-"));
+  const anthropic = await createMockAnthropic(() => ({
+    content: [{ type: "text", text: "First provider response." }],
+  }));
+  const openai = await createMockOpenAI(() => ({
+    id: "resp_provider_switch",
+    status: "completed",
+    output: [
+      {
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [
+          {
+            type: "output_text",
+            text: "Second provider response.",
+            annotations: [],
+          },
+        ],
+      },
+    ],
+  }));
+  let provider = "anthropic";
+  const client = createOrcha(() => ({
+    schemaVersion: 1,
+    agents: {
+      testAgent: {
+        name: "testAgent",
+        provider,
+        model:
+          provider === "anthropic" ? "claude-test" : "gpt-test",
+        systemPrompt: "You are a test agent.",
+        outputType: "text",
+        actions: {},
+      },
+    },
+  }));
+  const configuration = {
+    root,
+    providers: {
+      anthropic: {
+        apiKey: "test-anthropic-key",
+        baseUrl: anthropic.baseUrl,
+      },
+      openai: {
+        apiKey: "test-openai-key",
+        baseUrl: openai.baseUrl,
+      },
+    },
+    agents: { testAgent: "./testAgent" },
+  };
+
+  try {
+    client.init(configuration);
+    const first = await client.testAgent.run("First message.").result;
+    assert.equal(first.status, "completed");
+
+    provider = "openai";
+    client.init(configuration);
+    const second = await client.testAgent.resume(first.sessionId, {
+      content: "Second message.",
+    }).result;
+
+    assert.equal(second.status, "completed");
+    assert.equal(second.output, "Second provider response.");
+    assert.deepEqual(openai.requests[0].input, [
+      {
+        role: "user",
+        content: [{ type: "input_text", text: "First message." }],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "output_text", text: "First provider response." },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "input_text", text: "Second message." }],
+      },
+    ]);
+  } finally {
+    await anthropic.close();
+    await openai.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("reconstructs completed history when continuing a session", async () => {
   const fixture = await createRuntimeFixture();
   try {
@@ -538,18 +865,25 @@ test("executes a sandboxed local action from the production ESM bundle", async (
 
 async function createRuntimeFixture(responseFactory, options = {}) {
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-runtime-"));
-  const mock = await createMockAnthropic(responseFactory);
+  const provider = options.provider ?? "anthropic";
+  const mock =
+    provider === "openai"
+      ? await createMockOpenAI(responseFactory)
+      : await createMockAnthropic(responseFactory);
   const bundle = {
     schemaVersion: 1,
     agents: {
       testAgent: {
         name: "testAgent",
-        provider: "anthropic",
+        provider,
         model: "claude-test",
         systemPrompt: options.systemPrompt ?? "You are a test agent.",
         maxTokens: 32,
-        reasoningLevel: "disabled",
-        outputType: "text",
+        reasoningLevel: options.reasoningLevel,
+        outputType: options.outputType ?? "text",
+        ...(options.outputSchema
+          ? { outputSchema: options.outputSchema }
+          : {}),
         actions: {
           request_invoice_approval: {
             name: "request_invoice_approval",
@@ -615,7 +949,7 @@ async function createRuntimeFixture(responseFactory, options = {}) {
   client.init({
     root,
     providers: {
-      anthropic: {
+      [provider]: {
         apiKey: "test-key",
         baseUrl: mock.baseUrl,
       },
@@ -715,12 +1049,84 @@ async function createMockAnthropic(responseFactory) {
   };
 }
 
-function writeAnthropicStream(response, generated, index) {
-  const send = (event) => {
-    response.write(`event: ${event.type}\n`);
-    response.write(`data: ${JSON.stringify(event)}\n\n`);
+async function createMockOpenAI(responseFactory) {
+  const requests = [];
+  const server = createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) {
+      body += chunk;
+    }
+    requests.push(JSON.parse(body));
+    const index = requests.length;
+    const generated = responseFactory?.(requests, index) ?? {
+      id: `resp_mock_${index}`,
+      status: "completed",
+      output: [
+        {
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [
+            {
+              type: "output_text",
+              text: `mock-response-${index}`,
+              annotations: [],
+            },
+          ],
+        },
+      ],
+    };
+    const completed = {
+      ...generated,
+      usage: {
+        input_tokens: 7,
+        output_tokens: 3,
+        input_tokens_details: { cached_tokens: 2 },
+        output_tokens_details: { reasoning_tokens: 1 },
+      },
+    };
+
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    for (const delta of generated.streamText ?? []) {
+      writeServerSentEvent(response, {
+        type: "response.output_text.delta",
+        delta,
+      });
+    }
+    writeServerSentEvent(response, {
+      type:
+        generated.status === "incomplete"
+          ? "response.incomplete"
+          : "response.completed",
+      response: completed,
+    });
+    response.end();
+  });
+  await new Promise((resolveListen) =>
+    server.listen(0, "127.0.0.1", resolveListen),
+  );
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  return {
+    requests,
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise((resolveClose, rejectClose) =>
+        server.close((error) =>
+          error ? rejectClose(error) : resolveClose(),
+        ),
+      ),
   };
-  send({
+}
+
+function writeServerSentEvent(response, event) {
+  response.write(`event: ${event.type}\n`);
+  response.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+function writeAnthropicStream(response, generated, index) {
+  writeServerSentEvent(response, {
     type: "message_start",
     message: {
       id: generated.id ?? `msg_mock_${index}`,
@@ -732,25 +1138,28 @@ function writeAnthropicStream(response, generated, index) {
       },
     },
   });
-  send({
+  writeServerSentEvent(response, {
     type: "content_block_start",
     index: 0,
     content_block: { type: "text", text: "" },
   });
   for (const text of generated.streamText) {
-    send({
+    writeServerSentEvent(response, {
       type: "content_block_delta",
       index: 0,
       delta: { type: "text_delta", text },
     });
   }
-  send({ type: "content_block_stop", index: 0 });
-  send({
+  writeServerSentEvent(response, {
+    type: "content_block_stop",
+    index: 0,
+  });
+  writeServerSentEvent(response, {
     type: "message_delta",
     delta: { stop_reason: generated.stop_reason ?? "end_turn" },
     usage: { output_tokens: 3 },
   });
-  send({ type: "message_stop" });
+  writeServerSentEvent(response, { type: "message_stop" });
   response.end();
 }
 
@@ -783,7 +1192,6 @@ async function writeFixtureProject(root, baseUrl, actionRuntime = "native") {
       provider: "anthropic",
       model: "claude-test",
       maxTokens: 32,
-      reasoningLevel: "disabled",
       outputType: "text",
     }),
     "orcha/testAgent/instructions.md": "You are a test agent.\n",

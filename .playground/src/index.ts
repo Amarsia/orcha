@@ -1,30 +1,24 @@
-import {
-  orcha,
-  type Execution,
-  type RunResult,
-} from "orchajs";
+import { orcha, type SessionHistory } from "orchajs";
 import "../orcha/index.js";
 
-let result = await observe(
-  orcha.invoiceBot.run({
-    content: [
-      {
-        type: "text",
-        text: [
-          "Process invoice INV-1001.",
-          "Bill 2 hours at $100/hour with 10% tax.",
-          "After approval, email it to billing@example.com.",
-        ].join(" "),
-      },
-    ],
-    name: "Invoice INV-1001",
-    metadata: {
-      invoiceId: "INV-1001",
-      customerId: "cus_playground",
+let result = await orcha.invoiceBot.run({
+  content: [
+    {
+      type: "text",
+      text: [
+        "Process invoice INV-1001.",
+        "Bill 2 hours at $100/hour with 10% tax.",
+        "After approval, email it to billing@example.com.",
+      ].join(" "),
     },
-    clientCapabilities: orcha.invoiceBot.clientTools,
-  }),
-);
+  ],
+  name: "Invoice INV-1001",
+  metadata: {
+    invoiceId: "INV-1001",
+    customerId: "cus_playground",
+  },
+  clientCapabilities: orcha.invoiceBot.clientTools,
+}).result;
 
 while (result.status === "waiting_for_client_action") {
   const toolResults = result.clientToolCalls.map((call) => {
@@ -37,26 +31,69 @@ while (result.status === "waiting_for_client_action") {
       output: { approved: true },
     };
   });
-  result = await observe(
-    orcha.invoiceBot.resume(result.sessionId, {
-      toolResults,
-    }),
-  );
+  result = await orcha.invoiceBot.resume(result.sessionId, {
+    toolResults,
+  }).result;
 }
 
-console.log(JSON.stringify(result, null, 2));
+logHistory(
+  "invoiceBot",
+  await orcha.invoiceBot.history(result.sessionId, {
+    page: 1,
+    pageSize: 100,
+  }),
+);
+console.log("[invoiceBot] Result:", JSON.stringify(result, null, 2));
 console.log(`\nSession log: .orcha/sessions/${result.sessionId}.jsonl`);
 
-async function observe<TOutput>(
-  execution: Execution<TOutput>,
-): Promise<RunResult<TOutput>> {
-  const streamCompleted = (async () => {
-    for await (const snapshot of execution.stream) {
-      console.log("Snapshot:", snapshot);
-    }
-  })();
+const supportResult = await orcha.supportBot.run({
+  content:
+    "Account cus_playground upgraded its subscription this morning, but the dashboard still shows the old plan. What should I do?",
+  name: "Subscription upgrade not reflected",
+  metadata: {
+    customerId: "cus_playground",
+    category: "billing",
+  },
+}).result;
 
-  const finalResult = await execution.result;
-  await streamCompleted;
-  return finalResult;
+logHistory(
+  "supportBot",
+  await orcha.supportBot.history(supportResult.sessionId, {
+    page: 1,
+    pageSize: 100,
+  }),
+);
+console.log("[supportBot] Result:", JSON.stringify(supportResult, null, 2));
+console.log(
+  `\nSession log: .orcha/sessions/${supportResult.sessionId}.jsonl`,
+);
+
+function logHistory(
+  agentName: string,
+  history: SessionHistory,
+): void {
+  console.log(`\n[${agentName}] Session timeline`);
+  for (const item of history.items) {
+    if (item.type === "message") {
+      console.log(
+        `${item.role?.toUpperCase()}:`,
+        item.content
+          ?.map((content) =>
+            content.type === "text"
+              ? content.text
+              : `[${content.type}: ${content.fileUri}]`,
+          )
+          .join("\n"),
+      );
+    } else if (
+      item.type === "action" ||
+      item.type === "client_action"
+    ) {
+      const duration =
+        item.durationMs === undefined ? "" : ` (${item.durationMs}ms)`;
+      console.log(
+        `TOOL: ${item.name} — ${item.status}${duration}`,
+      );
+    }
+  }
 }

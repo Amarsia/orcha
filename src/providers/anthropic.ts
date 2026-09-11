@@ -4,6 +4,7 @@ import type {
 } from "../types.js";
 import { OrchaError } from "../errors.js";
 import { parseStructuredOutput } from "../runtime/structured-output.js";
+import { readServerSentEvents } from "./sse.js";
 import type {
   ProviderAdapter,
   ProviderAssistantBlock,
@@ -187,8 +188,9 @@ function toProviderContentBlock(
     return {
       type: "reasoning",
       text: block.thinking,
+      provider: "anthropic",
       ...(typeof block.signature === "string"
-        ? { signature: block.signature }
+        ? { opaqueData: block.signature }
         : {}),
     };
   }
@@ -196,7 +198,8 @@ function toProviderContentBlock(
     return {
       type: "reasoning",
       text: "",
-      encryptedContent: block.data,
+      provider: "anthropic",
+      opaqueData: block.data,
     };
   }
   if (
@@ -218,29 +221,14 @@ async function readAnthropicStream(
   response: Response,
   publishOutput?: (output: string) => void,
 ): Promise<AnthropicResponse> {
-  if (!response.body) {
-    throw new Error("Anthropic returned an empty streaming response.");
-  }
-
   const body: AnthropicResponse = {
     content: [],
     usage: {},
   };
   const partialToolInputs = new Map<number, string>();
   let cumulativeText = "";
-  let buffer = "";
-  let dataLines: string[] = [];
 
-  const dispatchEvent = (): void => {
-    if (dataLines.length === 0) {
-      return;
-    }
-    const rawData = dataLines.join("\n");
-    dataLines = [];
-    if (rawData === "[DONE]") {
-      return;
-    }
-    const event = JSON.parse(rawData) as Record<string, unknown>;
+  for await (const event of readServerSentEvents(response)) {
     applyAnthropicStreamEvent(
       event,
       body,
@@ -250,38 +238,7 @@ async function readAnthropicStream(
         publishOutput?.(cumulativeText);
       },
     );
-  };
-
-  const processLine = (line: string): void => {
-    const normalized = line.endsWith("\r") ? line.slice(0, -1) : line;
-    if (!normalized) {
-      dispatchEvent();
-      return;
-    }
-    if (normalized.startsWith("data:")) {
-      dataLines.push(normalized.slice(5).trimStart());
-    }
-  };
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    let newlineIndex = buffer.indexOf("\n");
-    while (newlineIndex >= 0) {
-      processLine(buffer.slice(0, newlineIndex));
-      buffer = buffer.slice(newlineIndex + 1);
-      newlineIndex = buffer.indexOf("\n");
-    }
-    if (done) {
-      break;
-    }
   }
-  if (buffer) {
-    processLine(buffer);
-  }
-  dispatchEvent();
 
   for (const [index, input] of partialToolInputs) {
     const block = body.content?.[index];
@@ -440,15 +397,21 @@ function toAnthropicMessages(
             return block;
           }
           if (block.type === "reasoning") {
-            return block.encryptedContent
+            if (block.provider !== "anthropic") {
+              return {
+                type: "text",
+                text: block.text,
+              };
+            }
+            return !block.text && block.opaqueData
               ? {
                   type: "redacted_thinking",
-                  data: block.encryptedContent,
+                  data: block.opaqueData,
                 }
               : {
                   type: "thinking",
                   thinking: block.text,
-                  signature: block.signature,
+                  signature: block.opaqueData,
                 };
           }
           return {
@@ -531,40 +494,13 @@ function getReasoningConfiguration(request: ProviderRequest): {
   thinking?: Record<string, unknown>;
   outputConfig?: Record<string, unknown>;
 } {
-  const level = request.reasoningLevel ?? "disabled";
-  const baseMaxTokens = request.maxTokens ?? 1024;
-  if (level === "disabled") {
+  const baseMaxTokens = request.maxTokens ?? 10_000;
+  if (!request.reasoningLevel) {
     return { maxTokens: baseMaxTokens };
   }
-
-  if (requiresAdaptiveThinking(request.model)) {
-    return {
-      maxTokens: baseMaxTokens,
-      thinking: { type: "adaptive" },
-      outputConfig: { effort: level },
-    };
-  }
-
-  const budget = {
-    low: 1024,
-    medium: 4096,
-    high: 8192,
-  }[level];
   return {
-    maxTokens: baseMaxTokens + budget,
-    thinking: {
-      type: "enabled",
-      budget_tokens: budget,
-    },
+    maxTokens: baseMaxTokens,
+    thinking: { type: "adaptive" },
+    outputConfig: { effort: request.reasoningLevel },
   };
-}
-
-function requiresAdaptiveThinking(model: string): boolean {
-  return [
-    "claude-sonnet-4-6",
-    "claude-sonnet-5",
-    "claude-fable-5",
-    "claude-opus-4-7",
-    "claude-opus-4-8",
-  ].some((name) => model.includes(name));
 }

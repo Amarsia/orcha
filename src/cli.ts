@@ -32,7 +32,6 @@ async function initializeProject(projectRoot: string): Promise<void> {
           model: "claude-sonnet-4-6",
           region: "provider_managed",
           maxTokens: 1024,
-          reasoningLevel: "disabled",
           outputType: "text",
         },
         null,

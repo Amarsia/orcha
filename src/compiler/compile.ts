@@ -2,16 +2,14 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildSync } from "esbuild";
+import { isBuiltInProvider } from "../providers/index.js";
 import type {
   AgentConfiguration,
   ActionConfiguration,
   CompiledActionManifest,
   CompiledAgentManifest,
   CompiledBundle,
-  ProviderName,
 } from "../types.js";
-
-const SUPPORTED_PROVIDERS = new Set(["anthropic"]);
 
 export function compileRegistry(
   registrations: Record<string, string>,
@@ -51,7 +49,7 @@ export function compileRegistry(
         { cause: error },
       );
     }
-    if (!SUPPORTED_PROVIDERS.has(configuration.provider)) {
+    if (!isBuiltInProvider(configuration.provider)) {
       throw new Error(
         `Agent "${name}" uses unsupported provider "${configuration.provider}".`,
       );
@@ -70,12 +68,13 @@ export function compileRegistry(
       throw new Error(`Agent "${name}" has an invalid outputType.`);
     }
     if (
-      configuration.reasoningLevel &&
-      !["disabled", "low", "medium", "high"].includes(
-        configuration.reasoningLevel,
-      )
+      configuration.reasoningLevel !== undefined &&
+      (typeof configuration.reasoningLevel !== "string" ||
+        !configuration.reasoningLevel.trim())
     ) {
-      throw new Error(`Agent "${name}" has an invalid reasoningLevel.`);
+      throw new Error(
+        `Agent "${name}" reasoningLevel must be a non-empty string.`,
+      );
     }
     if (!["text", "json"].includes(configuration.outputType ?? "text")) {
       throw new Error(
@@ -108,12 +107,12 @@ export function compileRegistry(
 
     agents[name] = Object.freeze({
       name,
-      provider: configuration.provider as ProviderName,
+      provider: configuration.provider,
       model: configuration.model,
       systemPrompt,
       region: configuration.region,
       maxTokens: configuration.maxTokens,
-      reasoningLevel: configuration.reasoningLevel ?? "disabled",
+      reasoningLevel: configuration.reasoningLevel,
       outputType: configuration.outputType ?? "text",
       outputSchema: configuration.outputSchema,
       actions: compileActions(name, sourceDirectory),
