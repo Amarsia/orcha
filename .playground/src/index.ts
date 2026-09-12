@@ -68,6 +68,31 @@ console.log(
   `\nSession log: .orcha/sessions/${supportResult.sessionId}.jsonl`,
 );
 
+const fulfillmentResult = await orcha.fulfillmentBot.run({
+  content:
+    "Order ORD-4821 was due today, but it has not arrived. Find out what happened and tell me the next step.",
+  name: "Delayed order ORD-4821",
+  metadata: {
+    orderId: "ORD-4821",
+    category: "shipping",
+  },
+}).result;
+
+logHistory(
+  "fulfillmentBot",
+  await orcha.fulfillmentBot.history(fulfillmentResult.sessionId, {
+    page: 1,
+    pageSize: 100,
+  }),
+);
+console.log(
+  "[fulfillmentBot] Result:",
+  JSON.stringify(fulfillmentResult, null, 2),
+);
+console.log(
+  `\nSession log: .orcha/sessions/${fulfillmentResult.sessionId}.jsonl`,
+);
+
 function logHistory(
   agentName: string,
   history: SessionHistory,

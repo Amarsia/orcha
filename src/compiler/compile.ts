@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildSync } from "esbuild";
-import { isBuiltInProvider } from "../providers/index.js";
+import { isBuiltInProvider } from "../providers/catalog.js";
 import type {
   AgentConfiguration,
   ActionConfiguration,

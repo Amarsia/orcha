@@ -188,9 +188,8 @@ function toProviderContentBlock(
     return {
       type: "reasoning",
       text: block.thinking,
-      provider: "anthropic",
       ...(typeof block.signature === "string"
-        ? { opaqueData: block.signature }
+        ? { replay: { opaqueData: block.signature } }
         : {}),
     };
   }
@@ -198,8 +197,9 @@ function toProviderContentBlock(
     return {
       type: "reasoning",
       text: "",
-      provider: "anthropic",
-      opaqueData: block.data,
+      replay: {
+        opaqueData: block.data,
+      },
     };
   }
   if (
@@ -397,21 +397,21 @@ function toAnthropicMessages(
             return block;
           }
           if (block.type === "reasoning") {
-            if (block.provider !== "anthropic") {
+            if (message.provider !== "anthropic") {
               return {
                 type: "text",
                 text: block.text,
               };
             }
-            return !block.text && block.opaqueData
+            return !block.text && block.replay?.opaqueData
               ? {
                   type: "redacted_thinking",
-                  data: block.opaqueData,
+                  data: block.replay.opaqueData,
                 }
               : {
                   type: "thinking",
                   thinking: block.text,
-                  signature: block.opaqueData,
+                  signature: block.replay?.opaqueData,
                 };
           }
           return {

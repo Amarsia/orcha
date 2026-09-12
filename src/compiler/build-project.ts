@@ -4,6 +4,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build as bundleEntry } from "esbuild";
 import { orcha } from "../orcha.js";
+import {
+  builtInProviderCatalog,
+  isBuiltInProvider,
+} from "../providers/catalog.js";
 
 export interface BuildProjectOptions {
   projectRoot?: string;
@@ -65,13 +69,29 @@ export async function buildProject(
       dirname(fileURLToPath(import.meta.url)),
       "../runtime/create-orcha.js",
     ).replaceAll("\\", "/");
+    const providerDispatcherPath = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../providers/dispatcher.js",
+    ).replaceAll("\\", "/");
+    const includedProviders = [
+      ...new Set(
+        Object.values(compiledBundle.agents).map(
+          (agent) => agent.provider,
+        ),
+      ),
+    ];
+    const providerRuntimeSource =
+      createProviderRuntimeSource(includedProviders);
 
     await writeFile(
       productionEntryPath,
       [
         `import { createOrcha } from ${JSON.stringify(runtimeFactoryPath)};`,
+        `import { createProviderResponseGenerator } from ${JSON.stringify(providerDispatcherPath)};`,
+        providerRuntimeSource,
         `const compiledBundle = ${JSON.stringify(compiledBundle)};`,
-        "export const orcha = createOrcha(() => compiledBundle);",
+        "const generateProviderResponse = createProviderResponseGenerator(includedProviders);",
+        "export const orcha = createOrcha(() => compiledBundle, generateProviderResponse);",
         "export default orcha;",
         "",
       ].join("\n"),
@@ -111,4 +131,35 @@ export async function buildProject(
       force: true,
     });
   }
+}
+
+function createProviderRuntimeSource(providerNames: string[]): string {
+  const providersDirectory = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../providers",
+  );
+  const imports: string[] = [];
+  const entries: string[] = [];
+
+  for (const [index, name] of providerNames.entries()) {
+    if (!isBuiltInProvider(name)) {
+      throw new Error(`Provider "${name}" is not built in.`);
+    }
+    const descriptor = builtInProviderCatalog[name];
+    const localName = `provider${index}`;
+    imports.push(
+      `import { ${descriptor.exportName} as ${localName} } from ${JSON.stringify(
+        resolve(providersDirectory, descriptor.moduleFile),
+      )};`,
+    );
+    entries.push(`${JSON.stringify(name)}: ${localName}`);
+  }
+
+  const contents = [
+    ...imports,
+    `const includedProviders = { ${entries.join(", ")} };`,
+    "",
+  ].join("\n");
+
+  return contents;
 }

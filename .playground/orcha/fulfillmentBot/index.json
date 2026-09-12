@@ -1,0 +1,7 @@
+{
+  "provider": "googlegenai",
+  "model": "gemini-2.5-flash",
+  "region": "provider_managed",
+  "maxTokens": 4096,
+  "outputType": "text"
+}

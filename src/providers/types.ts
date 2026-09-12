@@ -10,12 +10,16 @@ export interface ProviderTextBlock {
   text: string;
 }
 
+/** Provider-owned state required to replay a normalized block verbatim. */
+export interface ProviderReplayMetadata {
+  providerId?: string;
+  opaqueData?: string;
+}
+
 export interface ProviderReasoningBlock {
   type: "reasoning";
   text: string;
-  provider: ProviderName;
-  replayId?: string;
-  opaqueData?: string;
+  replay?: ProviderReplayMetadata;
 }
 
 export interface ProviderToolCall {
@@ -23,6 +27,7 @@ export interface ProviderToolCall {
   callId: string;
   name: string;
   arguments: Record<string, unknown>;
+  replay?: ProviderReplayMetadata;
 }
 
 export type ProviderAssistantBlock =
@@ -43,6 +48,7 @@ export type ProviderMessage =
     }
   | {
       role: "assistant";
+      provider?: ProviderName;
       content: ProviderAssistantBlock[];
     }
   | {
@@ -92,3 +98,9 @@ export interface ProviderAdapter {
     request: ProviderRequest,
   ): Promise<ProviderResponse>;
 }
+
+export type ProviderResponseGenerator = (
+  name: ProviderName,
+  configuration: ProviderConfiguration,
+  request: ProviderRequest,
+) => Promise<ProviderResponse>;
