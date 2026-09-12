@@ -1,0 +1,7 @@
+{
+  "provider": "deepseek",
+  "model": "deepseek-reasoner",
+  "region": "provider_managed",
+  "maxTokens": 8192,
+  "outputType": "text"
+}

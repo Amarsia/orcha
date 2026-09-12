@@ -3,6 +3,7 @@ import type {
   SessionEvent,
   SessionEventType,
 } from "../types.js";
+import { isBuiltInProvider } from "../providers/catalog.js";
 import type {
   ProviderAssistantBlock,
   ProviderMessage,
@@ -301,7 +302,8 @@ function inferAssistantProvider(
 }
 
 function isProviderName(value: unknown): value is ProviderName {
-  return ["anthropic", "openai", "googlegenai", "amarsia"].includes(
-    String(value),
+  return (
+    value === "amarsia" ||
+    (typeof value === "string" && isBuiltInProvider(value))
   );
 }

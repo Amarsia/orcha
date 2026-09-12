@@ -177,13 +177,14 @@ runtime, so application and action APIs do not change when an agent switches
 providers. Provider-specific capabilities that cannot be represented safely
 fail with an explicit Orcha error instead of silently degrading.
 
-Anthropic, OpenAI Responses, and the Gemini Developer API through Google GenAI
-are built in:
+Anthropic, DeepSeek Chat Completions, OpenAI Responses, and the Gemini
+Developer API through Google GenAI are built in:
 
 ```js
 orcha.init({
   providers: {
     anthropic: process.env.ANTHROPIC_API_KEY,
+    deepseek: process.env.DEEPSEEK_API_KEY,
     googlegenai: process.env.GOOGLE_GENAI_API_KEY,
     openai: process.env.OPENAI_API_KEY,
   },
@@ -263,7 +264,7 @@ application continues to use its normal `npm run build` command.
 
 - [x] Registry compiler + `orcha build`
 - [x] Model Action Protocol — client actions and opt-in native/sandboxed local actions
-- [x] Provider-neutral Anthropic, OpenAI Responses, and Google GenAI adapters
+- [x] Provider-neutral Anthropic, DeepSeek, OpenAI, and Google GenAI adapters
 - [x] Stateful sessions — Node JSONL replay and client-action pause/resume
 - [ ] `orcha.run()` one-shot entry point
 - [ ] CLI (`orcha init`, `orcha build`, `orcha dev`) + example agents

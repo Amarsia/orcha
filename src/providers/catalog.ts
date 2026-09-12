@@ -10,6 +10,10 @@ export const builtInProviderCatalog = {
     moduleFile: "anthropic.js",
     exportName: "anthropicProvider",
   },
+  deepseek: {
+    moduleFile: "deepseek.js",
+    exportName: "deepSeekProvider",
+  },
   googlegenai: {
     moduleFile: "google-genai.js",
     exportName: "googleGenAIProvider",

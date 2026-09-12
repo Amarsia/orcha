@@ -93,6 +93,31 @@ console.log(
   `\nSession log: .orcha/sessions/${fulfillmentResult.sessionId}.jsonl`,
 );
 
+const incidentResult = await orcha.incidentBot.run({
+  content:
+    "Customers report that checkout requests are timing out. Inspect checkout-api and provide an initial incident assessment.",
+  name: "Checkout latency incident",
+  metadata: {
+    service: "checkout-api",
+    severity: "investigating",
+  },
+}).result;
+
+logHistory(
+  "incidentBot",
+  await orcha.incidentBot.history(incidentResult.sessionId, {
+    page: 1,
+    pageSize: 100,
+  }),
+);
+console.log(
+  "[incidentBot] Result:",
+  JSON.stringify(incidentResult, null, 2),
+);
+console.log(
+  `\nSession log: .orcha/sessions/${incidentResult.sessionId}.jsonl`,
+);
+
 function logHistory(
   agentName: string,
   history: SessionHistory,
