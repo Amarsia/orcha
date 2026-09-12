@@ -1,0 +1,34 @@
+{
+  "name": "lookup_service_health",
+  "description": "Retrieve current health and latency telemetry for a service.",
+  "execution": "local",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "service": {
+        "type": "string",
+        "description": "The service identifier to inspect."
+      }
+    },
+    "required": ["service"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "service": { "type": "string" },
+      "status": { "type": "string" },
+      "p95LatencyMs": { "type": "number" },
+      "errorRate": { "type": "number" },
+      "lastDeployment": { "type": "string" }
+    },
+    "required": [
+      "service",
+      "status",
+      "p95LatencyMs",
+      "errorRate",
+      "lastDeployment"
+    ],
+    "additionalProperties": false
+  }
+}

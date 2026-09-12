@@ -549,6 +549,224 @@ test("maps Google GenAI multimodal, JSON, reasoning, and usage", async () => {
   }
 });
 
+test("runs DeepSeek reasoning, streaming, and normalized local tools", async () => {
+  const fixture = await createRuntimeFixture(
+    (_requests, index) =>
+      index === 1
+        ? {
+            chunks: [
+              {
+                id: "deepseek_tool_response",
+                choices: [
+                  {
+                    delta: {
+                      reasoning_content:
+                        "I need the invoice calculation.",
+                    },
+                  },
+                ],
+              },
+              {
+                id: "deepseek_tool_response",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "deepseek_call_1",
+                          type: "function",
+                          function: {
+                            name: "calculate_invoice_",
+                            arguments:
+                              '{"hours":2,"hourlyRate":100,',
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "deepseek_tool_response",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          function: {
+                            name: "total",
+                            arguments:
+                              '"taxRate":0.1,"currency":"USD"}',
+                          },
+                        },
+                      ],
+                    },
+                    finish_reason: "tool_calls",
+                  },
+                ],
+              },
+            ],
+          }
+        : {
+            chunks: [
+              {
+                id: "deepseek_complete_response",
+                choices: [
+                  {
+                    delta: {
+                      reasoning_content:
+                        "The calculation is complete.",
+                    },
+                  },
+                ],
+              },
+              {
+                id: "deepseek_complete_response",
+                choices: [
+                  {
+                    delta: { content: "The total" },
+                  },
+                ],
+              },
+              {
+                id: "deepseek_complete_response",
+                choices: [
+                  {
+                    delta: { content: " is $220." },
+                    finish_reason: "stop",
+                  },
+                ],
+              },
+            ],
+          },
+    {
+      provider: "deepseek",
+      reasoningLevel: "high",
+    },
+  );
+  try {
+    const execution = fixture.client.testAgent.run("Calculate it.");
+    const snapshotsPromise = collectStream(execution.stream);
+    const result = await execution.result;
+    const snapshots = await snapshotsPromise;
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "The total is $220.");
+    assert.deepEqual(
+      snapshots
+        .filter((snapshot) => snapshot.status === "streaming")
+        .map((snapshot) => snapshot.output),
+      ["The total", "The total is $220."],
+    );
+    assert.deepEqual(fixture.requests[0].thinking, {
+      type: "enabled",
+    });
+    assert.equal(fixture.requests[0].reasoning_effort, "high");
+    assert.deepEqual(fixture.requests[1].messages.at(-2), {
+      role: "assistant",
+      content: "",
+      reasoning_content: "I need the invoice calculation.",
+      tool_calls: [
+        {
+          id: "deepseek_call_1",
+          type: "function",
+          function: {
+            name: "calculate_invoice_total",
+            arguments:
+              '{"hours":2,"hourlyRate":100,"taxRate":0.1,"currency":"USD"}',
+          },
+        },
+      ],
+    });
+    assert.deepEqual(fixture.requests[1].messages.at(-1), {
+      role: "tool",
+      tool_call_id: "deepseek_call_1",
+      content:
+        '{"subtotal":200,"tax":20,"total":220,"currency":"USD"}',
+    });
+
+    const events = await readSessionEvents(fixture.root, result.sessionId);
+    const firstAssistant = events.find(
+      (event) =>
+        event.type === "message.created" &&
+        event.data.role === "assistant",
+    );
+    assert.equal(firstAssistant.data.provider, "deepseek");
+    assert.deepEqual(firstAssistant.data.content[0], {
+      type: "reasoning",
+      text: "I need the invoice calculation.",
+    });
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("maps DeepSeek structured JSON output and usage", async () => {
+  const outputSchema = {
+    type: "object",
+    properties: {
+      accepted: { type: "boolean" },
+    },
+    required: ["accepted"],
+    additionalProperties: false,
+  };
+  const fixture = await createRuntimeFixture(
+    () => ({
+      chunks: [
+        {
+          id: "deepseek_structured_response",
+          choices: [
+            {
+              delta: { content: '{"accepted":true}' },
+              finish_reason: "stop",
+            },
+          ],
+          usage: {
+            prompt_tokens: 7,
+            completion_tokens: 3,
+            prompt_cache_hit_tokens: 2,
+            completion_tokens_details: {
+              reasoning_tokens: 1,
+            },
+          },
+        },
+      ],
+    }),
+    {
+      provider: "deepseek",
+      outputType: "json",
+      outputSchema,
+    },
+  );
+  try {
+    const result = await fixture.client.testAgent.run(
+      "Return the decision.",
+    ).result;
+
+    assert.equal(result.status, "completed");
+    assert.deepEqual(result.output, { accepted: true });
+    assert.deepEqual(result.usage, {
+      inputTokens: 7,
+      outputTokens: 3,
+      reasoningTokens: 1,
+      cacheReadTokens: 2,
+      cacheWriteTokens: 0,
+    });
+    assert.deepEqual(fixture.requests[0].response_format, {
+      type: "json_object",
+    });
+    assert.match(
+      fixture.requests[0].messages[0].content,
+      /Return only valid JSON matching this JSON Schema/,
+    );
+    assert.equal("thinking" in fixture.requests[0], false);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("fails safely when a provider exhausts its output-token budget", async () => {
   const fixture = await createRuntimeFixture(
     () => ({
@@ -1101,7 +1319,7 @@ test("executes the production application without a runtime orchajs import", asy
     );
     assert.doesNotMatch(
       applicationBundle,
-      /GoogleGenAI|generativelanguage\.googleapis\.com/,
+      /DeepSeek|api\.deepseek\.com|GoogleGenAI|generativelanguage\.googleapis\.com/,
     );
 
     const { stdout } = await executeFile(process.execPath, [outputPath], {
@@ -1194,6 +1412,8 @@ async function createRuntimeFixture(responseFactory, options = {}) {
   const mock =
     provider === "openai"
       ? await createMockOpenAI(responseFactory)
+      : provider === "deepseek"
+        ? await createMockDeepSeek(responseFactory)
       : provider === "googlegenai"
         ? await createMockGoogleGenAI(responseFactory)
       : await createMockAnthropic(responseFactory);
@@ -1208,7 +1428,9 @@ async function createRuntimeFixture(responseFactory, options = {}) {
             ? "claude-test"
             : provider === "openai"
               ? "gpt-test"
-              : "gemini-test",
+              : provider === "deepseek"
+                ? "deepseek-test"
+                : "gemini-test",
         systemPrompt: options.systemPrompt ?? "You are a test agent.",
         maxTokens: 32,
         reasoningLevel: options.reasoningLevel,
@@ -1452,6 +1674,69 @@ async function createMockOpenAI(responseFactory) {
   };
 }
 
+async function createMockDeepSeek(responseFactory) {
+  const requests = [];
+  const server = createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) {
+      body += chunk;
+    }
+    requests.push(JSON.parse(body));
+    const index = requests.length;
+    const generated = responseFactory?.(requests, index) ?? {
+      chunks: [
+        {
+          id: `deepseek_mock_${index}`,
+          choices: [
+            {
+              delta: { content: `mock-response-${index}` },
+              finish_reason: "stop",
+            },
+          ],
+        },
+      ],
+    };
+
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    for (const chunk of generated.chunks) {
+      writeServerSentEvent(response, chunk);
+    }
+    if (!generated.chunks.some((chunk) => chunk.usage)) {
+      writeServerSentEvent(response, {
+        id: generated.chunks.at(-1)?.id,
+        choices: [],
+        usage: {
+          prompt_tokens: 7,
+          completion_tokens: 3,
+          prompt_cache_hit_tokens: 2,
+          prompt_cache_miss_tokens: 5,
+          completion_tokens_details: {
+            reasoning_tokens: 1,
+          },
+        },
+      });
+    }
+    response.write("data: [DONE]\n\n");
+    response.end();
+  });
+  await new Promise((resolveListen) =>
+    server.listen(0, "127.0.0.1", resolveListen),
+  );
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  return {
+    requests,
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise((resolveClose, rejectClose) =>
+        server.close((error) =>
+          error ? rejectClose(error) : resolveClose(),
+        ),
+      ),
+  };
+}
+
 async function createMockGoogleGenAI(responseFactory) {
   const requests = [];
   const server = createServer(async (request, response) => {
@@ -1511,7 +1796,9 @@ async function createMockGoogleGenAI(responseFactory) {
 }
 
 function writeServerSentEvent(response, event) {
-  response.write(`event: ${event.type}\n`);
+  if (event.type) {
+    response.write(`event: ${event.type}\n`);
+  }
   response.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 

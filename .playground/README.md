@@ -4,8 +4,8 @@ This directory is a small consumer project used to exercise the local
 `orchajs` package while it is being developed.
 
 1. Build the parent package and install this project's dependencies.
-2. Set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `GOOGLE_GENAI_API_KEY` in
-   the environment.
+2. Set `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, and
+   `GOOGLE_API_KEY` in the environment.
 3. Run `npm start` from this directory.
 4. Inspect the printed result and `.orcha/sessions/<sessionId>.jsonl`.
 
@@ -30,3 +30,6 @@ inspect.
 
 The fulfillment scenario uses Google GenAI and a sandboxed order-status lookup
 to explain a delayed shipment without inventing carrier events.
+
+The incident scenario uses DeepSeek Reasoner and a sandboxed service-health
+lookup to produce an evidence-based initial incident assessment.

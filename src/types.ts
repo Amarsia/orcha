@@ -1,4 +1,9 @@
-export type ProviderName = "anthropic" | "openai" | "googlegenai" | "amarsia";
+export type ProviderName =
+  | "anthropic"
+  | "deepseek"
+  | "openai"
+  | "googlegenai"
+  | "amarsia";
 
 export interface ProviderConfiguration {
   apiKey: string;
