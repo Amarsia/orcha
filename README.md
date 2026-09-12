@@ -177,12 +177,14 @@ runtime, so application and action APIs do not change when an agent switches
 providers. Provider-specific capabilities that cannot be represented safely
 fail with an explicit Orcha error instead of silently degrading.
 
-Anthropic and OpenAI Responses are built in:
+Anthropic, OpenAI Responses, and the Gemini Developer API through Google GenAI
+are built in:
 
 ```js
 orcha.init({
   providers: {
     anthropic: process.env.ANTHROPIC_API_KEY,
+    googlegenai: process.env.GOOGLE_GENAI_API_KEY,
     openai: process.env.OPENAI_API_KEY,
   },
   agents: {
@@ -195,8 +197,8 @@ Choose the adapter and model in the agent's `index.json`:
 
 ```json
 {
-  "provider": "openai",
-  "model": "gpt-5",
+  "provider": "googlegenai",
+  "model": "gemini-2.5-flash",
   "outputType": "text"
 }
 ```
@@ -261,12 +263,14 @@ application continues to use its normal `npm run build` command.
 
 - [x] Registry compiler + `orcha build`
 - [x] Model Action Protocol — client actions and opt-in native/sandboxed local actions
-- [ ] Compiler — one provider, correct tool calls + streaming
+- [x] Provider-neutral Anthropic, OpenAI Responses, and Google GenAI adapters
 - [x] Stateful sessions — Node JSONL replay and client-action pause/resume
 - [ ] `orcha.run()` one-shot entry point
 - [ ] CLI (`orcha init`, `orcha build`, `orcha dev`) + example agents
 
-See [`ROADMAP.md`](./ROADMAP.md) for what's coming after — a second provider, an evaluations runner, OpenTelemetry tracing, MCP interop adapters, and remote session storage are all deliberately out of scope for the first release.
+See [`ROADMAP.md`](./ROADMAP.md) for what's coming after — evaluations,
+OpenTelemetry tracing, MCP interop adapters, and remote session storage remain
+deliberately out of scope for the first release.
 
 ---
 

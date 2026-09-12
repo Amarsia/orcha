@@ -1,0 +1,28 @@
+{
+  "name": "lookup_order_status",
+  "description": "Look up the current fulfillment and shipment state of an order.",
+  "execution": "local",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "orderId": {
+        "type": "string",
+        "description": "The order identifier supplied by the customer."
+      }
+    },
+    "required": ["orderId"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "orderId": { "type": "string" },
+      "status": { "type": "string" },
+      "carrier": { "type": "string" },
+      "lastEvent": { "type": "string" },
+      "nextStep": { "type": "string" }
+    },
+    "required": ["orderId", "status", "carrier", "lastEvent", "nextStep"],
+    "additionalProperties": false
+  }
+}

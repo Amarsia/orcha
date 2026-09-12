@@ -6,6 +6,7 @@ import type {
 import type {
   ProviderAssistantBlock,
   ProviderMessage,
+  ProviderReplayMetadata,
   ProviderToolResult,
 } from "../providers/types.js";
 
@@ -103,17 +104,16 @@ export function messagesFromEvents(
       event.data.role === "assistant" &&
       Array.isArray(event.data.content)
     ) {
-      const content = normalizeAssistantBlocks(
-        event.data.content,
-        isProviderName(event.data.provider)
-          ? event.data.provider
-          : undefined,
-      );
+      const provider = isProviderName(event.data.provider)
+        ? event.data.provider
+        : inferAssistantProvider(event.data.content);
+      const content = normalizeAssistantBlocks(event.data.content);
       if (!content) {
         continue;
       }
       messages.push({
         role: "assistant",
+        ...(provider ? { provider } : {}),
         content,
       });
     }
@@ -124,7 +124,6 @@ export function messagesFromEvents(
 
 function normalizeAssistantBlocks(
   value: unknown[],
-  messageProvider: ProviderName | undefined,
 ): ProviderAssistantBlock[] | undefined {
   const blocks: ProviderAssistantBlock[] = [];
   for (const item of value) {
@@ -136,26 +135,11 @@ function normalizeAssistantBlocks(
       continue;
     }
     if (item.type === "reasoning" && typeof item.text === "string") {
-      const reasoningProvider = isProviderName(item.provider)
-        ? item.provider
-        : messageProvider;
-      if (!reasoningProvider) {
-        return undefined;
-      }
+      const replay = normalizeReplayMetadata(item);
       blocks.push({
         type: "reasoning",
         text: item.text,
-        provider: reasoningProvider,
-        ...(typeof item.replayId === "string"
-          ? { replayId: item.replayId }
-          : {}),
-        ...(typeof item.opaqueData === "string"
-          ? { opaqueData: item.opaqueData }
-          : typeof item.signature === "string"
-            ? { opaqueData: item.signature }
-            : typeof item.encryptedContent === "string"
-              ? { opaqueData: item.encryptedContent }
-              : {}),
+        ...(replay ? { replay } : {}),
       });
       continue;
     }
@@ -163,9 +147,8 @@ function normalizeAssistantBlocks(
       blocks.push({
         type: "reasoning",
         text: item.thinking,
-        provider: "anthropic",
         ...(typeof item.signature === "string"
-          ? { opaqueData: item.signature }
+          ? { replay: { opaqueData: item.signature } }
           : {}),
       });
       continue;
@@ -177,8 +160,9 @@ function normalizeAssistantBlocks(
       blocks.push({
         type: "reasoning",
         text: "",
-        provider: "anthropic",
-        opaqueData: item.data,
+        replay: {
+          opaqueData: item.data,
+        },
       });
       continue;
     }
@@ -188,11 +172,13 @@ function normalizeAssistantBlocks(
       typeof item.name === "string" &&
       isRecord(item.arguments)
     ) {
+      const replay = normalizeReplayMetadata(item);
       blocks.push({
         type: "tool_call",
         callId: item.callId,
         name: item.name,
         arguments: item.arguments,
+        ...(replay ? { replay } : {}),
       });
       continue;
     }
@@ -254,6 +240,64 @@ export function normalizePersistedToolResults(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeReplayMetadata(
+  value: Record<string, unknown>,
+): ProviderReplayMetadata | undefined {
+  if (isRecord(value.replay)) {
+    const providerId =
+      typeof value.replay.providerId === "string"
+        ? value.replay.providerId
+        : undefined;
+    const opaqueData =
+      typeof value.replay.opaqueData === "string"
+        ? value.replay.opaqueData
+        : undefined;
+    if (!providerId && !opaqueData) {
+      return undefined;
+    }
+    return {
+      ...(providerId ? { providerId } : {}),
+      ...(opaqueData ? { opaqueData } : {}),
+    };
+  }
+
+  const id =
+    typeof value.replayId === "string" ? value.replayId : undefined;
+  const data = [
+    value.opaqueData,
+    value.signature,
+    value.encryptedContent,
+  ].find((item): item is string => typeof item === "string");
+  if (!id && !data) {
+    return undefined;
+  }
+  return {
+    ...(id ? { providerId: id } : {}),
+    ...(data ? { opaqueData: data } : {}),
+  };
+}
+
+function inferAssistantProvider(
+  content: unknown[],
+): ProviderName | undefined {
+  for (const item of content) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    if (isProviderName(item.provider)) {
+      return item.provider;
+    }
+    if (
+      item.type === "thinking" ||
+      item.type === "redacted_thinking" ||
+      item.type === "tool_use"
+    ) {
+      return "anthropic";
+    }
+  }
+  return undefined;
 }
 
 function isProviderName(value: unknown): value is ProviderName {

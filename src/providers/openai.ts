@@ -172,15 +172,18 @@ function toOpenAIInput(messages: ProviderMessage[]): unknown[] {
           name: block.name,
           arguments: JSON.stringify(block.arguments),
         });
-      } else if (block.provider === "openai" && block.replayId) {
+      } else if (
+        message.provider === "openai" &&
+        block.replay?.providerId
+      ) {
         input.push({
           type: "reasoning",
-          id: block.replayId,
+          id: block.replay.providerId,
           summary: block.text
             ? [{ type: "summary_text", text: block.text }]
             : [],
-          ...(block.opaqueData
-            ? { encrypted_content: block.opaqueData }
+          ...(block.replay.opaqueData
+            ? { encrypted_content: block.replay.opaqueData }
             : {}),
         });
       } else if (block.text) {
@@ -328,11 +331,12 @@ function toProviderResponse(
       content.push({
         type: "reasoning",
         text: reasoningText,
-        provider: "openai",
-        replayId: item.id,
-        ...(typeof item.encrypted_content === "string"
-          ? { opaqueData: item.encrypted_content }
-          : {}),
+        replay: {
+          providerId: item.id,
+          ...(typeof item.encrypted_content === "string"
+            ? { opaqueData: item.encrypted_content }
+            : {}),
+        },
       });
       continue;
     }

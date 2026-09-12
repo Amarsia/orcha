@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { RuntimeAgent } from "./agent.js";
 import { NodeJsonlSessionStore } from "../storage/node-jsonl.js";
+import type { ProviderResponseGenerator } from "../providers/types.js";
 import type {
   AgentRuntime,
   CompiledBundle,
@@ -26,9 +27,14 @@ class OrchaRuntimeCore implements Orcha {
   #client: OrchaClient | undefined;
   readonly #activeSessions = new Set<string>();
   readonly #resolveBundle: BundleResolver;
+  readonly #generateProviderResponse: ProviderResponseGenerator;
 
-  constructor(resolveBundle: BundleResolver) {
+  constructor(
+    resolveBundle: BundleResolver,
+    generateProviderResponse: ProviderResponseGenerator,
+  ) {
     this.#resolveBundle = resolveBundle;
+    this.#generateProviderResponse = generateProviderResponse;
   }
 
   attachClient(client: OrchaClient): void {
@@ -83,6 +89,7 @@ class OrchaRuntimeCore implements Orcha {
           configuration: runtimeConfiguration,
           store,
           activeSessions: this.#activeSessions,
+          generateProviderResponse: this.#generateProviderResponse,
         }),
       );
     }
@@ -108,8 +115,14 @@ class OrchaRuntimeCore implements Orcha {
   }
 }
 
-export function createOrcha(resolveBundle: BundleResolver): OrchaClient {
-  const core = new OrchaRuntimeCore(resolveBundle);
+export function createOrcha(
+  resolveBundle: BundleResolver,
+  generateProviderResponse: ProviderResponseGenerator,
+): OrchaClient {
+  const core = new OrchaRuntimeCore(
+    resolveBundle,
+    generateProviderResponse,
+  );
   const client = new Proxy(core, {
     get(target, property) {
       if (typeof property === "string") {

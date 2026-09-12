@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { OrchaError } from "../errors.js";
-import { generateProviderResponse } from "../providers/index.js";
 import type {
   ProviderMessage,
   ProviderResponse,
+  ProviderResponseGenerator,
   ProviderToolCall,
   ProviderToolResult,
 } from "../providers/types.js";
@@ -61,17 +61,20 @@ export class RuntimeAgent implements AgentRuntime {
   readonly #configuration: ProjectConfiguration;
   readonly #store: SessionStore;
   readonly #activeSessions: Set<string>;
+  readonly #generateProviderResponse: ProviderResponseGenerator;
 
   constructor(options: {
     manifest: CompiledAgentManifest;
     configuration: ProjectConfiguration;
     store: SessionStore;
     activeSessions: Set<string>;
+    generateProviderResponse: ProviderResponseGenerator;
   }) {
     this.#manifest = options.manifest;
     this.#configuration = options.configuration;
     this.#store = options.store;
     this.#activeSessions = options.activeSessions;
+    this.#generateProviderResponse = options.generateProviderResponse;
   }
 
   get clientTools(): CompiledActionManifest[] {
@@ -544,7 +547,7 @@ export class RuntimeAgent implements AgentRuntime {
         ...new Set([...localActionNames, ...capabilities]),
       ];
       try {
-        response = await generateProviderResponse(
+        response = await this.#generateProviderResponse(
           this.#manifest.provider,
           provider,
           {
@@ -678,7 +681,11 @@ export class RuntimeAgent implements AgentRuntime {
           writer,
           [
             ...messages,
-            { role: "assistant", content: response.content },
+            {
+              role: "assistant",
+              provider: this.#manifest.provider,
+              content: response.content,
+            },
             { role: "tool", results: localExecution.results },
           ],
           capabilities,

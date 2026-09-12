@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import test from "node:test";
 import { build } from "esbuild";
 import { orchaPlugin } from "../dist/integrations/esbuild.js";
+import { generateProviderResponse } from "../dist/providers/index.js";
 import { createOrcha } from "../dist/runtime/create-orcha.js";
 
 const executeFile = promisify(execFile);
@@ -278,9 +279,270 @@ test("maps OpenAI multimodal input, structured output, reasoning, and usage", as
     assert.deepEqual(events[3].data.content[0], {
       type: "reasoning",
       text: "Checked the supplied content.",
-      provider: "openai",
-      replayId: "rs_openai_structured",
-      opaqueData: "opaque-structured-reasoning",
+      replay: {
+        providerId: "rs_openai_structured",
+        opaqueData: "opaque-structured-reasoning",
+      },
+    });
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("runs Google GenAI streaming with normalized local tools", async () => {
+  const fixture = await createRuntimeFixture(
+    (_requests, index) =>
+      index === 1
+        ? {
+            chunks: [
+              {
+                responseId: "google_tool_response",
+                candidates: [
+                  {
+                    content: {
+                      role: "model",
+                      parts: [
+                        {
+                          functionCall: {
+                            id: "google_call_1",
+                            name: "calculate_invoice_total",
+                            args: {
+                              hours: 2,
+                              hourlyRate: 100,
+                              taxRate: 0.1,
+                              currency: "USD",
+                            },
+                          },
+                          thoughtSignature: "google-tool-signature",
+                        },
+                      ],
+                    },
+                    finishReason: "STOP",
+                  },
+                ],
+              },
+            ],
+          }
+        : {
+            chunks: [
+              {
+                responseId: "google_complete_response",
+                candidates: [
+                  {
+                    content: {
+                      role: "model",
+                      parts: [{ text: "The total" }],
+                    },
+                  },
+                ],
+              },
+              {
+                responseId: "google_complete_response",
+                candidates: [
+                  {
+                    content: {
+                      role: "model",
+                      parts: [{ text: " is $220." }],
+                    },
+                    finishReason: "STOP",
+                  },
+                ],
+              },
+            ],
+          },
+    { provider: "googlegenai" },
+  );
+  try {
+    const execution = fixture.client.testAgent.run("Calculate it.");
+    const snapshotsPromise = collectStream(execution.stream);
+    const result = await execution.result;
+    const snapshots = await snapshotsPromise;
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "The total is $220.");
+    assert.deepEqual(
+      snapshots
+        .filter((snapshot) => snapshot.status === "streaming")
+        .map((snapshot) => snapshot.output),
+      ["The total", "The total is $220."],
+    );
+    assert.deepEqual(
+      fixture.requests[1].contents.at(-2).parts[0],
+      {
+        functionCall: {
+          id: "google_call_1",
+          name: "calculate_invoice_total",
+          args: {
+            hours: 2,
+            hourlyRate: 100,
+            taxRate: 0.1,
+            currency: "USD",
+          },
+        },
+        thoughtSignature: "google-tool-signature",
+      },
+    );
+    assert.deepEqual(
+      fixture.requests[1].contents.at(-1).parts,
+      [
+        {
+          functionResponse: {
+            id: "google_call_1",
+            name: "calculate_invoice_total",
+            response: {
+              subtotal: 200,
+              tax: 20,
+              total: 220,
+              currency: "USD",
+            },
+          },
+        },
+      ],
+    );
+
+    const events = await readSessionEvents(fixture.root, result.sessionId);
+    const toolCallMessage = events.find(
+      (event) =>
+        event.type === "message.created" &&
+        event.data.role === "assistant" &&
+        event.data.content.some?.(
+          (block) => block.type === "tool_call",
+        ),
+    );
+    assert.deepEqual(toolCallMessage.data.content[0], {
+      type: "tool_call",
+      callId: "google_call_1",
+      name: "calculate_invoice_total",
+      arguments: {
+        hours: 2,
+        hourlyRate: 100,
+        taxRate: 0.1,
+        currency: "USD",
+      },
+      replay: {
+        providerId: "google_call_1",
+        opaqueData: "google-tool-signature",
+      },
+    });
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("maps Google GenAI multimodal, JSON, reasoning, and usage", async () => {
+  const outputSchema = {
+    type: "object",
+    properties: {
+      accepted: { type: "boolean" },
+    },
+    required: ["accepted"],
+    additionalProperties: false,
+  };
+  const fixture = await createRuntimeFixture(
+    () => ({
+      chunks: [
+        {
+          responseId: "google_structured_response",
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [
+                  {
+                    text: "Checked the supplied content.",
+                    thought: true,
+                    thoughtSignature: "google-reasoning-signature",
+                  },
+                  { text: '{"accepted":true}' },
+                ],
+              },
+              finishReason: "STOP",
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 7,
+            candidatesTokenCount: 3,
+            thoughtsTokenCount: 2,
+            cachedContentTokenCount: 1,
+            totalTokenCount: 12,
+          },
+        },
+      ],
+    }),
+    {
+      provider: "googlegenai",
+      outputType: "json",
+      outputSchema,
+      reasoningLevel: "LOW",
+    },
+  );
+  try {
+    const result = await fixture.client.testAgent.run({
+      content: [
+        { type: "text", text: "Inspect these files." },
+        {
+          type: "image",
+          mimeType: "image/png",
+          fileUri: "data:image/png;base64,aW1hZ2U=",
+        },
+        {
+          type: "url",
+          mimeType: "application/pdf",
+          fileUri:
+            "https://generativelanguage.googleapis.com/v1beta/files/document",
+        },
+      ],
+    }).result;
+
+    assert.equal(result.status, "completed");
+    assert.deepEqual(result.output, { accepted: true });
+    assert.deepEqual(result.usage, {
+      inputTokens: 7,
+      outputTokens: 3,
+      reasoningTokens: 2,
+      cacheReadTokens: 1,
+      cacheWriteTokens: 0,
+    });
+    assert.deepEqual(fixture.requests[0].generationConfig.thinkingConfig, {
+      thinkingLevel: "LOW",
+      includeThoughts: true,
+    });
+    assert.equal(
+      fixture.requests[0].generationConfig.responseMimeType,
+      "application/json",
+    );
+    assert.deepEqual(
+      fixture.requests[0].generationConfig.responseJsonSchema,
+      outputSchema,
+    );
+    assert.deepEqual(fixture.requests[0].contents[0].parts, [
+      { text: "Inspect these files." },
+      {
+        inlineData: {
+          mimeType: "image/png",
+          data: "aW1hZ2U=",
+        },
+      },
+      {
+        fileData: {
+          mimeType: "application/pdf",
+          fileUri:
+            "https://generativelanguage.googleapis.com/v1beta/files/document",
+        },
+      },
+    ]);
+
+    const events = await readSessionEvents(fixture.root, result.sessionId);
+    assert.deepEqual(events[3].data.content[0], {
+      type: "reasoning",
+      text: "Checked the supplied content.",
+      replay: {
+        opaqueData: "google-reasoning-signature",
+      },
+    });
+    assert.deepEqual(events[3].data.content[1], {
+      type: "text",
+      text: '{"accepted":true}',
     });
   } finally {
     await fixture.dispose();
@@ -344,21 +606,44 @@ test("continues a durable session after switching providers", async () => {
       },
     ],
   }));
-  let provider = "anthropic";
-  const client = createOrcha(() => ({
-    schemaVersion: 1,
-    agents: {
-      testAgent: {
-        name: "testAgent",
-        provider,
-        model:
-          provider === "anthropic" ? "claude-test" : "gpt-test",
-        systemPrompt: "You are a test agent.",
-        outputType: "text",
-        actions: {},
+  const google = await createMockGoogleGenAI(() => ({
+    chunks: [
+      {
+        responseId: "google_provider_switch",
+        candidates: [
+          {
+            content: {
+              role: "model",
+              parts: [{ text: "Third provider response." }],
+            },
+            finishReason: "STOP",
+          },
+        ],
       },
-    },
+    ],
   }));
+  let provider = "anthropic";
+  const client = createOrcha(
+    () => ({
+      schemaVersion: 1,
+      agents: {
+        testAgent: {
+          name: "testAgent",
+          provider,
+          model:
+            provider === "anthropic"
+              ? "claude-test"
+              : provider === "openai"
+                ? "gpt-test"
+                : "gemini-test",
+          systemPrompt: "You are a test agent.",
+          outputType: "text",
+          actions: {},
+        },
+      },
+    }),
+    generateProviderResponse,
+  );
   const configuration = {
     root,
     providers: {
@@ -369,6 +654,10 @@ test("continues a durable session after switching providers", async () => {
       openai: {
         apiKey: "test-openai-key",
         baseUrl: openai.baseUrl,
+      },
+      googlegenai: {
+        apiKey: "test-google-key",
+        baseUrl: google.baseUrl,
       },
     },
     agents: { testAgent: "./testAgent" },
@@ -403,9 +692,41 @@ test("continues a durable session after switching providers", async () => {
         content: [{ type: "input_text", text: "Second message." }],
       },
     ]);
+
+    provider = "googlegenai";
+    client.init(configuration);
+    const third = await client.testAgent.resume(first.sessionId, {
+      content: "Third message.",
+    }).result;
+
+    assert.equal(third.status, "completed");
+    assert.equal(third.output, "Third provider response.");
+    assert.deepEqual(google.requests[0].contents, [
+      {
+        role: "user",
+        parts: [{ text: "First message." }],
+      },
+      {
+        role: "model",
+        parts: [{ text: "First provider response." }],
+      },
+      {
+        role: "user",
+        parts: [{ text: "Second message." }],
+      },
+      {
+        role: "model",
+        parts: [{ text: "Second provider response." }],
+      },
+      {
+        role: "user",
+        parts: [{ text: "Third message." }],
+      },
+    ]);
   } finally {
     await anthropic.close();
     await openai.close();
+    await google.close();
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -778,6 +1099,10 @@ test("executes the production application without a runtime orchajs import", asy
       applicationBundle,
       /quickjs-emscripten|emscripten-module|QuickJSRuntime/,
     );
+    assert.doesNotMatch(
+      applicationBundle,
+      /GoogleGenAI|generativelanguage\.googleapis\.com/,
+    );
 
     const { stdout } = await executeFile(process.execPath, [outputPath], {
       cwd: root,
@@ -869,6 +1194,8 @@ async function createRuntimeFixture(responseFactory, options = {}) {
   const mock =
     provider === "openai"
       ? await createMockOpenAI(responseFactory)
+      : provider === "googlegenai"
+        ? await createMockGoogleGenAI(responseFactory)
       : await createMockAnthropic(responseFactory);
   const bundle = {
     schemaVersion: 1,
@@ -876,7 +1203,12 @@ async function createRuntimeFixture(responseFactory, options = {}) {
       testAgent: {
         name: "testAgent",
         provider,
-        model: "claude-test",
+        model:
+          provider === "anthropic"
+            ? "claude-test"
+            : provider === "openai"
+              ? "gpt-test"
+              : "gemini-test",
         systemPrompt: options.systemPrompt ?? "You are a test agent.",
         maxTokens: 32,
         reasoningLevel: options.reasoningLevel,
@@ -945,7 +1277,7 @@ async function createRuntimeFixture(responseFactory, options = {}) {
       },
     },
   };
-  const client = createOrcha(() => bundle);
+  const client = createOrcha(() => bundle, generateProviderResponse);
   client.init({
     root,
     providers: {
@@ -1100,6 +1432,64 @@ async function createMockOpenAI(responseFactory) {
           : "response.completed",
       response: completed,
     });
+    response.end();
+  });
+  await new Promise((resolveListen) =>
+    server.listen(0, "127.0.0.1", resolveListen),
+  );
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  return {
+    requests,
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise((resolveClose, rejectClose) =>
+        server.close((error) =>
+          error ? rejectClose(error) : resolveClose(),
+        ),
+      ),
+  };
+}
+
+async function createMockGoogleGenAI(responseFactory) {
+  const requests = [];
+  const server = createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) {
+      body += chunk;
+    }
+    requests.push(JSON.parse(body));
+    const index = requests.length;
+    const generated = responseFactory?.(requests, index) ?? {
+      chunks: [
+        {
+          responseId: `google_mock_${index}`,
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [{ text: `mock-response-${index}` }],
+              },
+              finishReason: "STOP",
+            },
+          ],
+        },
+      ],
+    };
+
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    for (const chunk of generated.chunks) {
+      response.write(`data: ${JSON.stringify({
+        ...chunk,
+        usageMetadata: chunk.usageMetadata ?? {
+          promptTokenCount: 7,
+          candidatesTokenCount: 3,
+          cachedContentTokenCount: 2,
+          totalTokenCount: 10,
+        },
+      })}\n\n`);
+    }
     response.end();
   });
   await new Promise((resolveListen) =>
