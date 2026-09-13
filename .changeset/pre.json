@@ -5,6 +5,7 @@
     "orchajs": "0.0.1"
   },
   "changesets": [
+    "bedrock-provider",
     "deepseek-provider",
     "durable-agent-actions",
     "early-orcha-foundation",
