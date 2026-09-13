@@ -74,11 +74,12 @@ export async function generateGoogleContent(
     config.responseMimeType = "application/json";
     config.responseJsonSchema = request.outputSchema ?? {};
   }
+  config.thinkingConfig = {
+    includeThoughts: true,
+  };
   if (request.reasoningLevel) {
-    config.thinkingConfig = {
-      thinkingLevel: request.reasoningLevel as ThinkingLevel,
-      includeThoughts: true,
-    };
+    config.thinkingConfig.thinkingLevel =
+      request.reasoningLevel as ThinkingLevel;
   }
 
   const stream = await client.models.generateContentStream({

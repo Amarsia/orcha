@@ -100,13 +100,14 @@ async function generateOpenAI(
       },
     };
   }
+  const reasoning: Record<string, unknown> = {
+    summary: "auto",
+  };
   if (request.reasoningLevel) {
-    body.reasoning = {
-      effort: request.reasoningLevel,
-      summary: "auto",
-    };
-    body.include = ["reasoning.encrypted_content"];
+    reasoning.effort = request.reasoningLevel;
   }
+  body.reasoning = reasoning;
+  body.include = ["reasoning.encrypted_content"];
 
   const response = await fetch(
     `${configuration.baseUrl ?? "https://api.openai.com"}/v1/responses`,

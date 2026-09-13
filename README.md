@@ -250,6 +250,11 @@ Choose the adapter and model in the agent's `index.json`:
 }
 ```
 
+Orcha requests provider-exposed reasoning summaries where that does not enable
+reasoning itself, and stores any returned reasoning text as normalized blocks.
+Set `reasoningLevel` to pass a provider-native effort value through unchanged
+when you want to enable or configure reasoning.
+
 Both methods accept text shorthand:
 
 ```js
