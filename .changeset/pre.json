@@ -11,6 +11,7 @@
     "google-genai-provider",
     "neutral-provider-core",
     "openai-responses-provider",
+    "reasoning-output-default",
     "vertex-ai-provider"
   ]
 }
