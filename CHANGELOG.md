@@ -1,5 +1,21 @@
 # orchajs
 
+## 0.1.0-next.7
+
+### Minor Changes
+
+- [#22](https://github.com/Amarsia/orcha/pull/22) [`3db236c`](https://github.com/Amarsia/orcha/commit/3db236ce6cb545c839537622e9aa6931a68f01de) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Request and persist provider-returned reasoning text without enabling
+  reasoning by default.
+
+  Google GenAI and Vertex AI now request thought summaries without overriding
+  the model's reasoning level. OpenAI requests automatic reasoning summaries and
+  replay metadata without setting an effort level.
+
+  Anthropic and DeepSeek continue to enable reasoning only when an agent supplies
+  `reasoningLevel`. User-supplied values pass through unchanged. Every adapter
+  stores reasoning text whenever its provider returns it, allowing reasoning
+  token usage to be matched with the available provider-exposed explanation.
+
 ## 0.1.0-next.6
 
 ### Minor Changes
