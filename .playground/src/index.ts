@@ -118,6 +118,28 @@ console.log(
   `\nSession log: .orcha/sessions/${incidentResult.sessionId}.jsonl`,
 );
 
+const riskResult = await orcha.riskBot.run({
+  content:
+    "Assess transaction TXN-90210 and recommend whether it needs manual review.",
+  name: "Transaction risk TXN-90210",
+  metadata: {
+    transactionId: "TXN-90210",
+    category: "payment-risk",
+  },
+}).result;
+
+logHistory(
+  "riskBot",
+  await orcha.riskBot.history(riskResult.sessionId, {
+    page: 1,
+    pageSize: 100,
+  }),
+);
+console.log("[riskBot] Result:", JSON.stringify(riskResult, null, 2));
+console.log(
+  `\nSession log: .orcha/sessions/${riskResult.sessionId}.jsonl`,
+);
+
 function logHistory(
   agentName: string,
   history: SessionHistory,

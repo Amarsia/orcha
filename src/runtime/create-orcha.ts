@@ -7,6 +7,7 @@ import type {
   CompiledBundle,
   OrchaInitConfiguration,
   ProjectConfiguration,
+  ResolvedProviderConfigurations,
 } from "../types.js";
 
 export interface Orcha {
@@ -50,7 +51,7 @@ class OrchaRuntimeCore implements Orcha {
           name,
           typeof provider === "string" ? { apiKey: provider } : provider,
         ]),
-      ),
+      ) as ResolvedProviderConfigurations,
       actions: configuration.actions,
       storage: configuration.storage,
     };

@@ -177,8 +177,8 @@ runtime, so application and action APIs do not change when an agent switches
 providers. Provider-specific capabilities that cannot be represented safely
 fail with an explicit Orcha error instead of silently degrading.
 
-Anthropic, DeepSeek Chat Completions, OpenAI Responses, and the Gemini
-Developer API through Google GenAI are built in:
+Anthropic, DeepSeek Chat Completions, OpenAI Responses, the Gemini Developer
+API through Google GenAI, and Vertex AI are built in:
 
 ```js
 orcha.init({
@@ -187,12 +187,58 @@ orcha.init({
     deepseek: process.env.DEEPSEEK_API_KEY,
     googlegenai: process.env.GOOGLE_GENAI_API_KEY,
     openai: process.env.OPENAI_API_KEY,
+    vertexai: {
+      project: process.env.GOOGLE_CLOUD_PROJECT,
+      location: process.env.GOOGLE_CLOUD_LOCATION,
+    },
   },
   agents: {
     invoiceAgent: "./invoiceAgent",
   },
 });
 ```
+
+Vertex AI uses Google Application Default Credentials by default. Configure
+ADC through the runtime environment, or provide `credentials: { clientEmail,
+privateKey }` inside the `vertexai` configuration.
+
+On Google Cloud, attach a service account to the Cloud Run, GKE, or Compute
+runtime. No credential file or application configuration is required beyond
+the project and location above.
+
+For local development or a deployment with a mounted service-account file,
+set its runtime path:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/google-service-account.json
+```
+
+The credential file is read by Google's authentication library at runtime; it
+is not included in the application bundle. The file must therefore exist at
+that path inside the deployed container or server.
+
+Credentials can alternatively come from environment variables:
+
+```js
+orcha.init({
+  providers: {
+    vertexai: {
+      project: process.env.GOOGLE_CLOUD_PROJECT,
+      location: process.env.GOOGLE_CLOUD_LOCATION,
+      credentials: {
+        clientEmail: process.env.GOOGLE_CLIENT_EMAIL,
+        privateKey: process.env.GOOGLE_PRIVATE_KEY,
+      },
+    },
+  },
+  agents: {
+    riskAgent: "./riskAgent",
+  },
+});
+```
+
+Do not import a service-account JSON file into application source because a
+bundler may embed the secret in its output.
 
 Choose the adapter and model in the agent's `index.json`:
 
@@ -264,7 +310,7 @@ application continues to use its normal `npm run build` command.
 
 - [x] Registry compiler + `orcha build`
 - [x] Model Action Protocol — client actions and opt-in native/sandboxed local actions
-- [x] Provider-neutral Anthropic, DeepSeek, OpenAI, and Google GenAI adapters
+- [x] Provider-neutral Anthropic, DeepSeek, OpenAI, Google GenAI, and Vertex AI adapters
 - [x] Stateful sessions — Node JSONL replay and client-action pause/resume
 - [ ] `orcha.run()` one-shot entry point
 - [ ] CLI (`orcha init`, `orcha build`, `orcha dev`) + example agents

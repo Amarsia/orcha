@@ -3,15 +3,48 @@ export type ProviderName =
   | "deepseek"
   | "openai"
   | "googlegenai"
+  | "vertexai"
   | "amarsia";
 
-export interface ProviderConfiguration {
+export interface ApiKeyProviderConfiguration {
   apiKey: string;
   baseUrl?: string;
+  project?: never;
+  location?: never;
+  credentials?: never;
 }
 
+export interface GoogleServiceAccountCredentials {
+  clientEmail: string;
+  privateKey: string;
+}
+
+export interface VertexAIProviderConfiguration {
+  apiKey?: never;
+  baseUrl?: string;
+  project: string;
+  location: string;
+  credentials?: GoogleServiceAccountCredentials;
+}
+
+export type ProviderConfiguration =
+  | ApiKeyProviderConfiguration
+  | VertexAIProviderConfiguration;
+
+export type ResolvedProviderConfigurations = {
+  [Name in ProviderName]?: Name extends "vertexai"
+    ? VertexAIProviderConfiguration
+    : ApiKeyProviderConfiguration;
+};
+
+export type ProviderInitConfigurations = {
+  [Name in ProviderName]?: Name extends "vertexai"
+    ? VertexAIProviderConfiguration
+    : string | ApiKeyProviderConfiguration;
+};
+
 export interface ProjectConfiguration {
-  providers: Partial<Record<ProviderName, ProviderConfiguration>>;
+  providers: ResolvedProviderConfigurations;
   actions?: LocalActionRuntimeConfiguration;
   storage?: {
     strategy?: "node-jsonl";
@@ -20,7 +53,7 @@ export interface ProjectConfiguration {
 }
 
 export interface OrchaInitConfiguration {
-  providers: Partial<Record<ProviderName, string | ProviderConfiguration>>;
+  providers: ProviderInitConfigurations;
   agents: Record<string, string>;
   actions?: LocalActionRuntimeConfiguration;
   storage?: ProjectConfiguration["storage"];

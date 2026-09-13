@@ -1,0 +1,36 @@
+{
+  "name": "lookup_transaction_risk",
+  "description": "Retrieve fraud-risk signals recorded for a transaction.",
+  "execution": "local",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "transactionId": {
+        "type": "string",
+        "description": "The transaction identifier to inspect."
+      }
+    },
+    "required": ["transactionId"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "transactionId": { "type": "string" },
+      "amount": { "type": "number" },
+      "currency": { "type": "string" },
+      "velocityScore": { "type": "number" },
+      "locationMismatch": { "type": "boolean" },
+      "devicePreviouslySeen": { "type": "boolean" }
+    },
+    "required": [
+      "transactionId",
+      "amount",
+      "currency",
+      "velocityScore",
+      "locationMismatch",
+      "devicePreviouslySeen"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -1338,6 +1338,37 @@ test("executes the production application without a runtime orchajs import", asy
   }
 });
 
+test("bundles Google Cloud authentication only for Vertex agents", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-vertex-production-"));
+  try {
+    await writeVertexFixtureProject(root);
+    await mkdir(resolve(root, "node_modules"), { recursive: true });
+    await symlink(repositoryRoot, resolve(root, "node_modules/orchajs"), "dir");
+
+    const outputPath = resolve(root, "dist/index.js");
+    await build({
+      entryPoints: [resolve(root, "src/index.ts")],
+      outfile: outputPath,
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      target: "node20",
+      plugins: [orchaPlugin({ projectRoot: root })],
+    });
+
+    const applicationBundle = await readFile(outputPath, "utf8");
+    assert.doesNotMatch(applicationBundle, /from\s*["']orchajs["']/);
+    assert.match(applicationBundle, /node:module/);
+    assert.match(applicationBundle, /child_process/);
+    assert.doesNotMatch(
+      applicationBundle,
+      /api\.anthropic\.com|api\.deepseek\.com/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("executes a sandboxed local action from the production ESM bundle", async () => {
   const mock = await createMockAnthropic((_requests, index) =>
     index === 1
@@ -1857,6 +1888,42 @@ async function readSessionEvents(root, sessionId) {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+}
+
+async function writeVertexFixtureProject(root) {
+  const files = {
+    "package.json": JSON.stringify({
+      private: true,
+      type: "module",
+    }),
+    "orcha/vertexAgent/index.json": JSON.stringify({
+      provider: "vertexai",
+      model: "gemini-test",
+      maxTokens: 32,
+      outputType: "text",
+    }),
+    "orcha/vertexAgent/instructions.md": "You are a test agent.\n",
+    "orcha/index.ts": [
+      'import { orcha } from "orchajs";',
+      "orcha.init({",
+      '  providers: { vertexai: { project: "test-project", location: "us-central1" } },',
+      '  agents: { vertexAgent: "./vertexAgent" },',
+      "});",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      'import { orcha } from "orchajs";',
+      'import "../orcha/index.js";',
+      "console.log(orcha.isInitialized());",
+      "",
+    ].join("\n"),
+  };
+
+  for (const [relativePath, contents] of Object.entries(files)) {
+    const path = resolve(root, relativePath);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, contents, "utf8");
+  }
 }
 
 async function writeFixtureProject(root, baseUrl, actionRuntime = "native") {

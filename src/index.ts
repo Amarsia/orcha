@@ -4,6 +4,7 @@ export type { Orcha, OrchaClient } from "./orcha.js";
 export { NodeJsonlSessionStore } from "./storage/node-jsonl.js";
 export type {
   ActionConfiguration,
+  ApiKeyProviderConfiguration,
   AgentContinueInput,
   AgentConfiguration,
   AgentInput,
@@ -25,6 +26,9 @@ export type {
   OrchaInitConfiguration,
   PaginationOptions,
   ProjectConfiguration,
+  ProviderConfiguration,
+  ProviderInitConfigurations,
+  ProviderName,
   RunError,
   RunStatus,
   ResumeInput,
@@ -45,5 +49,7 @@ export type {
   ToolResult,
   ToolResumeInput,
   Usage,
+  VertexAIProviderConfiguration,
+  GoogleServiceAccountCredentials,
   WaitingRunResult,
 } from "./types.js";
