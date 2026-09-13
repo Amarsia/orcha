@@ -156,7 +156,12 @@ test("runs OpenAI Responses with streaming and normalized local tools", async ()
       ),
       true,
     );
-    assert.equal("reasoning" in fixture.requests[0], false);
+    assert.deepEqual(fixture.requests[0].reasoning, {
+      summary: "auto",
+    });
+    assert.deepEqual(fixture.requests[0].include, [
+      "reasoning.encrypted_content",
+    ]);
 
     const events = await readSessionEvents(fixture.root, result.sessionId);
     const toolCall = events.find(
@@ -365,6 +370,10 @@ test("runs Google GenAI streaming with normalized local tools", async () => {
         .filter((snapshot) => snapshot.status === "streaming")
         .map((snapshot) => snapshot.output),
       ["The total", "The total is $220."],
+    );
+    assert.deepEqual(
+      fixture.requests[0].generationConfig.thinkingConfig,
+      { includeThoughts: true },
     );
     assert.deepEqual(
       fixture.requests[1].contents.at(-2).parts[0],
@@ -660,9 +669,7 @@ test("runs DeepSeek reasoning, streaming, and normalized local tools", async () 
         .map((snapshot) => snapshot.output),
       ["The total", "The total is $220."],
     );
-    assert.deepEqual(fixture.requests[0].thinking, {
-      type: "enabled",
-    });
+    assert.equal("thinking" in fixture.requests[0], false);
     assert.equal(fixture.requests[0].reasoning_effort, "high");
     assert.deepEqual(fixture.requests[1].messages.at(-2), {
       role: "assistant",
@@ -761,7 +768,9 @@ test("maps DeepSeek structured JSON output and usage", async () => {
       fixture.requests[0].messages[0].content,
       /Return only valid JSON matching this JSON Schema/,
     );
-    assert.equal("thinking" in fixture.requests[0], false);
+    assert.deepEqual(fixture.requests[0].thinking, {
+      type: "enabled",
+    });
   } finally {
     await fixture.dispose();
   }
