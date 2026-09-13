@@ -47,6 +47,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1131.0",
     "@google/genai": "^2.22.0",
     "@jitl/quickjs-singlefile-cjs-release-sync": "^0.32.0",
     "esbuild": "^0.25.9",

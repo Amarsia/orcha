@@ -84,7 +84,8 @@ export async function buildProject(
       createProviderRuntimeSource(includedProviders);
     const needsNodeRequire =
       compiledBundle.actionRuntime === "sandbox" ||
-      includedProviders.includes("vertexai");
+      includedProviders.includes("vertexai") ||
+      includedProviders.includes("bedrock");
 
     await writeFile(
       productionEntryPath,

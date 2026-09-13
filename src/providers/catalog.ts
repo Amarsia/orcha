@@ -10,6 +10,10 @@ export const builtInProviderCatalog = {
     moduleFile: "anthropic.js",
     exportName: "anthropicProvider",
   },
+  bedrock: {
+    moduleFile: "bedrock.js",
+    exportName: "bedrockProvider",
+  },
   deepseek: {
     moduleFile: "deepseek.js",
     exportName: "deepSeekProvider",

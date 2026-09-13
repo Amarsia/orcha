@@ -1,0 +1,7 @@
+{
+  "provider": "bedrock",
+  "model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "region": "provider_managed",
+  "maxTokens": 4096,
+  "outputType": "text"
+}

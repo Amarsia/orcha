@@ -5,6 +5,7 @@ export { NodeJsonlSessionStore } from "./storage/node-jsonl.js";
 export type {
   ActionConfiguration,
   ApiKeyProviderConfiguration,
+  AwsCredentials,
   AgentContinueInput,
   AgentConfiguration,
   AgentInput,
@@ -29,6 +30,7 @@ export type {
   ProviderConfiguration,
   ProviderInitConfigurations,
   ProviderName,
+  BedrockProviderConfiguration,
   RunError,
   RunStatus,
   ResumeInput,
