@@ -22,6 +22,10 @@ export const builtInProviderCatalog = {
     moduleFile: "openai.js",
     exportName: "openAIProvider",
   },
+  vertexai: {
+    moduleFile: "vertex-ai.js",
+    exportName: "vertexAIProvider",
+  },
 } as const satisfies Partial<
   Record<ProviderName, BuiltInProviderDescriptor>
 >;

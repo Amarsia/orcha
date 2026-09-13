@@ -82,6 +82,9 @@ export async function buildProject(
     ];
     const providerRuntimeSource =
       createProviderRuntimeSource(includedProviders);
+    const needsNodeRequire =
+      compiledBundle.actionRuntime === "sandbox" ||
+      includedProviders.includes("vertexai");
 
     await writeFile(
       productionEntryPath,
@@ -111,7 +114,7 @@ export async function buildProject(
           compiledBundle.actionRuntime === "sandbox" ? "1" : "0",
         ),
       },
-      ...(compiledBundle.actionRuntime === "sandbox"
+      ...(needsNodeRequire
         ? {
             banner: {
               js: [
