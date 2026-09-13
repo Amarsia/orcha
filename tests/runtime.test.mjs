@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import test from "node:test";
 import { build } from "esbuild";
 import { orchaPlugin } from "../dist/integrations/esbuild.js";
+import { generateBedrockContent } from "../dist/providers/bedrock.js";
 import { generateProviderResponse } from "../dist/providers/index.js";
 import { createOrcha } from "../dist/runtime/create-orcha.js";
 
@@ -776,6 +777,168 @@ test("maps DeepSeek structured JSON output and usage", async () => {
   }
 });
 
+test("maps Bedrock Converse streaming, tools, reasoning, replay, and usage", async () => {
+  const requests = [];
+  const snapshots = [];
+  const client = {
+    async send(command) {
+      requests.push(command.input);
+      return {
+        $metadata: { requestId: "bedrock-request-1" },
+        stream: (async function* () {
+          yield {
+            contentBlockDelta: {
+              contentBlockIndex: 0,
+              delta: {
+                reasoningContent: {
+                  text: "I should inspect the account.",
+                },
+              },
+            },
+          };
+          yield {
+            contentBlockDelta: {
+              contentBlockIndex: 0,
+              delta: {
+                reasoningContent: {
+                  signature: "bedrock-signature-1",
+                },
+              },
+            },
+          };
+          yield {
+            contentBlockDelta: {
+              contentBlockIndex: 1,
+              delta: { text: "Checking the account." },
+            },
+          };
+          yield {
+            contentBlockStart: {
+              contentBlockIndex: 2,
+              start: {
+                toolUse: {
+                  toolUseId: "bedrock-tool-1",
+                  name: "lookup_account",
+                },
+              },
+            },
+          };
+          yield {
+            contentBlockDelta: {
+              contentBlockIndex: 2,
+              delta: {
+                toolUse: { input: '{"accountId":"acct_123"}' },
+              },
+            },
+          };
+          yield { messageStop: { stopReason: "tool_use" } };
+          yield {
+            metadata: {
+              usage: {
+                inputTokens: 9,
+                outputTokens: 5,
+                totalTokens: 14,
+                cacheReadInputTokens: 2,
+                cacheWriteInputTokens: 1,
+              },
+              metrics: { latencyMs: 12 },
+            },
+          };
+        })(),
+      };
+    },
+  };
+
+  const response = await generateBedrockContent(client, {
+    model: "us.anthropic.claude-sonnet-4-6",
+    reasoningLevel: "high",
+    systemPrompt: "You investigate accounts.",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Investigate this account." },
+          {
+            type: "image",
+            mimeType: "image/png",
+            fileUri: "data:image/png;base64,AQID",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        provider: "bedrock",
+        content: [
+          {
+            type: "reasoning",
+            text: "Previous reasoning.",
+            replay: { opaqueData: "previous-signature" },
+          },
+        ],
+      },
+    ],
+    tools: [
+      {
+        name: "lookup_account",
+        description: "Look up an account.",
+        parameters: {
+          type: "object",
+          properties: {
+            accountId: { type: "string" },
+          },
+          required: ["accountId"],
+        },
+      },
+    ],
+    publishOutput: (output) => snapshots.push(output),
+  });
+
+  assert.deepEqual(requests[0].additionalModelRequestFields, {
+    thinking: { type: "adaptive" },
+    output_config: { effort: "high" },
+  });
+  assert.deepEqual(
+    requests[0].messages[0].content[1].image,
+    {
+      format: "png",
+      source: { bytes: new Uint8Array([1, 2, 3]) },
+    },
+  );
+  assert.deepEqual(
+    requests[0].messages[1].content[0].reasoningContent,
+    {
+      reasoningText: {
+        text: "Previous reasoning.",
+        signature: "previous-signature",
+      },
+    },
+  );
+  assert.deepEqual(snapshots, ["Checking the account."]);
+  assert.equal(response.responseId, "bedrock-request-1");
+  assert.equal(response.output, "Checking the account.");
+  assert.equal(response.stopReason, "tool_call");
+  assert.deepEqual(response.content[0], {
+    type: "reasoning",
+    text: "I should inspect the account.",
+    replay: { opaqueData: "bedrock-signature-1" },
+  });
+  assert.deepEqual(response.toolCalls, [
+    {
+      type: "tool_call",
+      callId: "bedrock-tool-1",
+      name: "lookup_account",
+      arguments: { accountId: "acct_123" },
+    },
+  ]);
+  assert.deepEqual(response.usage, {
+    inputTokens: 9,
+    outputTokens: 5,
+    reasoningTokens: null,
+    cacheReadTokens: 2,
+    cacheWriteTokens: 1,
+  });
+});
+
 test("fails safely when a provider exhausts its output-token budget", async () => {
   const fixture = await createRuntimeFixture(
     () => ({
@@ -1328,7 +1491,7 @@ test("executes the production application without a runtime orchajs import", asy
     );
     assert.doesNotMatch(
       applicationBundle,
-      /DeepSeek|api\.deepseek\.com|GoogleGenAI|generativelanguage\.googleapis\.com/,
+      /BedrockRuntimeClient|DeepSeek|api\.deepseek\.com|GoogleGenAI|generativelanguage\.googleapis\.com/,
     );
 
     const { stdout } = await executeFile(process.execPath, [outputPath], {
@@ -1372,6 +1535,37 @@ test("bundles Google Cloud authentication only for Vertex agents", async () => {
     assert.doesNotMatch(
       applicationBundle,
       /api\.anthropic\.com|api\.deepseek\.com/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("bundles AWS authentication only for Bedrock agents", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-bedrock-production-"));
+  try {
+    await writeBedrockFixtureProject(root);
+    await mkdir(resolve(root, "node_modules"), { recursive: true });
+    await symlink(repositoryRoot, resolve(root, "node_modules/orchajs"), "dir");
+
+    const outputPath = resolve(root, "dist/index.js");
+    await build({
+      entryPoints: [resolve(root, "src/index.ts")],
+      outfile: outputPath,
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      target: "node20",
+      plugins: [orchaPlugin({ projectRoot: root })],
+    });
+
+    const applicationBundle = await readFile(outputPath, "utf8");
+    assert.doesNotMatch(applicationBundle, /from\s*["']orchajs["']/);
+    assert.match(applicationBundle, /node:module/);
+    assert.match(applicationBundle, /AWS_PROFILE|AWS_REGION/);
+    assert.doesNotMatch(
+      applicationBundle,
+      /api\.anthropic\.com|api\.deepseek\.com|GoogleGenAI/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -1917,6 +2111,42 @@ async function writeVertexFixtureProject(root) {
       "orcha.init({",
       '  providers: { vertexai: { project: "test-project", location: "us-central1" } },',
       '  agents: { vertexAgent: "./vertexAgent" },',
+      "});",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      'import { orcha } from "orchajs";',
+      'import "../orcha/index.js";',
+      "console.log(orcha.isInitialized());",
+      "",
+    ].join("\n"),
+  };
+
+  for (const [relativePath, contents] of Object.entries(files)) {
+    const path = resolve(root, relativePath);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, contents, "utf8");
+  }
+}
+
+async function writeBedrockFixtureProject(root) {
+  const files = {
+    "package.json": JSON.stringify({
+      private: true,
+      type: "module",
+    }),
+    "orcha/bedrockAgent/index.json": JSON.stringify({
+      provider: "bedrock",
+      model: "us.anthropic.claude-sonnet-4-6",
+      maxTokens: 32,
+      outputType: "text",
+    }),
+    "orcha/bedrockAgent/instructions.md": "You are a test agent.\n",
+    "orcha/index.ts": [
+      'import { orcha } from "orchajs";',
+      "orcha.init({",
+      '  providers: { bedrock: { region: "us-east-1" } },',
+      '  agents: { bedrockAgent: "./bedrockAgent" },',
       "});",
       "",
     ].join("\n"),

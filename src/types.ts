@@ -1,5 +1,6 @@
 export type ProviderName =
   | "anthropic"
+  | "bedrock"
   | "deepseek"
   | "openai"
   | "googlegenai"
@@ -11,6 +12,7 @@ export interface ApiKeyProviderConfiguration {
   baseUrl?: string;
   project?: never;
   location?: never;
+  region?: never;
   credentials?: never;
 }
 
@@ -24,23 +26,44 @@ export interface VertexAIProviderConfiguration {
   baseUrl?: string;
   project: string;
   location: string;
+  region?: never;
   credentials?: GoogleServiceAccountCredentials;
+}
+
+export interface AwsCredentials {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string;
+}
+
+export interface BedrockProviderConfiguration {
+  apiKey?: never;
+  baseUrl?: string;
+  project?: never;
+  location?: never;
+  region: string;
+  credentials?: AwsCredentials;
 }
 
 export type ProviderConfiguration =
   | ApiKeyProviderConfiguration
+  | BedrockProviderConfiguration
   | VertexAIProviderConfiguration;
 
 export type ResolvedProviderConfigurations = {
   [Name in ProviderName]?: Name extends "vertexai"
     ? VertexAIProviderConfiguration
-    : ApiKeyProviderConfiguration;
+    : Name extends "bedrock"
+      ? BedrockProviderConfiguration
+      : ApiKeyProviderConfiguration;
 };
 
 export type ProviderInitConfigurations = {
   [Name in ProviderName]?: Name extends "vertexai"
     ? VertexAIProviderConfiguration
-    : string | ApiKeyProviderConfiguration;
+    : Name extends "bedrock"
+      ? BedrockProviderConfiguration
+      : string | ApiKeyProviderConfiguration;
 };
 
 export interface ProjectConfiguration {

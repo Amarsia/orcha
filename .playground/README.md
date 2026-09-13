@@ -7,7 +7,9 @@ This directory is a small consumer project used to exercise the local
 2. Set `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, and
    `GOOGLE_API_KEY` in the environment. Set `GOOGLE_CLOUD_PROJECT` and
    `GOOGLE_CLOUD_LOCATION`, and configure Google Application Default
-   Credentials, to run the Vertex AI scenario.
+   Credentials, to run the Vertex AI scenario. Set `AWS_REGION` and configure
+   an AWS profile, environment credentials, or an IAM role to run the Bedrock
+   scenario.
 3. Run `npm start` from this directory.
 4. Inspect the printed result and `.orcha/sessions/<sessionId>.jsonl`.
 
@@ -35,6 +37,9 @@ to explain a delayed shipment without inventing carrier events.
 
 The incident scenario uses DeepSeek Reasoner and a sandboxed service-health
 lookup to produce an evidence-based initial incident assessment.
+
+The compliance scenario uses Claude through Amazon Bedrock Converse and a
+sandboxed security-control lookup to identify missing compliance evidence.
 
 The risk scenario uses Vertex AI and a sandboxed transaction-risk lookup to
 recommend whether a payment needs manual review.

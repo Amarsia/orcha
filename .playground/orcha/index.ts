@@ -3,6 +3,16 @@ import { orcha } from "orchajs";
 orcha.init({
   providers: {
     anthropic: process.env.ANTHROPIC_API_KEY ?? "",
+    // Uses the standard AWS credential chain. Locally, configure an AWS
+    // profile or AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
+    bedrock: {
+      region: process.env.AWS_REGION ?? "us-east-1",
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? "",
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? "",
+        sessionToken: process.env.AWS_SESSION_TOKEN ?? "",
+      },
+    },
     deepseek: process.env.DEEPSEEK_API_KEY ?? "",
     googlegenai: process.env.GOOGLE_API_KEY ?? "",
     openai: process.env.OPENAI_API_KEY ?? "",
@@ -18,6 +28,7 @@ orcha.init({
   },
   agents: {
     invoiceBot: "./invoiceBot",
+    complianceBot: "./complianceBot",
     fulfillmentBot: "./fulfillmentBot",
     incidentBot: "./incidentBot",
     riskBot: "./riskBot",

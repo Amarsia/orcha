@@ -1,0 +1,37 @@
+{
+  "name": "lookup_security_control",
+  "description": "Retrieve the latest evidence recorded for a security control.",
+  "execution": "local",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "controlId": {
+        "type": "string",
+        "description": "The security control identifier to inspect."
+      }
+    },
+    "required": ["controlId"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "controlId": { "type": "string" },
+      "owner": { "type": "string" },
+      "lastReviewedAt": { "type": "string" },
+      "evidenceStatus": { "type": "string" },
+      "exceptions": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "required": [
+      "controlId",
+      "owner",
+      "lastReviewedAt",
+      "evidenceStatus",
+      "exceptions"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -177,13 +177,17 @@ runtime, so application and action APIs do not change when an agent switches
 providers. Provider-specific capabilities that cannot be represented safely
 fail with an explicit Orcha error instead of silently degrading.
 
-Anthropic, DeepSeek Chat Completions, OpenAI Responses, the Gemini Developer
-API through Google GenAI, and Vertex AI are built in:
+Anthropic, Amazon Bedrock Converse, DeepSeek Chat Completions, OpenAI
+Responses, the Gemini Developer API through Google GenAI, and Vertex AI are
+built in:
 
 ```js
 orcha.init({
   providers: {
     anthropic: process.env.ANTHROPIC_API_KEY,
+    bedrock: {
+      region: process.env.AWS_REGION,
+    },
     deepseek: process.env.DEEPSEEK_API_KEY,
     googlegenai: process.env.GOOGLE_GENAI_API_KEY,
     openai: process.env.OPENAI_API_KEY,
@@ -196,6 +200,40 @@ orcha.init({
     invoiceAgent: "./invoiceAgent",
   },
 });
+```
+
+Amazon Bedrock uses the standard AWS credential chain by default. Local AWS
+profiles, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, ECS/EKS credentials,
+and attached IAM roles work without copying credentials into Orcha
+configuration. Explicit temporary or static credentials are also supported:
+
+```js
+orcha.init({
+  providers: {
+    bedrock: {
+      region: process.env.AWS_REGION,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        sessionToken: process.env.AWS_SESSION_TOKEN,
+      },
+    },
+  },
+  agents: {
+    complianceAgent: "./complianceAgent",
+  },
+});
+```
+
+Select `"bedrock"` in the agent and use a Bedrock model ID, inference-profile
+ID, or ARN:
+
+```json
+{
+  "provider": "bedrock",
+  "model": "us.anthropic.claude-sonnet-4-6",
+  "outputType": "text"
+}
 ```
 
 Vertex AI uses Google Application Default Credentials by default. Configure

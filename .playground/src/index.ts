@@ -118,6 +118,31 @@ console.log(
   `\nSession log: .orcha/sessions/${incidentResult.sessionId}.jsonl`,
 );
 
+const complianceResult = await orcha.complianceBot.run({
+  content:
+    "Assess security control IAM-07 and recommend the next remediation action.",
+  name: "Security control IAM-07",
+  metadata: {
+    controlId: "IAM-07",
+    framework: "SOC 2",
+  },
+}).result;
+
+logHistory(
+  "complianceBot",
+  await orcha.complianceBot.history(complianceResult.sessionId, {
+    page: 1,
+    pageSize: 100,
+  }),
+);
+console.log(
+  "[complianceBot] Result:",
+  JSON.stringify(complianceResult, null, 2),
+);
+console.log(
+  `\nSession log: .orcha/sessions/${complianceResult.sessionId}.jsonl`,
+);
+
 const riskResult = await orcha.riskBot.run({
   content:
     "Assess transaction TXN-90210 and recommend whether it needs manual review.",
