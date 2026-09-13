@@ -10,6 +10,7 @@
     "early-orcha-foundation",
     "google-genai-provider",
     "neutral-provider-core",
-    "openai-responses-provider"
+    "openai-responses-provider",
+    "vertex-ai-provider"
   ]
 }
