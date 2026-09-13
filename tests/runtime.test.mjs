@@ -669,7 +669,9 @@ test("runs DeepSeek reasoning, streaming, and normalized local tools", async () 
         .map((snapshot) => snapshot.output),
       ["The total", "The total is $220."],
     );
-    assert.equal("thinking" in fixture.requests[0], false);
+    assert.deepEqual(fixture.requests[0].thinking, {
+      type: "enabled",
+    });
     assert.equal(fixture.requests[0].reasoning_effort, "high");
     assert.deepEqual(fixture.requests[1].messages.at(-2), {
       role: "assistant",
@@ -768,9 +770,7 @@ test("maps DeepSeek structured JSON output and usage", async () => {
       fixture.requests[0].messages[0].content,
       /Return only valid JSON matching this JSON Schema/,
     );
-    assert.deepEqual(fixture.requests[0].thinking, {
-      type: "enabled",
-    });
+    assert.equal("thinking" in fixture.requests[0], false);
   } finally {
     await fixture.dispose();
   }
