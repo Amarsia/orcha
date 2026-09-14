@@ -1,14 +1,19 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildSync } from "esbuild";
 import { isBuiltInProvider } from "../providers/catalog.js";
 import type {
   AgentConfiguration,
+  AgentSkillRegistrations,
   ActionConfiguration,
   CompiledActionManifest,
   CompiledAgentManifest,
   CompiledBundle,
+  CompiledSkillManifest,
+  SkillConfiguration,
 } from "../types.js";
 
 export function compileRegistry(
@@ -116,6 +121,7 @@ export function compileRegistry(
       outputType: configuration.outputType ?? "text",
       outputSchema: configuration.outputSchema,
       actions: compileActions(name, sourceDirectory),
+      skills: compileSkills(name, sourceDirectory),
     });
   }
 
@@ -170,6 +176,11 @@ function compileActions(
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(configuration.name)) {
       throw new Error(
         `Action "${agentName}/${entry.name}" has an invalid model-facing name.`,
+      );
+    }
+    if (configuration.name === "load_skill") {
+      throw new Error(
+        `Action "${agentName}/${entry.name}" uses reserved name "load_skill".`,
       );
     }
     if (!["client", "local"].includes(configuration.execution)) {
@@ -246,6 +257,196 @@ function compileActions(
   }
 
   return Object.freeze(actions);
+}
+
+function compileSkills(
+  agentName: string,
+  sourceDirectory: string,
+): Record<string, CompiledSkillManifest> {
+  const skillsDirectory = resolve(sourceDirectory, "skills");
+  if (!existsSync(skillsDirectory)) {
+    return {};
+  }
+
+  const registryPath = resolve(skillsDirectory, "index.js");
+  if (!existsSync(registryPath)) {
+    throw new Error(
+      `Agent "${agentName}" has a skills directory but is missing skills/index.js.`,
+    );
+  }
+  const registrations = loadSkillRegistrations(agentName, registryPath);
+  const skills: Record<string, CompiledSkillManifest> = {};
+
+  for (const [registrationName, registeredPath] of Object.entries(
+    registrations,
+  )) {
+    if (!registrationName.trim()) {
+      throw new Error(
+        `Agent "${agentName}" has an empty registered skill name.`,
+      );
+    }
+    if (typeof registeredPath !== "string" || !registeredPath.trim()) {
+      throw new Error(
+        `Skill "${agentName}/${registrationName}" must register a folder path.`,
+      );
+    }
+
+    const skillDirectory = resolve(skillsDirectory, registeredPath);
+    const relativePath = relative(skillsDirectory, skillDirectory);
+    if (
+      !relativePath ||
+      relativePath === ".." ||
+      relativePath.startsWith(`..${sep}`)
+    ) {
+      throw new Error(
+        `Skill "${agentName}/${registrationName}" must resolve inside the agent's skills directory.`,
+      );
+    }
+
+    const configurationPath = resolve(skillDirectory, "index.json");
+    let configuration: SkillConfiguration;
+    try {
+      configuration = JSON.parse(
+        readFileSync(configurationPath, "utf8"),
+      ) as SkillConfiguration;
+    } catch (error) {
+      throw new Error(
+        `Skill "${agentName}/${registrationName}" is missing a valid index.json at ${configurationPath}.`,
+        { cause: error },
+      );
+    }
+    validateSkillConfiguration(
+      agentName,
+      registrationName,
+      configuration,
+    );
+
+    const instructionsPath = resolve(skillDirectory, "instructions.md");
+    let instructions: string;
+    try {
+      instructions = readFileSync(instructionsPath, "utf8").trim();
+    } catch (error) {
+      throw new Error(
+        `Skill "${agentName}/${registrationName}" is missing instructions.md at ${instructionsPath}.`,
+        { cause: error },
+      );
+    }
+    if (!instructions) {
+      throw new Error(
+        `Skill "${agentName}/${registrationName}" instructions.md cannot be empty.`,
+      );
+    }
+    if (skills[configuration.name]) {
+      throw new Error(
+        `Agent "${agentName}" has duplicate skill name "${configuration.name}".`,
+      );
+    }
+
+    skills[configuration.name] = Object.freeze({
+      ...configuration,
+      directoryName: relativePath.split(sep).join("/"),
+      instructions,
+    });
+  }
+
+  return Object.freeze(skills);
+}
+
+function loadSkillRegistrations(
+  agentName: string,
+  registryPath: string,
+): AgentSkillRegistrations {
+  let output: string;
+  try {
+    const result = buildSync({
+      entryPoints: [registryPath],
+      alias: {
+        "orchajs/skills": resolve(
+          dirname(fileURLToPath(import.meta.url)),
+          "../skills.js",
+        ),
+      },
+      bundle: true,
+      write: false,
+      format: "cjs",
+      platform: "node",
+      target: "node20",
+      logLevel: "silent",
+    });
+    output = result.outputFiles[0]?.text ?? "";
+  } catch (error) {
+    throw new Error(
+      `Agent "${agentName}" skills/index.js could not be bundled.`,
+      { cause: error },
+    );
+  }
+
+  try {
+    const module: { exports: unknown } = { exports: {} };
+    const execute = new Function(
+      "module",
+      "exports",
+      "require",
+      output,
+    ) as (
+      module: { exports: unknown },
+      exports: unknown,
+      require: NodeJS.Require,
+    ) => void;
+    execute(module, module.exports, createRequire(registryPath));
+    const exported = module.exports as { default?: unknown };
+    const registrations = exported.default ?? module.exports;
+    if (
+      !registrations ||
+      typeof registrations !== "object" ||
+      Array.isArray(registrations)
+    ) {
+      throw new TypeError("default export must be a registrations object");
+    }
+    return registrations as AgentSkillRegistrations;
+  } catch (error) {
+    throw new Error(
+      `Agent "${agentName}" skills/index.js must default-export skill registrations.`,
+      { cause: error },
+    );
+  }
+}
+
+function validateSkillConfiguration(
+  agentName: string,
+  registrationName: string,
+  configuration: SkillConfiguration,
+): void {
+  if (
+    !configuration ||
+    typeof configuration !== "object" ||
+    Array.isArray(configuration) ||
+    typeof configuration.name !== "string" ||
+    !configuration.name.trim() ||
+    typeof configuration.description !== "string" ||
+    !configuration.description.trim()
+  ) {
+    throw new Error(
+      `Skill "${agentName}/${registrationName}" requires name and description.`,
+    );
+  }
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(configuration.name)) {
+    throw new Error(
+      `Skill "${agentName}/${registrationName}" has an invalid model-facing name.`,
+    );
+  }
+  if (
+    configuration.triggers !== undefined &&
+    (!Array.isArray(configuration.triggers) ||
+      configuration.triggers.length === 0 ||
+      configuration.triggers.some(
+        (trigger) => typeof trigger !== "string" || !trigger.trim(),
+      ))
+  ) {
+    throw new Error(
+      `Skill "${agentName}/${registrationName}" triggers must be non-empty strings.`,
+    );
+  }
 }
 
 function compileLocalAction(

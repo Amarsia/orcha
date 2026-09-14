@@ -1,0 +1,8 @@
+{
+  "name": "suspicious_transaction_review",
+  "description": "Assess combined fraud signals and recommend a proportionate transaction review.",
+  "triggers": [
+    "A transaction has elevated velocity or unusual spending behavior.",
+    "Location mismatch and an unfamiliar device appear together."
+  ]
+}

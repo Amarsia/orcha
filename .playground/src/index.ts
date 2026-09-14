@@ -118,7 +118,7 @@ console.log(
   `\nSession log: .orcha/sessions/${incidentResult.sessionId}.jsonl`,
 );
 
-const complianceResult = await orcha.complianceBot.run({
+/* const complianceResult = await orcha.complianceBot.run({
   content:
     "Assess security control IAM-07 and recommend the next remediation action.",
   name: "Security control IAM-07",
@@ -141,7 +141,7 @@ console.log(
 );
 console.log(
   `\nSession log: .orcha/sessions/${complianceResult.sessionId}.jsonl`,
-);
+); */
 
 const riskResult = await orcha.riskBot.run({
   content:

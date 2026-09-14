@@ -56,6 +56,8 @@ interface PendingClientActions {
   resolvedResults?: ToolResult[];
 }
 
+const LOAD_SKILL_TOOL_NAME = "load_skill";
+
 export class RuntimeAgent implements AgentRuntime {
   readonly #manifest: CompiledAgentManifest;
   readonly #configuration: ProjectConfiguration;
@@ -549,6 +551,34 @@ export class RuntimeAgent implements AgentRuntime {
       const availableToolNames = [
         ...new Set([...localActionNames, ...capabilities]),
       ];
+      const providerTools = availableToolNames.map((name) => {
+        const action = this.#manifest.actions[name];
+        return {
+          name: action.name,
+          description: action.description,
+          parameters: action.parameters,
+        };
+      });
+      const skills = this.#manifest.skills ?? {};
+      if (Object.keys(skills).length > 0) {
+        providerTools.push({
+          name: LOAD_SKILL_TOOL_NAME,
+          description:
+            "Load one available skill's detailed instructions before using it.",
+          parameters: {
+            type: "object",
+            properties: {
+              name: {
+                type: "string",
+                enum: Object.keys(skills),
+                description: "The registered skill to load.",
+              },
+            },
+            required: ["name"],
+            additionalProperties: false,
+          },
+        });
+      }
       try {
         response = await this.#generateProviderResponse(
           this.#manifest.provider,
@@ -560,19 +590,13 @@ export class RuntimeAgent implements AgentRuntime {
             reasoningLevel: this.#manifest.reasoningLevel,
             outputType: this.#manifest.outputType,
             outputSchema: this.#manifest.outputSchema,
-            systemPrompt: renderPrompt(
-              this.#manifest.systemPrompt,
+            systemPrompt: buildSystemPrompt(
+              this.#manifest,
+              previousEvents,
               variables,
             ),
             messages,
-            tools: availableToolNames.map((name) => {
-              const action = this.#manifest.actions[name];
-              return {
-                name: action.name,
-                description: action.description,
-                parameters: action.parameters,
-              };
-            }),
+            tools: providerTools,
             publishOutput,
           },
         );
@@ -630,6 +654,9 @@ export class RuntimeAgent implements AgentRuntime {
         this.#assertValidToolCalls(response, capabilities);
         await this.#store.append(sessionId, [assistantEvent]);
         const eventsAfterAssistant = [...previousEvents, assistantEvent];
+        const skillCalls = response.toolCalls.filter(
+          (call) => call.name === LOAD_SKILL_TOOL_NAME,
+        );
         const localCalls = response.toolCalls.filter(
           (call) =>
             this.#manifest.actions[call.name]?.execution === "local",
@@ -638,6 +665,12 @@ export class RuntimeAgent implements AgentRuntime {
           (call) =>
             this.#manifest.actions[call.name]?.execution === "client",
         ).map(toClientToolCall);
+        const skillExecution = await this.#loadSkills(
+          sessionId,
+          writer,
+          skillCalls,
+          eventsAfterAssistant,
+        );
         const localExecution = await this.#executeLocalToolCalls(
           sessionId,
           writer,
@@ -650,7 +683,10 @@ export class RuntimeAgent implements AgentRuntime {
             writer.create("client_action.requested", {
               status: "waiting",
               calls: clientCalls,
-              localResults: localExecution.results,
+              localResults: [
+                ...skillExecution.results,
+                ...localExecution.results,
+              ],
               toolCallOrder: response.toolCalls.map((call) => call.callId),
             }),
             writer.create("run.paused", {
@@ -671,11 +707,18 @@ export class RuntimeAgent implements AgentRuntime {
 
         const toolMessage = writer.create("message.created", {
           role: "tool",
-          content: localExecution.results,
+          content: orderProviderToolResults(
+            response.toolCalls.map((call) => call.callId),
+            [
+              ...skillExecution.results,
+              ...localExecution.results,
+            ],
+          ),
         });
         await this.#store.append(sessionId, [toolMessage]);
         const nextEvents = [
           ...eventsAfterAssistant,
+          ...skillExecution.events,
           ...localExecution.events,
           toolMessage,
         ];
@@ -689,7 +732,16 @@ export class RuntimeAgent implements AgentRuntime {
               provider: this.#manifest.provider,
               content: response.content,
             },
-            { role: "tool", results: localExecution.results },
+            {
+              role: "tool",
+              results: orderProviderToolResults(
+                response.toolCalls.map((call) => call.callId),
+                [
+                  ...skillExecution.results,
+                  ...localExecution.results,
+                ],
+              ),
+            },
           ],
           capabilities,
           nextEvents,
@@ -729,6 +781,77 @@ export class RuntimeAgent implements AgentRuntime {
       ]);
       return failure(sessionId, code, message);
     }
+  }
+
+  async #loadSkills(
+    sessionId: string,
+    writer: SessionEventWriter,
+    calls: ProviderToolCall[],
+    previousEvents: SessionEvent[],
+  ): Promise<{
+    events: SessionEvent[];
+    results: ProviderToolResult[];
+  }> {
+    const loaded = loadedSkillNames(previousEvents);
+    const events: SessionEvent[] = [];
+    const results: ProviderToolResult[] = [];
+
+    for (const call of calls) {
+      const name = call.arguments.name;
+      const requested = writer.create("skill.requested", {
+        callId: call.callId,
+        name,
+      });
+      await this.#store.append(sessionId, [requested]);
+      events.push(requested);
+
+      if (
+        typeof name !== "string" ||
+        !(name in (this.#manifest.skills ?? {}))
+      ) {
+        const message = `Unavailable skill "${String(name)}".`;
+        const failed = writer.create("skill.failed", {
+          callId: call.callId,
+          name,
+          error: {
+            code: "skill_not_found",
+            message,
+          },
+        });
+        await this.#store.append(sessionId, [failed]);
+        events.push(failed);
+        results.push({
+          callId: call.callId,
+          output: { error: message },
+          isError: true,
+        });
+        continue;
+      }
+
+      const alreadyLoaded = loaded.has(name);
+      const loadedEvent = writer.create(
+        "skill.loaded",
+        {
+          callId: call.callId,
+          name,
+          alreadyLoaded,
+        },
+        "session",
+      );
+      await this.#store.append(sessionId, [loadedEvent]);
+      events.push(loadedEvent);
+      loaded.add(name);
+      results.push({
+        callId: call.callId,
+        output: {
+          loaded: true,
+          name,
+          alreadyLoaded,
+        },
+      });
+    }
+
+    return { events, results };
   }
 
   async #executeLocalToolCalls(
@@ -844,6 +967,9 @@ export class RuntimeAgent implements AgentRuntime {
     capabilities: string[],
   ): void {
     for (const call of response.toolCalls) {
+      if (call.name === LOAD_SKILL_TOOL_NAME) {
+        continue;
+      }
       const action = (this.#manifest.actions ?? {})[call.name];
       if (
         !action ||
@@ -1399,6 +1525,60 @@ function renderPrompt(
   );
 }
 
+function buildSystemPrompt(
+  manifest: CompiledAgentManifest,
+  events: SessionEvent[],
+  variables: Record<string, string>,
+): string {
+  const sections = [renderPrompt(manifest.systemPrompt, variables)];
+  const skills = manifest.skills ?? {};
+  const availableSkills = Object.values(skills);
+  if (availableSkills.length > 0) {
+    sections.push(
+      [
+        "## Available skills",
+        "Load a relevant skill with `load_skill` before handling work that requires its detailed procedure.",
+        ...availableSkills.map((skill) => {
+          const triggers =
+            skill.triggers && skill.triggers.length > 0
+              ? ` Use when: ${skill.triggers.join("; ")}`
+              : "";
+          return `- ${skill.name}: ${skill.description}${triggers}`;
+        }),
+      ].join("\n"),
+    );
+  }
+
+  const loaded = loadedSkillNames(events);
+  const loadedSkills = [...loaded].flatMap((name) => {
+    const skill = skills[name];
+    return skill ? [skill] : [];
+  });
+  if (loadedSkills.length > 0) {
+    sections.push(
+      [
+        "## Loaded skills",
+        ...loadedSkills.map(
+          (skill) =>
+            `### ${skill.name}\n${skill.instructions}`,
+        ),
+      ].join("\n\n"),
+    );
+  }
+  return sections.join("\n\n");
+}
+
+function loadedSkillNames(events: SessionEvent[]): Set<string> {
+  return new Set(
+    events.flatMap((event) =>
+      event.type === "skill.loaded" &&
+      typeof event.data.name === "string"
+        ? [event.data.name]
+        : [],
+    ),
+  );
+}
+
 function projectSessionSnapshot(events: SessionEvent[]): SessionSnapshot {
   const created = events.find(
     (event) => event.type === "session.created",
@@ -1545,6 +1725,43 @@ function projectHistoryItems(events: SessionEvent[]): SessionHistoryItem[] {
           createdAt: resolvedAt ?? event.timestamp,
         });
       }
+      continue;
+    }
+
+    if (
+      event.type === "skill.loaded" &&
+      typeof event.data.name === "string"
+    ) {
+      items.push({
+        id: `skill:${event.sequence}`,
+        type: "skill",
+        name: event.data.name,
+        status: "completed",
+        summary:
+          event.data.alreadyLoaded === true
+            ? `${event.data.name.replaceAll("_", " ")} was already loaded.`
+            : `${event.data.name.replaceAll("_", " ")} loaded.`,
+        createdAt: event.timestamp,
+      });
+      continue;
+    }
+
+    if (event.type === "skill.failed") {
+      items.push({
+        id: `skill:${event.sequence}`,
+        type: "skill",
+        name:
+          typeof event.data.name === "string"
+            ? event.data.name
+            : undefined,
+        status: "failed",
+        summary:
+          isRecord(event.data.error) &&
+          typeof event.data.error.message === "string"
+            ? event.data.error.message
+            : "Skill loading failed.",
+        createdAt: event.timestamp,
+      });
       continue;
     }
 
