@@ -113,6 +113,19 @@ export interface CompiledActionManifest extends ActionConfiguration {
   sourceHash?: string;
 }
 
+export type AgentSkillRegistrations = Record<string, string>;
+
+export interface SkillConfiguration {
+  name: string;
+  description: string;
+  triggers?: string[];
+}
+
+export interface CompiledSkillManifest extends SkillConfiguration {
+  directoryName: string;
+  instructions: string;
+}
+
 export interface LocalActionRuntimeConfiguration {
   runtime: "native" | "sandbox";
   env?: Record<string, string | undefined>;
@@ -128,6 +141,7 @@ export interface CompiledAgentManifest
   provider: ProviderName;
   systemPrompt: string;
   actions: Record<string, CompiledActionManifest>;
+  skills: Record<string, CompiledSkillManifest>;
 }
 
 export interface CompiledBundle {
@@ -271,6 +285,9 @@ export type SessionEventType =
   | "action.failed"
   | "client_action.requested"
   | "client_action.resolved"
+  | "skill.requested"
+  | "skill.loaded"
+  | "skill.failed"
   | "run.paused"
   | "run.completed"
   | "run.failed"
@@ -312,7 +329,12 @@ export interface SessionSnapshot {
 
 export interface SessionHistoryItem {
   id: string;
-  type: "message" | "action" | "client_action" | "session_completed";
+  type:
+    | "message"
+    | "action"
+    | "client_action"
+    | "skill"
+    | "session_completed";
   createdAt: string;
   role?: "user" | "assistant";
   content?: MessageContent[];

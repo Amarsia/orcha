@@ -28,7 +28,7 @@ orcha.init({
   },
   agents: {
     invoiceBot: "./invoiceBot",
-    complianceBot: "./complianceBot",
+    // complianceBot: "./complianceBot",
     fulfillmentBot: "./fulfillmentBot",
     incidentBot: "./incidentBot",
     riskBot: "./riskBot",

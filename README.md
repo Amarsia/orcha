@@ -29,11 +29,53 @@ Read the full concept: [`docs/concept.md`](./docs/concept.md)
       index.json                → definition, schemas, and execution location
       index.js                   → executable code for local actions only
   /guardrails                     → input/output policy
-  /tests                          → test cases, auto-run before every release
+  /tests                          → explicitly run agent contract tests
   /evaluations                    → metrics each run is judged against
 ```
 
-Placement determines behavior. No manual registration of tools, skills, or routes.
+Placement determines behavior. Agent skills and test cases use local index
+files to explicitly register which folders belong to the compiled agent.
+
+---
+
+## Skills
+
+Skills keep specialized procedures out of the base prompt until the model
+needs them. Register the skill folders available to an agent:
+
+```js
+// skills/index.js
+import { defineSkills } from "orchajs/skills";
+
+export default defineSkills({
+  incompleteEvidenceReview: "./incompleteEvidenceReview",
+});
+```
+
+Each registered folder contains compact discovery metadata and the full
+instructions:
+
+```json
+{
+  "name": "incomplete_evidence_review",
+  "description": "Assess incomplete control evidence.",
+  "triggers": ["A control has missing or stale evidence."]
+}
+```
+
+```text
+skills/incompleteEvidenceReview/
+  index.json
+  instructions.md
+```
+
+Orcha initially gives the model only each registered skill's name,
+description, and trigger guidance. When the model calls the internal
+`load_skill` tool, Orcha activates the full instructions without running an
+application action or pausing for the client. Durable `skill.requested`,
+`skill.loaded`, and `skill.failed` events expose the loading lifecycle. Loaded
+skills remain active across `resume()` calls and provider changes.
+Unregistered skill folders are not compiled or exposed.
 
 ---
 
@@ -433,6 +475,7 @@ application continues to use its normal `npm run build` command.
 - [x] Model Action Protocol — client actions and opt-in native/sandboxed local actions
 - [x] Provider-neutral Anthropic, Bedrock, DeepSeek, OpenAI, Google GenAI, and Vertex AI adapters
 - [x] Stateful sessions — Node JSONL replay and client-action pause/resume
+- [x] Registered `/skills` with lazy, durable instruction loading
 - [x] Agent `/tests` with durable test-prefixed logs and explicit CI gating
 - [ ] Agent `/evaluations` and `/guardrails`
 - [x] Production compiler and `orcha build`

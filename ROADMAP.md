@@ -11,8 +11,8 @@ An agent is a folder and the folder is the source of truth.
 - `orcha.<agent>.run()` starts a new durable session.
 - `orcha.<agent>.resume()` continues a durable session with a message or
   pending client-action results.
-- `/actions`, `/tests`, `/evaluations`, and `/guardrails` add behavior through
-  placement rather than manual runtime registration.
+- `/actions`, `/skills`, `/tests`, `/evaluations`, and `/guardrails` add
+  behavior through agent-owned filesystem conventions.
 - Provider adapters are maintained by Orcha and expose one normalized runtime
   contract.
 
@@ -105,9 +105,39 @@ Completion criteria:
 - A failing `runTests()` process exits non-zero so CI can gate a subsequent
   production build.
 
+### 6. `/skills`
+
+Agent-owned skills provide specialized instructions without placing every
+procedure in the base system prompt.
+
+- Require `skills/index.js` to register the skill folders compiled for an
+  agent.
+- Define compact model-facing names, descriptions, and optional trigger
+  guidance in each skill's `index.json`.
+- Keep detailed procedures in each skill's `instructions.md`.
+- Expose only the compact skill catalog until the model calls Orcha's internal
+  `load_skill` tool.
+- Handle skill loading inside the runtime without local execution, client
+  pauses, or provider-specific behavior.
+- Persist `skill.requested`, `skill.loaded`, and `skill.failed` lifecycle
+  events, with successful loads remaining active across `resume()` calls and
+  provider changes.
+- Ignore unregistered skill folders and reject invalid paths, metadata, empty
+  instructions, duplicate names, and reserved action-name collisions.
+
+Completion criteria:
+
+- Production bundles contain exactly the skills registered for each compiled
+  agent.
+- Full skill instructions are absent from model context until loaded.
+- Loading a skill continues the existing model loop without application
+  intervention.
+- Repeated loads are idempotent and do not duplicate instructions.
+- Durable logs identify every skill activated in a session.
+
 ## Next
 
-### 6. `/evaluations`
+### 7. `/evaluations`
 
 Add repeatable quality measurement under each agent's `/evaluations` folder.
 
@@ -129,7 +159,7 @@ Completion criteria:
 - Evaluation runs retain inspectable logs in evaluation-specific storage
   instead of mixing with normal application sessions.
 
-### 7. `/guardrails`
+### 8. `/guardrails`
 
 Add composable input, output, and action policy under each agent's
 `/guardrails` folder.
@@ -149,7 +179,7 @@ Completion criteria:
 - Action guardrails run before local or client-side execution.
 - Policy ordering and fail-open versus fail-closed behavior are explicit.
 
-### 8. CLI completion
+### 9. CLI completion
 
 Finish the developer workflow after the runtime conventions are stable.
 
@@ -161,7 +191,7 @@ Finish the developer workflow after the runtime conventions are stable.
 - Keep every CLI command usable in local development and CI without a hosted
   Orcha account.
 
-### 9. Quick examples and release preparation
+### 10. Quick examples and release preparation
 
 - Add focused examples for durable chat, client actions, local actions,
   structured output, multimodal input, and each built-in provider.
@@ -177,7 +207,6 @@ These remain outside the first-release sequence:
 - Comprehensive test fixtures with dynamic JavaScript action implementations,
   custom assertion functions, reusable fixtures, setup/teardown hooks,
   parameterized cases, retries, concurrency controls, and provider matrices.
-- Skills and lazy instruction loading.
 - Remote session-store adapters.
 - OpenTelemetry tracing.
 - MCP interoperability adapters.

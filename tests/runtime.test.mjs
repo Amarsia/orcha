@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 import { build } from "esbuild";
+import { compileRegistry } from "../dist/compiler/compile.js";
 import { orchaPlugin } from "../dist/integrations/esbuild.js";
 import { generateBedrockContent } from "../dist/providers/bedrock.js";
 import { generateProviderResponse } from "../dist/providers/index.js";
@@ -54,6 +55,223 @@ test("writes a useful JSONL timeline for a successful model run", async () => {
     assert.equal(events[4].data.status, "completed");
   } finally {
     await fixture.dispose();
+  }
+});
+
+test("loads registered skills lazily and keeps them active across runs", async () => {
+  const fixture = await createRuntimeFixture(
+    (_requests, index) =>
+      index <= 2
+        ? {
+            id: `msg_load_skill_${index}`,
+            stop_reason: "tool_use",
+            content: [
+              {
+                type: "tool_use",
+                id: `toolu_load_skill_${index}`,
+                name: "load_skill",
+                input: { name: "incident_triage" },
+              },
+            ],
+          }
+        : {
+            id: `msg_skill_complete_${index}`,
+            stop_reason: "end_turn",
+            content: [{ type: "text", text: `skill-response-${index}` }],
+          },
+    {
+      skills: {
+        incident_triage: {
+          name: "incident_triage",
+          directoryName: "incidentTriage",
+          description: "Triage degraded production services.",
+          triggers: ["A service has elevated latency or errors."],
+          instructions:
+            "Inspect confirmed telemetry before recommending mitigation.",
+        },
+      },
+    },
+  );
+  try {
+    const first = await fixture.client.testAgent.run("Checkout is slow.").result;
+
+    assert.equal(first.status, "completed");
+    assert.match(fixture.requests[0].system, /incident_triage/);
+    assert.match(fixture.requests[0].system, /elevated latency or errors/);
+    assert.doesNotMatch(
+      fixture.requests[0].system,
+      /Inspect confirmed telemetry/,
+    );
+    assert.deepEqual(
+      fixture.requests[0].tools.find(
+        (tool) => tool.name === "load_skill",
+      ).input_schema.properties.name.enum,
+      ["incident_triage"],
+    );
+    assert.match(
+      fixture.requests[1].system,
+      /Inspect confirmed telemetry before recommending mitigation/,
+    );
+    assert.equal(
+      fixture.requests[2].system.match(
+        /Inspect confirmed telemetry before recommending mitigation/g,
+      ).length,
+      1,
+    );
+
+    const firstEvents = await readSessionEvents(
+      fixture.root,
+      first.sessionId,
+    );
+    const skillEvents = firstEvents.filter(
+      (event) => event.type === "skill.loaded",
+    );
+    assert.equal(
+      firstEvents.filter(
+        (event) => event.type === "skill.requested",
+      ).length,
+      2,
+    );
+    assert.equal(skillEvents.length, 2);
+    assert.equal(skillEvents[0].data.name, "incident_triage");
+    assert.equal(skillEvents[0].data.alreadyLoaded, false);
+    assert.equal(skillEvents[1].data.alreadyLoaded, true);
+    assert.equal("run" in skillEvents[0], false);
+    const history = await fixture.client.testAgent.history(first.sessionId);
+    assert.equal(
+      history.items.some(
+        (item) =>
+          item.type === "skill" &&
+          item.name === "incident_triage",
+      ),
+      true,
+    );
+
+    const resumed = await fixture.client.testAgent.resume(
+      first.sessionId,
+      "Continue.",
+    ).result;
+    assert.equal(resumed.status, "completed");
+    assert.match(
+      fixture.requests[3].system,
+      /Inspect confirmed telemetry before recommending mitigation/,
+    );
+    const resumedEvents = await readSessionEvents(
+      fixture.root,
+      first.sessionId,
+    );
+    assert.equal(
+      resumedEvents.filter((event) => event.type === "skill.loaded").length,
+      2,
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("returns failed skill loads to the model without failing the run", async () => {
+  const fixture = await createRuntimeFixture(
+    (_requests, index) =>
+      index === 1
+        ? {
+            id: "msg_unknown_skill",
+            stop_reason: "tool_use",
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_unknown_skill",
+                name: "load_skill",
+                input: { name: "unknown_skill" },
+              },
+            ],
+          }
+        : {
+            id: "msg_unknown_skill_recovered",
+            stop_reason: "end_turn",
+            content: [{ type: "text", text: "Skill unavailable." }],
+          },
+    {
+      skills: {
+        known_skill: {
+          name: "known_skill",
+          directoryName: "knownSkill",
+          description: "A known procedure.",
+          instructions: "Follow the known procedure.",
+        },
+      },
+    },
+  );
+  try {
+    const result = await fixture.client.testAgent.run("Load a skill.").result;
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "Skill unavailable.");
+    const events = await readSessionEvents(fixture.root, result.sessionId);
+    assert.equal(
+      events.some((event) => event.type === "skill.requested"),
+      true,
+    );
+    assert.equal(
+      events.some((event) => event.type === "skill.failed"),
+      true,
+    );
+    assert.equal(
+      events.some((event) => event.type === "skill.loaded"),
+      false,
+    );
+    const toolResult = fixture.requests[1].messages
+      .flatMap((message) =>
+        Array.isArray(message.content) ? message.content : [],
+      )
+      .find((block) => block.type === "tool_result");
+    assert.equal(toolResult.is_error, true);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("compiles only skills registered through skills/index.js", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-skills-"));
+  try {
+    await writeProjectFiles(root, {
+      "agent/index.json": JSON.stringify({
+        provider: "anthropic",
+        model: "claude-test",
+      }),
+      "agent/instructions.md": "You are a test agent.",
+      "agent/skills/index.js": [
+        'import { defineSkills } from "orchajs/skills";',
+        "export default defineSkills({",
+        '  incidentTriage: "./incidentTriage",',
+        "});",
+      ].join("\n"),
+      "agent/skills/incidentTriage/index.json": JSON.stringify({
+        name: "incident_triage",
+        description: "Triage degraded production services.",
+        triggers: ["A service is degraded."],
+      }),
+      "agent/skills/incidentTriage/instructions.md":
+        "Inspect confirmed telemetry first.",
+      "agent/skills/unregistered/index.json": "{ invalid json",
+    });
+
+    const bundle = compileRegistry({ testAgent: "./agent" }, root);
+
+    assert.deepEqual(Object.keys(bundle.agents.testAgent.skills), [
+      "incident_triage",
+    ]);
+    assert.deepEqual(
+      bundle.agents.testAgent.skills.incident_triage,
+      {
+        name: "incident_triage",
+        description: "Triage degraded production services.",
+        triggers: ["A service is degraded."],
+        directoryName: "incidentTriage",
+        instructions: "Inspect confirmed telemetry first.",
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -1833,6 +2051,7 @@ async function createRuntimeFixture(responseFactory, options = {}) {
         ...(options.outputSchema
           ? { outputSchema: options.outputSchema }
           : {}),
+        skills: options.skills ?? {},
         actions: {
           request_invoice_approval: {
             name: "request_invoice_approval",
@@ -2319,6 +2538,14 @@ async function writeBedrockFixtureProject(root) {
     ].join("\n"),
   };
 
+  for (const [relativePath, contents] of Object.entries(files)) {
+    const path = resolve(root, relativePath);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, contents, "utf8");
+  }
+}
+
+async function writeProjectFiles(root, files) {
   for (const [relativePath, contents] of Object.entries(files)) {
     const path = resolve(root, relativePath);
     await mkdir(dirname(path), { recursive: true });
