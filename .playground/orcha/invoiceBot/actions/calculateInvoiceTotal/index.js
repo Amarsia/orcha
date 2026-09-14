@@ -3,7 +3,7 @@ export default function calculateInvoiceTotal(
   ctx,
 ) {
   const subtotal = roundCurrency(hours * hourlyRate);
-  const tax = roundCurrency(subtotal * taxRate);
+  const tax = roundCurrency(subtotal * (taxRate / 100));
   ctx.log("Calculated mocked invoice total", ctx.idempotencyKey);
 
   return {

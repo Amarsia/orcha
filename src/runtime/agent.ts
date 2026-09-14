@@ -62,6 +62,7 @@ export class RuntimeAgent implements AgentRuntime {
   readonly #store: SessionStore;
   readonly #activeSessions: Set<string>;
   readonly #generateProviderResponse: ProviderResponseGenerator;
+  readonly #sessionIdPrefix: string;
 
   constructor(options: {
     manifest: CompiledAgentManifest;
@@ -69,12 +70,14 @@ export class RuntimeAgent implements AgentRuntime {
     store: SessionStore;
     activeSessions: Set<string>;
     generateProviderResponse: ProviderResponseGenerator;
+    sessionIdPrefix?: string;
   }) {
     this.#manifest = options.manifest;
     this.#configuration = options.configuration;
     this.#store = options.store;
     this.#activeSessions = options.activeSessions;
     this.#generateProviderResponse = options.generateProviderResponse;
+    this.#sessionIdPrefix = options.sessionIdPrefix ?? "ses_";
   }
 
   get clientTools(): CompiledActionManifest[] {
@@ -85,7 +88,7 @@ export class RuntimeAgent implements AgentRuntime {
 
   run(input: AgentInput | string): Execution {
     const normalized = typeof input === "string" ? { content: input } : input;
-    const sessionId = `ses_${randomUUID()}`;
+    const sessionId = `${this.#sessionIdPrefix}${randomUUID()}`;
     if (
       typeof normalized === "object" &&
       normalized !== null &&

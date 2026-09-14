@@ -16,6 +16,11 @@ This directory is a small consumer project used to exercise the local
 The playground reads its API keys from the environment, and its generated
 `.orcha` runtime directory is ignored by git.
 
+Run `npm run test:agents` to execute the registered test for every playground
+agent. Test reports include their session IDs, and each full log is written to
+`.orcha/sessions/ses_test_<uuid>.jsonl` with assertions in its final
+`test.completed` event.
+
 To verify the production boundary without changing application source:
 
 1. Run `npm run build`.

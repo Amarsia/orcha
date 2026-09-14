@@ -8,6 +8,7 @@ import {
   builtInProviderCatalog,
   isBuiltInProvider,
 } from "../providers/catalog.js";
+import { runTests } from "../testing.js";
 
 export interface BuildProjectOptions {
   projectRoot?: string;
@@ -65,6 +66,36 @@ export async function buildProject(
       }
     }
     const compiledBundle = orcha.getCompiledBundle();
+    const testReport = await runTests(orcha);
+    if (testReport.total > 0) {
+      console.log(
+        `Agent tests: ${testReport.passed}/${testReport.total} passed`,
+      );
+      for (const testCase of testReport.cases) {
+        const sessionLink = testCase.sessionPath
+          ? `${testCase.sessionPath}:1`
+          : testCase.sessionId ?? "";
+        console.log(
+          `${testCase.status === "passed" ? "PASS" : "FAIL"} ${testCase.agent}/${testCase.name} (${testCase.durationMs}ms) ${sessionLink}`.trim(),
+        );
+      }
+    }
+    if (testReport.status === "failed") {
+      const failures = testReport.cases
+        .filter((testCase) => testCase.status === "failed")
+        .map((testCase) => {
+          const reason = testCase.error
+            ? `${testCase.error.code}: ${testCase.error.message}`
+            : testCase.assertions
+                .filter((assertion) => !assertion.passed)
+                .map((assertion) => assertion.message)
+                .join(" ");
+          return `${testCase.agent}/${testCase.name}: ${reason}`;
+        });
+      throw new Error(
+        `Agent tests failed:\n${failures.join("\n")}`,
+      );
+    }
     const runtimeFactoryPath = resolve(
       dirname(fileURLToPath(import.meta.url)),
       "../runtime/create-orcha.js",

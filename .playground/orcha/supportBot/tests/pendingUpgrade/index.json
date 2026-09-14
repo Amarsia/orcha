@@ -1,0 +1,37 @@
+{
+  "description": "Looks up an account before explaining a pending upgrade.",
+  "input": {
+    "content": "My Pro upgrade is not showing for account acct_123. What is happening?"
+  },
+  "actions": {
+    "lookup_subscription_status": {
+      "responses": [
+        {
+          "output": {
+            "accountId": "acct_123",
+            "currentPlan": "Starter",
+            "requestedPlan": "Pro",
+            "activationStatus": "processing",
+            "expectedActivationMinutes": 30
+          }
+        }
+      ]
+    }
+  },
+  "expect": {
+    "status": "completed",
+    "text": {
+      "contains": ["Starter", "Pro", "processing", "30"]
+    },
+    "actions": [
+      {
+        "name": "lookup_subscription_status",
+        "arguments": {
+          "equals": {
+            "accountId": "acct_123"
+          }
+        }
+      }
+    ]
+  }
+}

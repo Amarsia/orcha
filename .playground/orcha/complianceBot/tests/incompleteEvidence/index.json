@@ -1,0 +1,44 @@
+{
+  "description": "Identifies incomplete evidence for an IAM control.",
+  "input": {
+    "content": "Assess security control IAM-07 and recommend the next remediation action.",
+    "metadata": {
+      "controlId": "IAM-07",
+      "framework": "SOC 2"
+    }
+  },
+  "actions": {
+    "lookup_security_control": {
+      "responses": [
+        {
+          "output": {
+            "controlId": "IAM-07",
+            "owner": "Platform Security",
+            "lastReviewedAt": "2026-08-12",
+            "evidenceStatus": "incomplete",
+            "exceptions": [
+              "Two production service accounts do not enforce key rotation."
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "expect": {
+    "status": "completed",
+    "text": {
+      "contains": ["IAM-07"],
+      "excludes": ["fully compliant"]
+    },
+    "actions": [
+      {
+        "name": "lookup_security_control",
+        "arguments": {
+          "equals": {
+            "controlId": "IAM-07"
+          }
+        }
+      }
+    ]
+  }
+}

@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { RuntimeAgent } from "./agent.js";
 import { NodeJsonlSessionStore } from "../storage/node-jsonl.js";
 import type { ProviderResponseGenerator } from "../providers/types.js";
+import { setOrchaRuntimeContext } from "./context.js";
 import type {
   AgentRuntime,
   CompiledBundle,
@@ -43,7 +44,11 @@ class OrchaRuntimeCore implements Orcha {
   }
 
   init(configuration: OrchaInitConfiguration): OrchaClient {
-    const projectRoot = resolve(configuration.root ?? process.cwd());
+    const projectRoot = resolve(
+      configuration.root ??
+        process.env.ORCHA_PROJECT_ROOT ??
+        process.cwd(),
+    );
     const bundle = this.#resolveBundle(configuration);
     const runtimeConfiguration: ProjectConfiguration = {
       providers: Object.fromEntries(
@@ -97,6 +102,13 @@ class OrchaRuntimeCore implements Orcha {
 
     this.#bundle = bundle;
     this.#agents = agents;
+    setOrchaRuntimeContext(this.#client as OrchaClient, {
+      projectRoot,
+      registrations: { ...configuration.agents },
+      bundle,
+      configuration: runtimeConfiguration,
+      generateProviderResponse: this.#generateProviderResponse,
+    });
     return this.#client as OrchaClient;
   }
 

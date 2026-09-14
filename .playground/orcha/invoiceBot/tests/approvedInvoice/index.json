@@ -1,0 +1,102 @@
+{
+  "description": "Completes an approved invoice workflow in the required order.",
+  "input": {
+    "content": "Process invoice INV-1001. Bill 2 hours at $100/hour with 10% tax. After approval, email it to billing@example.com.",
+    "metadata": {
+      "invoiceId": "INV-1001",
+      "customerId": "cus_test"
+    }
+  },
+  "actions": {
+    "fetch_invoice_amount": {
+      "responses": [
+        {
+          "output": {
+            "invoiceId": "INV-1001",
+            "amount": 125,
+            "currency": "USD"
+          }
+        }
+      ]
+    },
+    "calculate_invoice_total": {
+      "responses": [
+        {
+          "output": {
+            "subtotal": 200,
+            "tax": 20,
+            "total": 220,
+            "currency": "USD"
+          }
+        }
+      ]
+    },
+    "request_invoice_approval": {
+      "responses": [
+        {
+          "output": {
+            "approved": true
+          }
+        }
+      ]
+    },
+    "send_invoice_email": {
+      "responses": [
+        {
+          "output": {
+            "sent": true,
+            "messageId": "mock_email_INV-1001",
+            "recipient": "billing@example.com"
+          }
+        }
+      ]
+    }
+  },
+  "expect": {
+    "status": "completed",
+    "text": {
+      "contains": ["INV-1001", "billing@example.com"],
+      "excludes": ["not approved"]
+    },
+    "actions": [
+      {
+        "name": "fetch_invoice_amount",
+        "arguments": {
+          "equals": {
+            "invoiceId": "INV-1001"
+          }
+        }
+      },
+      {
+        "name": "calculate_invoice_total",
+        "arguments": {
+          "equals": {
+            "hours": 2,
+            "hourlyRate": 100,
+            "taxRate": 10,
+            "currency": "USD"
+          }
+        }
+      },
+      {
+        "name": "request_invoice_approval",
+        "arguments": {
+          "equals": {
+            "invoiceTotal": 220
+          }
+        }
+      },
+      {
+        "name": "send_invoice_email",
+        "arguments": {
+          "equals": {
+            "invoiceId": "INV-1001",
+            "recipient": "billing@example.com",
+            "total": 220,
+            "currency": "USD"
+          }
+        }
+      }
+    ]
+  }
+}

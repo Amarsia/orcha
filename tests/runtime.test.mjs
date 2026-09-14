@@ -12,6 +12,7 @@ import { orchaPlugin } from "../dist/integrations/esbuild.js";
 import { generateBedrockContent } from "../dist/providers/bedrock.js";
 import { generateProviderResponse } from "../dist/providers/index.js";
 import { createOrcha } from "../dist/runtime/create-orcha.js";
+import { runTests } from "../dist/testing.js";
 
 const executeFile = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -1234,6 +1235,155 @@ test("executes local actions and continues the model loop", async () => {
   }
 });
 
+test("runs registered agent tests with durable test-prefixed logs and simulated actions", async () => {
+  const fixture = await createRuntimeFixture(localActionResponse);
+  try {
+    const testsDirectory = resolve(
+      fixture.root,
+      "orcha/testAgent/tests",
+    );
+    await mkdir(resolve(testsDirectory, "invoiceTotal"), {
+      recursive: true,
+    });
+    await writeFile(
+      resolve(testsDirectory, "index.js"),
+      'export default { invoiceTotal: "./invoiceTotal" };\n',
+      "utf8",
+    );
+    await writeFile(
+      resolve(testsDirectory, "invoiceTotal/index.json"),
+      JSON.stringify({
+        description: "Calculates an invoice through the agent action.",
+        input: {
+          content: "Calculate this invoice.",
+          metadata: { source: "agent-test" },
+        },
+        actions: {
+          calculate_invoice_total: {
+            responses: [
+              {
+                output: {
+                  subtotal: 200,
+                  tax: 20,
+                  total: 220,
+                  currency: "USD",
+                },
+              },
+            ],
+          },
+          request_invoice_approval: {
+            responses: [],
+          },
+        },
+        expect: {
+          status: "completed",
+          text: {
+            contains: ["$220"],
+            excludes: ["failed"],
+          },
+          actions: [
+            {
+              name: "calculate_invoice_total",
+              arguments: {
+                partial: {
+                  currency: "USD",
+                  hours: 2,
+                },
+              },
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+
+    const report = await runTests(fixture.client);
+
+    assert.equal(report.status, "passed");
+    assert.equal(report.total, 1);
+    assert.equal(report.passed, 1);
+    assert.equal(report.failed, 0);
+    assert.equal(report.cases[0].name, "invoiceTotal");
+    assert.equal(report.cases[0].status, "passed");
+    assert.equal(
+      report.cases[0].assertions.every(
+        (assertion) => assertion.passed,
+      ),
+      true,
+    );
+    assert.match(report.cases[0].sessionId, /^ses_test_/);
+    assert.equal(
+      report.cases[0].sessionPath,
+      `.orcha/sessions/${report.cases[0].sessionId}.jsonl`,
+    );
+
+    const logPath = resolve(
+      fixture.root,
+      ".orcha/sessions",
+      `${report.cases[0].sessionId}.jsonl`,
+    );
+    const events = (await readFile(logPath, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    assert.equal(
+      events.some(
+        (event) => event.type === "client_action.requested",
+      ),
+      true,
+    );
+    assert.equal(
+      events.some(
+        (event) => event.type === "client_action.resolved",
+      ),
+      true,
+    );
+    assert.equal(events.at(-1).type, "test.completed");
+    assert.equal(events.at(-1).data.status, "passed");
+    assert.equal(events.at(-1).data.suiteId, report.suiteId);
+    assert.equal(
+      (await fixture.client.testAgent.list()).total,
+      1,
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("rejects agent tests that do not define the complete action contract", async () => {
+  const fixture = await createRuntimeFixture();
+  try {
+    const testsDirectory = resolve(
+      fixture.root,
+      "orcha/testAgent/tests/incomplete",
+    );
+    await mkdir(testsDirectory, { recursive: true });
+    await writeFile(
+      resolve(testsDirectory, "../index.js"),
+      'export default { incomplete: "./incomplete" };\n',
+      "utf8",
+    );
+    await writeFile(
+      resolve(testsDirectory, "index.json"),
+      JSON.stringify({
+        input: { content: "Test an incomplete action fixture." },
+        actions: {
+          calculate_invoice_total: { responses: [] },
+        },
+        expect: { status: "completed" },
+      }),
+      "utf8",
+    );
+
+    await assert.rejects(
+      () => runTests(fixture.client),
+      /missing actions: request_invoice_approval/,
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("executes the same local action inside QuickJS", async () => {
   const fixture = await createRuntimeFixture(localActionResponse, {
     actionRuntime: "sandbox",
@@ -1503,7 +1653,7 @@ test("executes the production application without a runtime orchajs import", asy
     });
     const result = JSON.parse(stdout.trim());
     assert.equal(result.status, "completed");
-    assert.equal(result.output, "mock-response-1");
+    assert.equal(result.output, "mock-response-2");
   } finally {
     await mock.close();
     await rm(root, { recursive: true, force: true });
@@ -1573,9 +1723,23 @@ test("bundles AWS authentication only for Bedrock agents", async () => {
 });
 
 test("executes a sandboxed local action from the production ESM bundle", async () => {
-  const mock = await createMockAnthropic((_requests, index) =>
-    index === 1
+  const mock = await createMockAnthropic((requests) => {
+    const hasToolResult = requests
+      .at(-1)
+      ?.messages.some(
+        (message) =>
+          Array.isArray(message.content) &&
+          message.content.some(
+            (block) => block.type === "tool_result",
+          ),
+      );
+    return hasToolResult
       ? {
+          id: "msg_production_complete",
+          stop_reason: "end_turn",
+          content: [{ type: "text", text: "sandbox-production-ok" }],
+        }
+      : {
           id: "msg_production_tool",
           stop_reason: "tool_use",
           content: [
@@ -1586,13 +1750,8 @@ test("executes a sandboxed local action from the production ESM bundle", async (
               input: {},
             },
           ],
-        }
-      : {
-          id: "msg_production_complete",
-          stop_reason: "end_turn",
-          content: [{ type: "text", text: "sandbox-production-ok" }],
-        },
-  );
+        };
+  });
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-sandbox-production-"));
   try {
     await writeFixtureProject(root, mock.baseUrl, "sandbox");
@@ -2166,6 +2325,7 @@ async function writeBedrockFixtureProject(root) {
 }
 
 async function writeFixtureProject(root, baseUrl, actionRuntime = "native") {
+  const testsSandboxedAction = actionRuntime === "sandbox";
   const files = {
     "package.json": JSON.stringify({
       private: true,
@@ -2215,6 +2375,41 @@ async function writeFixtureProject(root, baseUrl, actionRuntime = "native") {
     }),
     "orcha/testAgent/actions/mockLocal/index.js":
       "export default async function mockLocal() { return { ok: true }; }\n",
+    "orcha/testAgent/tests/index.js":
+      'export default { production: "./production" };\n',
+    "orcha/testAgent/tests/production/index.json": JSON.stringify({
+      input: {
+        content: "Run the production build test.",
+      },
+      actions: {
+        mock_local: {
+          responses: testsSandboxedAction
+            ? [{ output: { ok: true } }]
+            : [],
+        },
+        request_invoice_approval: {
+          responses: [],
+        },
+      },
+      expect: {
+        status: "completed",
+        text: {
+          contains: [
+            testsSandboxedAction
+              ? "sandbox-production-ok"
+              : "mock-response-1",
+          ],
+        },
+        actions: testsSandboxedAction
+          ? [
+              {
+                name: "mock_local",
+                arguments: { equals: {} },
+              },
+            ]
+          : [],
+      },
+    }),
     "orcha/index.ts": [
       'import { orcha } from "orchajs";',
       "orcha.init({",
