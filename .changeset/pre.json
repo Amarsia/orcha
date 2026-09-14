@@ -5,6 +5,7 @@
     "orchajs": "0.0.1"
   },
   "changesets": [
+    "agent-tests",
     "bedrock-provider",
     "deepseek-provider",
     "durable-agent-actions",
@@ -13,6 +14,7 @@
     "neutral-provider-core",
     "openai-responses-provider",
     "reasoning-output-default",
-    "vertex-ai-provider"
+    "vertex-ai-provider",
+    "visible-agent-test-results"
   ]
 }
