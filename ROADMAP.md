@@ -87,8 +87,8 @@ Agent-owned deterministic test cases live under each agent's `/tests` folder.
   `.orcha/sessions/ses_test_<uuid>.jsonl`, ending with a durable
   `test.completed` event containing the assertion results.
 - Export `runTests()` from `orchajs/testing` to run every registered test.
-- Run the same registered suite before `orcha build`, print each result and
-  session ID, and abort on any failed test or missing provider credentials.
+- Run registered suites explicitly through `runTests()` before production
+  builds in CI; keep `orcha build` offline and credential-free.
 - Produce machine-readable reports with suite and case status, assertions,
   duration, usage, and session IDs.
 - Keep framework tests separate from consumer agent tests.
@@ -99,10 +99,11 @@ Completion criteria:
 - The test action set exactly matches the agent's `/actions` contract.
 - Local and client actions are simulated without external side effects.
 - Client-action pauses and automatic resumes are visible in JSONL.
-- Test runs retain inspectable JSONL logs in test-specific storage instead of
-  mixing with the application's normal session directory.
+- Test runs retain inspectable `ses_test_` JSONL logs alongside the
+  application's normal sessions.
 - A failing assertion identifies the agent, test case, and mismatched value.
-- `runTests()` and `orcha build` execute the same suite with the same behavior.
+- A failing `runTests()` process exits non-zero so CI can gate a subsequent
+  production build.
 
 ## Next
 

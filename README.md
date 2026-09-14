@@ -415,10 +415,10 @@ const report = await runTests(orcha);
 
 Test sessions retain complete JSONL logs beside normal sessions under
 `.orcha/sessions/ses_test_<uuid>.jsonl`. The final `test.completed` event
-records the suite, case, status, duration, and every assertion. `orcha build`
-runs this same suite first, prints each result and session ID, and aborts on any
-failure. Because tests use the configured providers, builds with registered
-tests require provider credentials and consume model tokens.
+records the suite, case, status, duration, and every assertion. Run tests
+explicitly before building in CI. Tests use the configured providers, so the
+test step requires provider credentials and consumes model tokens; `orcha
+build` itself remains offline and does not require those credentials.
 
 For esbuild production applications, add `orchaPlugin()` from
 `orchajs/esbuild` to the existing build. It compiles the registry and replaces
@@ -433,7 +433,7 @@ application continues to use its normal `npm run build` command.
 - [x] Model Action Protocol — client actions and opt-in native/sandboxed local actions
 - [x] Provider-neutral Anthropic, Bedrock, DeepSeek, OpenAI, Google GenAI, and Vertex AI adapters
 - [x] Stateful sessions — Node JSONL replay and client-action pause/resume
-- [x] Agent `/tests` with durable test-prefixed logs and build gating
+- [x] Agent `/tests` with durable test-prefixed logs and explicit CI gating
 - [ ] Agent `/evaluations` and `/guardrails`
 - [x] Production compiler and `orcha build`
 - [ ] CLI `orcha init` and `orcha dev` workflows + quick examples

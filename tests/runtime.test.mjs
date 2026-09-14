@@ -1631,6 +1631,7 @@ test("executes the production application without a runtime orchajs import", asy
       target: "node20",
       plugins: [orchaPlugin({ projectRoot: root })],
     });
+    assert.equal(mock.requests.length, 0);
 
     const applicationBundle = await readFile(outputPath, "utf8");
     assert.doesNotMatch(applicationBundle, /from\s*["']orchajs["']/);
@@ -1653,7 +1654,7 @@ test("executes the production application without a runtime orchajs import", asy
     });
     const result = JSON.parse(stdout.trim());
     assert.equal(result.status, "completed");
-    assert.equal(result.output, "mock-response-2");
+    assert.equal(result.output, "mock-response-1");
   } finally {
     await mock.close();
     await rm(root, { recursive: true, force: true });
@@ -1768,6 +1769,7 @@ test("executes a sandboxed local action from the production ESM bundle", async (
       target: "node20",
       plugins: [orchaPlugin({ projectRoot: root })],
     });
+    assert.equal(mock.requests.length, 0);
 
     const applicationBundle = await readFile(outputPath, "utf8");
     assert.doesNotMatch(applicationBundle, /from\s*["']orchajs["']/);
