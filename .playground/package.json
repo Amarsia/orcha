@@ -6,8 +6,11 @@
   "scripts": {
     "dev": "node --env-file=.env --watch --import tsx src/index.ts",
     "start": "node --env-file=.env --import tsx src/index.ts",
+    "test:agents": "node --import tsx src/tests.ts",
+    "test:agents:local": "node --env-file=.env --import tsx src/tests.ts",
     "build": "node scripts/build.mjs",
-    "start:production": "NODE_ENV=production node --env-file=.env dist/index.js"
+    "start:production": "NODE_ENV=production node dist/index.js",
+    "start:production:local": "NODE_ENV=production node --env-file=.env dist/index.js"
   },
   "dependencies": {
     "orchajs": "file:.."

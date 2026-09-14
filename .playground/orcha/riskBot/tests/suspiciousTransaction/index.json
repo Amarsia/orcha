@@ -1,0 +1,39 @@
+{
+  "description": "Retrieves fraud signals before assessing a suspicious transaction.",
+  "input": {
+    "content": "Assess transaction txn_456 for fraud risk using the recorded signals."
+  },
+  "actions": {
+    "lookup_transaction_risk": {
+      "responses": [
+        {
+          "output": {
+            "transactionId": "txn_456",
+            "amount": 1840,
+            "currency": "USD",
+            "velocityScore": 0.86,
+            "locationMismatch": true,
+            "devicePreviouslySeen": false
+          }
+        }
+      ]
+    }
+  },
+  "expect": {
+    "status": "completed",
+    "text": {
+      "contains": ["manual review"],
+      "excludes": ["low risk"]
+    },
+    "actions": [
+      {
+        "name": "lookup_transaction_risk",
+        "arguments": {
+          "equals": {
+            "transactionId": "txn_456"
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "description": "Looks up a delayed order and reports the confirmed next step.",
+  "input": {
+    "content": "Where is order ord_789? It has not arrived."
+  },
+  "actions": {
+    "lookup_order_status": {
+      "responses": [
+        {
+          "output": {
+            "orderId": "ord_789",
+            "status": "carrier_delay",
+            "carrier": "Northstar Parcel",
+            "lastEvent": "Shipment reached the regional sorting facility.",
+            "nextStep": "Carrier review is scheduled for the next business morning."
+          }
+        }
+      ]
+    }
+  },
+  "expect": {
+    "status": "completed",
+    "text": {
+      "contains": ["carrier", "Northstar Parcel", "next business morning"]
+    },
+    "actions": [
+      {
+        "name": "lookup_order_status",
+        "arguments": {
+          "equals": {
+            "orderId": "ord_789"
+          }
+        }
+      }
+    ]
+  }
+}

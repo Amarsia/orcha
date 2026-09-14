@@ -342,6 +342,84 @@ await orcha.exampleAgent.update(sessionId, {
 });
 ```
 
+## Agent tests
+
+Agent tests live beside the agent and use the same compiled instructions,
+provider, output contract, action schemas, `run()`, and `resume()` behavior as
+the application.
+
+Register test folders in `tests/index.js`:
+
+```js
+import { defineTests } from "orchajs/testing";
+
+export default defineTests({
+  delayedOrder: "./delayedOrder",
+});
+```
+
+Each test folder contains an `index.json` with its input, one simulated
+response sequence for every action declared by the agent, and deterministic
+expectations:
+
+```json
+{
+  "input": {
+    "content": "Explain why order ORD-4821 is late."
+  },
+  "actions": {
+    "lookup_order_status": {
+      "responses": [
+        {
+          "output": {
+            "orderId": "ORD-4821",
+            "status": "delayed"
+          }
+        }
+      ]
+    }
+  },
+  "expect": {
+    "status": "completed",
+    "text": {
+      "contains": ["ORD-4821", "delayed"],
+      "excludes": ["delivered"]
+    },
+    "actions": [
+      {
+        "name": "lookup_order_status",
+        "arguments": {
+          "equals": {
+            "orderId": "ORD-4821"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+The test action keys must exactly match the agent's `/actions`. Tests never run
+the real local or client implementations; configured responses are submitted
+through the normal client-action pause/resume flow.
+
+Run every registered test programmatically:
+
+```js
+import { orcha } from "orchajs";
+import { runTests } from "orchajs/testing";
+import "./orcha/index.js";
+
+const report = await runTests(orcha);
+```
+
+Test sessions retain complete JSONL logs beside normal sessions under
+`.orcha/sessions/ses_test_<uuid>.jsonl`. The final `test.completed` event
+records the suite, case, status, duration, and every assertion. Run tests
+explicitly before building in CI. Tests use the configured providers, so the
+test step requires provider credentials and consumes model tokens; `orcha
+build` itself remains offline and does not require those credentials.
+
 For esbuild production applications, add `orchaPlugin()` from
 `orchajs/esbuild` to the existing build. It compiles the registry and replaces
 unchanged `orchajs` imports with the self-contained generated runtime. The
@@ -353,10 +431,12 @@ application continues to use its normal `npm run build` command.
 
 - [x] Registry compiler + `orcha build`
 - [x] Model Action Protocol — client actions and opt-in native/sandboxed local actions
-- [x] Provider-neutral Anthropic, DeepSeek, OpenAI, Google GenAI, and Vertex AI adapters
+- [x] Provider-neutral Anthropic, Bedrock, DeepSeek, OpenAI, Google GenAI, and Vertex AI adapters
 - [x] Stateful sessions — Node JSONL replay and client-action pause/resume
-- [ ] `orcha.run()` one-shot entry point
-- [ ] CLI (`orcha init`, `orcha build`, `orcha dev`) + example agents
+- [x] Agent `/tests` with durable test-prefixed logs and explicit CI gating
+- [ ] Agent `/evaluations` and `/guardrails`
+- [x] Production compiler and `orcha build`
+- [ ] CLI `orcha init` and `orcha dev` workflows + quick examples
 
 See [`ROADMAP.md`](./ROADMAP.md) for what's coming after — evaluations,
 OpenTelemetry tracing, MCP interop adapters, and remote session storage remain

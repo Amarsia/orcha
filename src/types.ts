@@ -273,7 +273,8 @@ export type SessionEventType =
   | "client_action.resolved"
   | "run.paused"
   | "run.completed"
-  | "run.failed";
+  | "run.failed"
+  | "test.completed";
 
 export interface SessionEvent<TData = Record<string, unknown>> {
   sequence: number;
@@ -369,4 +370,84 @@ export interface AgentRuntime {
     sessionId: string,
     update: SessionUpdate,
   ): Promise<SessionSnapshot>;
+}
+
+export type AgentTestRegistrations = Record<string, string>;
+
+export interface AgentTestActionResponse {
+  output: unknown;
+  isError?: boolean;
+}
+
+export interface AgentTestActionConfiguration {
+  responses: AgentTestActionResponse[];
+}
+
+export interface AgentTestValueExpectation {
+  equals?: unknown;
+  partial?: unknown;
+}
+
+export interface AgentTestTextExpectation {
+  contains?: string[];
+  excludes?: string[];
+}
+
+export interface AgentTestActionExpectation {
+  name: string;
+  arguments?: AgentTestValueExpectation;
+}
+
+export interface AgentTestExpectation {
+  status?: "completed" | "failed";
+  output?: AgentTestValueExpectation;
+  text?: AgentTestTextExpectation;
+  actions?: AgentTestActionExpectation[];
+}
+
+export interface AgentTestCaseConfiguration {
+  description?: string;
+  input: {
+    content: string | MessageContent[];
+    variables?: Record<string, string>;
+    metadata?: SessionMetadata;
+  };
+  actions: Record<string, AgentTestActionConfiguration>;
+  expect: AgentTestExpectation;
+}
+
+export interface AgentTestAssertionResult {
+  path: string;
+  passed: boolean;
+  message: string;
+  expected?: unknown;
+  actual?: unknown;
+}
+
+export interface AgentTestCaseReport {
+  agent: string;
+  name: string;
+  description?: string;
+  status: "passed" | "failed";
+  sessionId?: string;
+  sessionPath?: string;
+  durationMs: number;
+  usage?: Usage;
+  assertions: AgentTestAssertionResult[];
+  error?: RunError;
+}
+
+export interface AgentTestReport {
+  suiteId: string;
+  status: "passed" | "failed";
+  total: number;
+  passed: number;
+  failed: number;
+  durationMs: number;
+  cases: AgentTestCaseReport[];
+}
+
+export interface RunTestsOptions {
+  agent?: string;
+  test?: string;
 }
