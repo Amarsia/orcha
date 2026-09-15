@@ -13,7 +13,7 @@ import { orchaPlugin } from "../dist/integrations/esbuild.js";
 import { generateBedrockContent } from "../dist/providers/bedrock.js";
 import { generateProviderResponse } from "../dist/providers/index.js";
 import { createOrcha } from "../dist/runtime/create-orcha.js";
-import { runTests } from "../dist/testing.js";
+import { listTests, runTests } from "../dist/testing.js";
 
 const executeFile = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -281,6 +281,7 @@ test("evaluates every completed run against registered model-graded metrics", as
           enabled: true,
           provider: "anthropic",
           model: "claude-evaluator",
+          instructions: "Judge only whether confirmed facts are identified.",
           metrics: [
             {
               name: "groundedness",
@@ -326,6 +327,10 @@ test("evaluates every completed run against registered model-graded metrics", as
     assert.match(
       fixture.requests[1].system,
       /impartial evaluator/,
+    );
+    assert.match(
+      JSON.stringify(fixture.requests[1].messages),
+      /Judge only whether confirmed facts are identified/,
     );
     assert.equal(fixture.requests[1].model, "claude-evaluator");
 
@@ -457,6 +462,8 @@ test("compiles only explicitly registered skills and evaluations", async () => {
       ].join("\n"),
       "agent/evaluations/responseQuality/index.json": JSON.stringify({
         name: "response_quality",
+        description: "Response correctness.",
+        instructions: "Judge the response against the recorded evidence.",
         provider: "openai",
         model: "gpt-evaluator",
         metrics: [
@@ -493,6 +500,8 @@ test("compiles only explicitly registered skills and evaluations", async () => {
       bundle.agents.testAgent.evaluations.response_quality,
       {
         name: "response_quality",
+        description: "Response correctness.",
+        instructions: "Judge the response against the recorded evidence.",
         provider: "openai",
         model: "gpt-evaluator",
         metrics: [
@@ -1810,6 +1819,21 @@ test("runs registered agent tests with durable test-prefixed logs and simulated 
       "utf8",
     );
 
+    const listedTests = await listTests(fixture.client);
+    assert.equal(listedTests.length, 1);
+    assert.equal(listedTests[0].agent, "testAgent");
+    assert.equal(listedTests[0].name, "invoiceTotal");
+    assert.equal(
+      listedTests[0].description,
+      "Calculates an invoice through the agent action.",
+    );
+    assert.deepEqual(
+      listedTests[0].configuration.input,
+      {
+        content: "Calculate this invoice.",
+        metadata: { source: "agent-test" },
+      },
+    );
     const report = await runTests(fixture.client);
 
     assert.equal(report.status, "passed");
@@ -2102,6 +2126,39 @@ test("supports multimodal content, variables, and agent-scoped session reads", a
     assert.equal(history.items.length, 1);
     assert.equal(history.items[0].role, "assistant");
     assert.equal(history.hasMore, true);
+
+    const sessionEvents = await fixture.client.testAgent.events(
+      created.sessionId,
+      {
+        page: 1,
+        pageSize: 2,
+      },
+    );
+    assert.equal(sessionEvents.sessionId, created.sessionId);
+    assert.equal(sessionEvents.events.length, 2);
+    assert.equal(sessionEvents.total, 5);
+    assert.equal(sessionEvents.throughSequence, 5);
+    assert.equal(sessionEvents.hasMore, true);
+    assert.deepEqual(
+      sessionEvents.events.map((event) => event.type),
+      ["message.created", "run.completed"],
+    );
+    await fixture.client.testAgent.update(created.sessionId, {
+      name: "September invoice",
+    });
+    const previousEventPage = await fixture.client.testAgent.events(
+      created.sessionId,
+      {
+        page: 2,
+        pageSize: 2,
+        throughSequence: sessionEvents.throughSequence,
+      },
+    );
+    assert.equal(previousEventPage.total, 5);
+    assert.deepEqual(
+      previousEventPage.events.map((event) => event.sequence),
+      [2, 3],
+    );
 
     const sessions = await fixture.client.testAgent.list({
       metadata: { customerId: "cus_123" },

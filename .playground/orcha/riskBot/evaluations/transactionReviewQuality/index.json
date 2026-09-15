@@ -1,10 +1,11 @@
 {
   "name": "transaction_review_quality",
-  "description": "Judge whether the transaction assessment is grounded, calibrated, and actionable.",
+  "description": "Grounding, calibration, and actionability of transaction reviews.",
+  "instructions": "Judge the complete transaction assessment using only risk signals recorded in the session. Require proportionate risk language and a concrete review action, and penalize unsupported fraud claims or conclusions that overstate the available evidence.",
   "enabled": true,
   "provider": "openai",
   "model": "gpt-5-mini",
-  "maxTokens": 1200,
+  "maxTokens": 4000,
   "reasoningLevel": "minimal",
   "metrics": [
     {

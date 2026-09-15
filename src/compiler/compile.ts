@@ -600,6 +600,13 @@ function validateEvaluationConfiguration(
   ) {
     throw new Error(`${label} description must be a non-empty string.`);
   }
+  if (
+    configuration.instructions !== undefined &&
+    (typeof configuration.instructions !== "string" ||
+      !configuration.instructions.trim())
+  ) {
+    throw new Error(`${label} instructions must be a non-empty string.`);
+  }
   if (!isBuiltInProvider(configuration.provider)) {
     throw new Error(
       `${label} uses unsupported provider "${configuration.provider}".`,

@@ -137,6 +137,7 @@ export interface EvaluationMetricConfiguration {
 export interface EvaluationConfiguration {
   name: string;
   description?: string;
+  instructions?: string;
   enabled?: boolean;
   provider: string;
   model: string;
@@ -408,9 +409,22 @@ export interface SessionHistory extends SessionSnapshot {
   hasMore: boolean;
 }
 
+export interface SessionEvents extends SessionSnapshot {
+  events: SessionEvent[];
+  throughSequence: number;
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+}
+
 export interface PaginationOptions {
   page?: number;
   pageSize?: number;
+}
+
+export interface SessionEventListOptions extends PaginationOptions {
+  throughSequence?: number;
 }
 
 export interface SessionListOptions extends PaginationOptions {
@@ -440,6 +454,10 @@ export interface AgentRuntime {
     sessionId: string,
     options?: PaginationOptions,
   ): Promise<SessionHistory>;
+  events(
+    sessionId: string,
+    options?: SessionEventListOptions,
+  ): Promise<SessionEvents>;
   list(options?: SessionListOptions): Promise<SessionList>;
   update(
     sessionId: string,
@@ -521,6 +539,13 @@ export interface AgentTestReport {
   failed: number;
   durationMs: number;
   cases: AgentTestCaseReport[];
+}
+
+export interface AgentTestCaseSummary {
+  agent: string;
+  name: string;
+  description?: string;
+  configuration: AgentTestCaseConfiguration;
 }
 
 export interface RunTestsOptions {
