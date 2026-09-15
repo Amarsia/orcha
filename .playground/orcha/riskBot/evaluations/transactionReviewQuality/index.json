@@ -1,0 +1,26 @@
+{
+  "name": "transaction_review_quality",
+  "description": "Judge whether the transaction assessment is grounded, calibrated, and actionable.",
+  "enabled": true,
+  "provider": "openai",
+  "model": "gpt-5-mini",
+  "maxTokens": 1200,
+  "reasoningLevel": "minimal",
+  "metrics": [
+    {
+      "name": "groundedness",
+      "description": "The assessment relies only on recorded transaction signals and clearly separates observations from conclusions.",
+      "threshold": 0.8
+    },
+    {
+      "name": "risk_calibration",
+      "description": "The stated risk level is proportionate to the combined velocity, location, device, and amount signals.",
+      "threshold": 0.8
+    },
+    {
+      "name": "review_action",
+      "description": "The response recommends a concrete and proportionate review action without declaring unproven fraud.",
+      "threshold": 0.8
+    }
+  ]
+}

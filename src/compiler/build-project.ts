@@ -75,8 +75,13 @@ export async function buildProject(
     ).replaceAll("\\", "/");
     const includedProviders = [
       ...new Set(
-        Object.values(compiledBundle.agents).map(
-          (agent) => agent.provider,
+        Object.values(compiledBundle.agents).flatMap(
+          (agent) => [
+            agent.provider,
+            ...Object.values(agent.evaluations ?? {})
+              .filter((evaluation) => evaluation.enabled !== false)
+              .map((evaluation) => evaluation.provider),
+          ],
         ),
       ),
     ];

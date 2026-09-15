@@ -462,6 +462,57 @@ explicitly before building in CI. Tests use the configured providers, so the
 test step requires provider credentials and consumes model tokens; `orcha
 build` itself remains offline and does not require those credentials.
 
+## Evaluations
+
+Evaluations are registered LLM judges that score the cumulative session after
+every completed run:
+
+```js
+// evaluations/index.js
+import { defineEvaluations } from "orchajs/evaluations";
+
+export default defineEvaluations({
+  responseQuality: "./responseQuality",
+});
+```
+
+```json
+{
+  "name": "response_quality",
+  "enabled": true,
+  "provider": "openai",
+  "model": "gpt-5-mini",
+  "metrics": [
+    {
+      "name": "groundedness",
+      "description": "The response relies only on confirmed session evidence.",
+      "threshold": 0.8
+    }
+  ]
+}
+```
+
+Each metric receives a normalized score from 0 to 1, reasoning, evidence, and
+a threshold result. Orcha stores the judge lifecycle and results as
+`evaluation.requested`, `evaluation.completed`, or `evaluation.failed` events.
+Evaluation errors and missed thresholds do not change a successful production
+agent result, but they do fail an agent test. Evaluator usage is reported
+separately from the agent's usage.
+
+Evaluations do not delay the agent result. Await them only where the caller
+needs the scores:
+
+```js
+const execution = orcha.riskBot.run(input);
+const result = await execution.result;
+
+// Optional in production; agent tests always await this.
+const evaluations = await execution.evaluations;
+```
+
+Short-lived processes should await `execution.evaluations` before exiting if
+they need every judge result to finish and persist.
+
 For esbuild production applications, add `orchaPlugin()` from
 `orchajs/esbuild` to the existing build. It compiles the registry and replaces
 unchanged `orchajs` imports with the self-contained generated runtime. The
@@ -477,11 +528,12 @@ application continues to use its normal `npm run build` command.
 - [x] Stateful sessions — Node JSONL replay and client-action pause/resume
 - [x] Registered `/skills` with lazy, durable instruction loading
 - [x] Agent `/tests` with durable test-prefixed logs and explicit CI gating
-- [ ] Agent `/evaluations` and `/guardrails`
+- [x] Registered LLM-judged `/evaluations`
+- [ ] Agent `/guardrails`
 - [x] Production compiler and `orcha build`
 - [ ] CLI `orcha init` and `orcha dev` workflows + quick examples
 
-See [`ROADMAP.md`](./ROADMAP.md) for what's coming after — evaluations,
+See [`ROADMAP.md`](./ROADMAP.md) for what's coming after — guardrails,
 OpenTelemetry tracing, MCP interop adapters, and remote session storage remain
 deliberately out of scope for the first release.
 

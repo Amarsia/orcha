@@ -30,6 +30,10 @@
     "./skills": {
       "types": "./dist/skills.d.ts",
       "import": "./dist/skills.js"
+    },
+    "./evaluations": {
+      "types": "./dist/evaluations.d.ts",
+      "import": "./dist/evaluations.js"
     }
   },
   "bin": {

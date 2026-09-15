@@ -191,6 +191,8 @@ function logHistory(
       console.log(
         `TOOL: ${item.name} — ${item.status}${duration}`,
       );
+    } else if (item.type === "skill") {
+      console.log(`SKILL: ${item.summary}`);
     }
   }
 }

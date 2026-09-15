@@ -1,4 +1,5 @@
 import type {
+  EvaluationResult,
   Execution,
   ExecutionSnapshot,
   RunResult,
@@ -12,6 +13,7 @@ export function createExecution<TOutput>(
   execute: (
     publishOutput: OutputSnapshotPublisher<TOutput>,
   ) => Promise<RunResult<TOutput>>,
+  resolveEvaluations?: () => Promise<EvaluationResult[]>,
 ): Execution<TOutput> {
   let controller: ReadableStreamDefaultController<
     ExecutionSnapshot<TOutput>
@@ -85,6 +87,9 @@ export function createExecution<TOutput>(
         throw error;
       },
     );
+  const evaluations = result.then(
+    () => resolveEvaluations?.() ?? [],
+  );
 
   return {
     stream,
@@ -92,5 +97,6 @@ export function createExecution<TOutput>(
       return snapshot;
     },
     result,
+    evaluations,
   };
 }
