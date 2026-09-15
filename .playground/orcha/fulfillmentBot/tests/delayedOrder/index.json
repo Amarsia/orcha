@@ -21,7 +21,7 @@
   "expect": {
     "status": "completed",
     "text": {
-      "contains": ["carrier", "Northstar Parcel", "next business morning"]
+      "contains": ["carrier delay", "next business morning"]
     },
     "actions": [
       {

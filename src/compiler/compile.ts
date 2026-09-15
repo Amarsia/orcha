@@ -7,12 +7,15 @@ import { buildSync } from "esbuild";
 import { isBuiltInProvider } from "../providers/catalog.js";
 import type {
   AgentConfiguration,
+  AgentEvaluationRegistrations,
   AgentSkillRegistrations,
   ActionConfiguration,
   CompiledActionManifest,
   CompiledAgentManifest,
   CompiledBundle,
+  CompiledEvaluationManifest,
   CompiledSkillManifest,
+  EvaluationConfiguration,
   SkillConfiguration,
 } from "../types.js";
 
@@ -122,6 +125,7 @@ export function compileRegistry(
       outputSchema: configuration.outputSchema,
       actions: compileActions(name, sourceDirectory),
       skills: compileSkills(name, sourceDirectory),
+      evaluations: compileEvaluations(name, sourceDirectory),
     });
   }
 
@@ -352,18 +356,140 @@ function compileSkills(
   return Object.freeze(skills);
 }
 
+function compileEvaluations(
+  agentName: string,
+  sourceDirectory: string,
+): Record<string, CompiledEvaluationManifest> {
+  const evaluationsDirectory = resolve(sourceDirectory, "evaluations");
+  if (!existsSync(evaluationsDirectory)) {
+    return {};
+  }
+
+  const registryPath = resolve(evaluationsDirectory, "index.js");
+  if (!existsSync(registryPath)) {
+    throw new Error(
+      `Agent "${agentName}" has an evaluations directory but is missing evaluations/index.js.`,
+    );
+  }
+  const registrations = loadEvaluationRegistrations(
+    agentName,
+    registryPath,
+  );
+  const evaluations: Record<string, CompiledEvaluationManifest> = {};
+
+  for (const [registrationName, registeredPath] of Object.entries(
+    registrations,
+  )) {
+    if (!registrationName.trim()) {
+      throw new Error(
+        `Agent "${agentName}" has an empty registered evaluation name.`,
+      );
+    }
+    if (typeof registeredPath !== "string" || !registeredPath.trim()) {
+      throw new Error(
+        `Evaluation "${agentName}/${registrationName}" must register a folder path.`,
+      );
+    }
+
+    const evaluationDirectory = resolve(
+      evaluationsDirectory,
+      registeredPath,
+    );
+    const relativePath = relative(
+      evaluationsDirectory,
+      evaluationDirectory,
+    );
+    if (
+      !relativePath ||
+      relativePath === ".." ||
+      relativePath.startsWith(`..${sep}`)
+    ) {
+      throw new Error(
+        `Evaluation "${agentName}/${registrationName}" must resolve inside the agent's evaluations directory.`,
+      );
+    }
+
+    const configurationPath = resolve(evaluationDirectory, "index.json");
+    let configuration: EvaluationConfiguration;
+    try {
+      configuration = JSON.parse(
+        readFileSync(configurationPath, "utf8"),
+      ) as EvaluationConfiguration;
+    } catch (error) {
+      throw new Error(
+        `Evaluation "${agentName}/${registrationName}" is missing a valid index.json at ${configurationPath}.`,
+        { cause: error },
+      );
+    }
+    validateEvaluationConfiguration(
+      agentName,
+      registrationName,
+      configuration,
+    );
+    if (evaluations[configuration.name]) {
+      throw new Error(
+        `Agent "${agentName}" has duplicate evaluation name "${configuration.name}".`,
+      );
+    }
+
+    evaluations[configuration.name] = Object.freeze({
+      ...configuration,
+      enabled: configuration.enabled ?? true,
+      provider: configuration.provider as CompiledEvaluationManifest["provider"],
+      directoryName: relativePath.split(sep).join("/"),
+      metrics: Object.freeze(
+        configuration.metrics.map((metric) => Object.freeze({ ...metric })),
+      ),
+    });
+  }
+
+  return Object.freeze(evaluations);
+}
+
 function loadSkillRegistrations(
   agentName: string,
   registryPath: string,
 ): AgentSkillRegistrations {
+  return loadFolderRegistrations(
+    agentName,
+    registryPath,
+    "skills",
+    "skill",
+    "orchajs/skills",
+    "../skills.js",
+  ) as AgentSkillRegistrations;
+}
+
+function loadEvaluationRegistrations(
+  agentName: string,
+  registryPath: string,
+): AgentEvaluationRegistrations {
+  return loadFolderRegistrations(
+    agentName,
+    registryPath,
+    "evaluations",
+    "evaluation",
+    "orchajs/evaluations",
+    "../evaluations.js",
+  ) as AgentEvaluationRegistrations;
+}
+
+function loadFolderRegistrations(
+  agentName: string,
+  registryPath: string,
+  collectionName: string,
+  itemName: string,
+  moduleSpecifier: string,
+  helperPath: string,
+): Record<string, string> {
   let output: string;
   try {
     const result = buildSync({
       entryPoints: [registryPath],
       alias: {
-        "orchajs/skills": resolve(
+        [moduleSpecifier]: resolve(
           dirname(fileURLToPath(import.meta.url)),
-          "../skills.js",
+          helperPath,
         ),
       },
       bundle: true,
@@ -376,7 +502,7 @@ function loadSkillRegistrations(
     output = result.outputFiles[0]?.text ?? "";
   } catch (error) {
     throw new Error(
-      `Agent "${agentName}" skills/index.js could not be bundled.`,
+      `Agent "${agentName}" ${collectionName}/index.js could not be bundled.`,
       { cause: error },
     );
   }
@@ -403,10 +529,10 @@ function loadSkillRegistrations(
     ) {
       throw new TypeError("default export must be a registrations object");
     }
-    return registrations as AgentSkillRegistrations;
+    return registrations as Record<string, string>;
   } catch (error) {
     throw new Error(
-      `Agent "${agentName}" skills/index.js must default-export skill registrations.`,
+      `Agent "${agentName}" ${collectionName}/index.js must default-export ${itemName} registrations.`,
       { cause: error },
     );
   }
@@ -446,6 +572,89 @@ function validateSkillConfiguration(
     throw new Error(
       `Skill "${agentName}/${registrationName}" triggers must be non-empty strings.`,
     );
+  }
+}
+
+function validateEvaluationConfiguration(
+  agentName: string,
+  registrationName: string,
+  configuration: EvaluationConfiguration,
+): void {
+  const label = `Evaluation "${agentName}/${registrationName}"`;
+  if (
+    !configuration ||
+    typeof configuration !== "object" ||
+    Array.isArray(configuration) ||
+    typeof configuration.name !== "string" ||
+    !configuration.name.trim()
+  ) {
+    throw new Error(`${label} requires a name.`);
+  }
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(configuration.name)) {
+    throw new Error(`${label} has an invalid name.`);
+  }
+  if (
+    configuration.description !== undefined &&
+    (typeof configuration.description !== "string" ||
+      !configuration.description.trim())
+  ) {
+    throw new Error(`${label} description must be a non-empty string.`);
+  }
+  if (!isBuiltInProvider(configuration.provider)) {
+    throw new Error(
+      `${label} uses unsupported provider "${configuration.provider}".`,
+    );
+  }
+  if (typeof configuration.model !== "string" || !configuration.model.trim()) {
+    throw new Error(`${label} requires a model.`);
+  }
+  if (
+    configuration.enabled !== undefined &&
+    typeof configuration.enabled !== "boolean"
+  ) {
+    throw new Error(`${label} enabled must be a boolean.`);
+  }
+  validateNumber(
+    `${agentName}/${registrationName}`,
+    "maxTokens",
+    configuration.maxTokens,
+    { integer: true, minimum: 1 },
+  );
+  if (
+    configuration.reasoningLevel !== undefined &&
+    (typeof configuration.reasoningLevel !== "string" ||
+      !configuration.reasoningLevel.trim())
+  ) {
+    throw new Error(`${label} reasoningLevel must be a non-empty string.`);
+  }
+  if (
+    !Array.isArray(configuration.metrics) ||
+    configuration.metrics.length === 0
+  ) {
+    throw new Error(`${label} requires at least one metric.`);
+  }
+  const names = new Set<string>();
+  for (const metric of configuration.metrics) {
+    if (
+      !metric ||
+      typeof metric !== "object" ||
+      typeof metric.name !== "string" ||
+      !/^[a-zA-Z0-9_-]{1,64}$/.test(metric.name) ||
+      typeof metric.description !== "string" ||
+      !metric.description.trim() ||
+      typeof metric.threshold !== "number" ||
+      !Number.isFinite(metric.threshold) ||
+      metric.threshold < 0 ||
+      metric.threshold > 1
+    ) {
+      throw new Error(
+        `${label} metrics require a valid name, description, and threshold between 0 and 1.`,
+      );
+    }
+    if (names.has(metric.name)) {
+      throw new Error(`${label} has duplicate metric "${metric.name}".`);
+    }
+    names.add(metric.name);
   }
 }
 

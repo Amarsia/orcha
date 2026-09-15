@@ -126,6 +126,51 @@ export interface CompiledSkillManifest extends SkillConfiguration {
   instructions: string;
 }
 
+export type AgentEvaluationRegistrations = Record<string, string>;
+
+export interface EvaluationMetricConfiguration {
+  name: string;
+  description: string;
+  threshold: number;
+}
+
+export interface EvaluationConfiguration {
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  provider: string;
+  model: string;
+  maxTokens?: number;
+  reasoningLevel?: string;
+  metrics: readonly EvaluationMetricConfiguration[];
+}
+
+export interface CompiledEvaluationManifest
+  extends Omit<EvaluationConfiguration, "provider"> {
+  directoryName: string;
+  provider: ProviderName;
+}
+
+export interface EvaluationMetricResult {
+  name: string;
+  score: number;
+  threshold: number;
+  passed: boolean;
+  reasoning: string;
+  evidence: string[];
+}
+
+export interface EvaluationResult {
+  name: string;
+  status: "passed" | "failed" | "error";
+  metrics: EvaluationMetricResult[];
+  usage?: Usage;
+  durationMs: number;
+  error?: {
+    message: string;
+  };
+}
+
 export interface LocalActionRuntimeConfiguration {
   runtime: "native" | "sandbox";
   env?: Record<string, string | undefined>;
@@ -142,6 +187,7 @@ export interface CompiledAgentManifest
   systemPrompt: string;
   actions: Record<string, CompiledActionManifest>;
   skills: Record<string, CompiledSkillManifest>;
+  evaluations: Record<string, CompiledEvaluationManifest>;
 }
 
 export interface CompiledBundle {
@@ -253,6 +299,7 @@ export interface Execution<TOutput = unknown> {
   readonly stream: ReadableStream<ExecutionSnapshot<TOutput>>;
   readonly snapshot: ExecutionSnapshot<TOutput> | undefined;
   readonly result: Promise<RunResult<TOutput>>;
+  readonly evaluations: Promise<EvaluationResult[]>;
 }
 
 export interface ClientToolCall {
@@ -288,6 +335,9 @@ export type SessionEventType =
   | "skill.requested"
   | "skill.loaded"
   | "skill.failed"
+  | "evaluation.requested"
+  | "evaluation.completed"
+  | "evaluation.failed"
   | "run.paused"
   | "run.completed"
   | "run.failed"
@@ -334,6 +384,7 @@ export interface SessionHistoryItem {
     | "action"
     | "client_action"
     | "skill"
+    | "evaluation"
     | "session_completed";
   createdAt: string;
   role?: "user" | "assistant";
@@ -345,6 +396,7 @@ export interface SessionHistoryItem {
   arguments?: Record<string, unknown>;
   durationMs?: number;
   usage?: Usage;
+  metrics?: EvaluationMetricResult[];
 }
 
 export interface SessionHistory extends SessionSnapshot {
@@ -455,6 +507,7 @@ export interface AgentTestCaseReport {
   sessionPath?: string;
   durationMs: number;
   usage?: Usage;
+  evaluations?: EvaluationResult[];
   assertions: AgentTestAssertionResult[];
   error?: RunError;
 }

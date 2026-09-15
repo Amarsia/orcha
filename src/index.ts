@@ -4,6 +4,7 @@ export type { Orcha, OrchaClient } from "./orcha.js";
 export { NodeJsonlSessionStore } from "./storage/node-jsonl.js";
 export type {
   ActionConfiguration,
+  AgentEvaluationRegistrations,
   AgentSkillRegistrations,
   AgentTestActionConfiguration,
   AgentTestActionExpectation,
@@ -28,7 +29,12 @@ export type {
   CompiledActionManifest,
   CompiledAgentManifest,
   CompiledBundle,
+  CompiledEvaluationManifest,
   CompiledSkillManifest,
+  EvaluationConfiguration,
+  EvaluationMetricConfiguration,
+  EvaluationMetricResult,
+  EvaluationResult,
   Execution,
   ExecutionSnapshot,
   FailedRunResult,

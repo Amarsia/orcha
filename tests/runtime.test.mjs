@@ -230,7 +230,203 @@ test("returns failed skill loads to the model without failing the run", async ()
   }
 });
 
-test("compiles only skills registered through skills/index.js", async () => {
+test("evaluates every completed run against registered model-graded metrics", async () => {
+  let releaseEvaluation = () => {};
+  const evaluationGate = new Promise((resolveGate) => {
+    releaseEvaluation = resolveGate;
+  });
+  const fixture = await createRuntimeFixture(
+    async (_requests, index) => {
+      if (index === 1) {
+        return {
+          id: "msg_subject",
+          stop_reason: "end_turn",
+          content: [
+            {
+              type: "text",
+              text: "The confirmed status is processing.",
+            },
+          ],
+        };
+      }
+      await evaluationGate;
+      return {
+        id: "msg_evaluator",
+        stop_reason: "end_turn",
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              metrics: [
+                {
+                  name: "groundedness",
+                  score: 0.95,
+                  reasoning:
+                    "The response labels the status as confirmed.",
+                  evidence: [
+                    "The confirmed status is processing.",
+                  ],
+                },
+              ],
+            }),
+          },
+        ],
+      };
+    },
+    {
+      evaluations: {
+        response_quality: {
+          name: "response_quality",
+          directoryName: "responseQuality",
+          enabled: true,
+          provider: "anthropic",
+          model: "claude-evaluator",
+          metrics: [
+            {
+              name: "groundedness",
+              description:
+                "The response distinguishes confirmed facts from assumptions.",
+              threshold: 0.8,
+            },
+          ],
+        },
+      },
+    },
+  );
+  try {
+    const execution = fixture.client.testAgent.run(
+      "What is the subscription status?",
+    );
+    const result = await execution.result;
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "The confirmed status is processing.");
+    const pendingEvents = await readSessionEvents(
+      fixture.root,
+      result.sessionId,
+    );
+    assert.equal(
+      pendingEvents.some(
+        (event) => event.type === "evaluation.requested",
+      ),
+      true,
+    );
+    assert.equal(
+      pendingEvents.some(
+        (event) => event.type === "evaluation.completed",
+      ),
+      false,
+    );
+    releaseEvaluation();
+    const evaluations = await execution.evaluations;
+    assert.equal(evaluations.length, 1);
+    assert.equal(evaluations[0].status, "passed");
+    assert.equal(evaluations[0].metrics[0].score, 0.95);
+    assert.equal(evaluations[0].metrics[0].passed, true);
+    assert.match(
+      fixture.requests[1].system,
+      /impartial evaluator/,
+    );
+    assert.equal(fixture.requests[1].model, "claude-evaluator");
+
+    const events = await readSessionEvents(fixture.root, result.sessionId);
+    assert.equal(
+      events.some((event) => event.type === "evaluation.requested"),
+      true,
+    );
+    assert.equal(
+      events.some((event) => event.type === "evaluation.completed"),
+      true,
+    );
+  } finally {
+    releaseEvaluation();
+    await fixture.dispose();
+  }
+});
+
+test("fails agent tests when registered evaluation thresholds are missed", async () => {
+  const fixture = await createRuntimeFixture(
+    (_requests, index) =>
+      index === 1
+        ? {
+            id: "msg_test_subject",
+            stop_reason: "end_turn",
+            content: [{ type: "text", text: "I think it is fine." }],
+          }
+        : {
+            id: "msg_test_evaluator",
+            stop_reason: "end_turn",
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  metrics: [
+                    {
+                      name: "groundedness",
+                      score: 0.2,
+                      reasoning:
+                        "The response provides no supporting evidence.",
+                      evidence: ["I think it is fine."],
+                    },
+                  ],
+                }),
+              },
+            ],
+          },
+    {
+      evaluations: {
+        response_quality: {
+          name: "response_quality",
+          directoryName: "responseQuality",
+          enabled: true,
+          provider: "anthropic",
+          model: "claude-evaluator",
+          metrics: [
+            {
+              name: "groundedness",
+              description: "The response is supported by session evidence.",
+              threshold: 0.8,
+            },
+          ],
+        },
+      },
+    },
+  );
+  try {
+    const testsDirectory = resolve(
+      fixture.root,
+      "orcha/testAgent/tests",
+    );
+    await writeProjectFiles(testsDirectory, {
+      "index.js": 'export default { quality: "./quality" };\n',
+      "quality/index.json": JSON.stringify({
+        input: { content: "Assess the available evidence." },
+        actions: {
+          calculate_invoice_total: { responses: [] },
+          request_invoice_approval: { responses: [] },
+        },
+        expect: { status: "completed", actions: [] },
+      }),
+    });
+
+    const report = await runTests(fixture.client);
+
+    assert.equal(report.status, "failed");
+    assert.equal(report.cases[0].evaluations[0].status, "failed");
+    assert.equal(
+      report.cases[0].assertions.some(
+        (assertion) =>
+          assertion.path === "evaluations.response_quality" &&
+          assertion.passed === false,
+      ),
+      true,
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("compiles only explicitly registered skills and evaluations", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-skills-"));
   try {
     await writeProjectFiles(root, {
@@ -253,6 +449,25 @@ test("compiles only skills registered through skills/index.js", async () => {
       "agent/skills/incidentTriage/instructions.md":
         "Inspect confirmed telemetry first.",
       "agent/skills/unregistered/index.json": "{ invalid json",
+      "agent/evaluations/index.js": [
+        'import { defineEvaluations } from "orchajs/evaluations";',
+        "export default defineEvaluations({",
+        '  responseQuality: "./responseQuality",',
+        "});",
+      ].join("\n"),
+      "agent/evaluations/responseQuality/index.json": JSON.stringify({
+        name: "response_quality",
+        provider: "openai",
+        model: "gpt-evaluator",
+        metrics: [
+          {
+            name: "correctness",
+            description: "The response is correct.",
+            threshold: 0.8,
+          },
+        ],
+      }),
+      "agent/evaluations/unregistered/index.json": "{ invalid json",
     });
 
     const bundle = compileRegistry({ testAgent: "./agent" }, root);
@@ -268,6 +483,27 @@ test("compiles only skills registered through skills/index.js", async () => {
         triggers: ["A service is degraded."],
         directoryName: "incidentTriage",
         instructions: "Inspect confirmed telemetry first.",
+      },
+    );
+    assert.deepEqual(
+      Object.keys(bundle.agents.testAgent.evaluations),
+      ["response_quality"],
+    );
+    assert.deepEqual(
+      bundle.agents.testAgent.evaluations.response_quality,
+      {
+        name: "response_quality",
+        provider: "openai",
+        model: "gpt-evaluator",
+        metrics: [
+          {
+            name: "correctness",
+            description: "The response is correct.",
+            threshold: 0.8,
+          },
+        ],
+        enabled: true,
+        directoryName: "responseQuality",
       },
     );
   } finally {
@@ -1879,7 +2115,7 @@ test("executes the production application without a runtime orchajs import", asy
   }
 });
 
-test("bundles Google Cloud authentication only for Vertex agents", async () => {
+test("bundles providers required by a Vertex agent and its evaluations", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-vertex-production-"));
   try {
     await writeVertexFixtureProject(root);
@@ -1901,6 +2137,7 @@ test("bundles Google Cloud authentication only for Vertex agents", async () => {
     assert.doesNotMatch(applicationBundle, /from\s*["']orchajs["']/);
     assert.match(applicationBundle, /node:module/);
     assert.match(applicationBundle, /child_process/);
+    assert.match(applicationBundle, /api\.openai\.com/);
     assert.doesNotMatch(
       applicationBundle,
       /api\.anthropic\.com|api\.deepseek\.com/,
@@ -2052,6 +2289,7 @@ async function createRuntimeFixture(responseFactory, options = {}) {
           ? { outputSchema: options.outputSchema }
           : {}),
         skills: options.skills ?? {},
+        evaluations: options.evaluations ?? {},
         actions: {
           request_invoice_approval: {
             name: "request_invoice_approval",
@@ -2176,7 +2414,7 @@ async function createMockAnthropic(responseFactory) {
     }
     requests.push(JSON.parse(body));
     const index = requests.length;
-    const generated = responseFactory?.(requests, index);
+    const generated = await responseFactory?.(requests, index);
     if (generated?.streamText) {
       response.writeHead(200, { "content-type": "text/event-stream" });
       writeAnthropicStream(response, generated, index);
@@ -2486,10 +2724,27 @@ async function writeVertexFixtureProject(root) {
       outputType: "text",
     }),
     "orcha/vertexAgent/instructions.md": "You are a test agent.\n",
+    "orcha/vertexAgent/evaluations/index.js": [
+      'import { defineEvaluations } from "orchajs/evaluations";',
+      'export default defineEvaluations({ quality: "./quality" });',
+      "",
+    ].join("\n"),
+    "orcha/vertexAgent/evaluations/quality/index.json": JSON.stringify({
+      name: "quality",
+      provider: "openai",
+      model: "gpt-test",
+      metrics: [
+        {
+          name: "correctness",
+          description: "The response is correct.",
+          threshold: 0.8,
+        },
+      ],
+    }),
     "orcha/index.ts": [
       'import { orcha } from "orchajs";',
       "orcha.init({",
-      '  providers: { vertexai: { project: "test-project", location: "us-central1" } },',
+      '  providers: { vertexai: { project: "test-project", location: "us-central1" }, openai: "test-key" },',
       '  agents: { vertexAgent: "./vertexAgent" },',
       "});",
       "",

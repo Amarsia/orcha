@@ -135,29 +135,42 @@ Completion criteria:
 - Repeated loads are idempotent and do not duplicate instructions.
 - Durable logs identify every skill activated in a session.
 
-## Next
-
 ### 7. `/evaluations`
 
 Add repeatable quality measurement under each agent's `/evaluations` folder.
 
-- Define datasets, evaluators, scoring ranges, thresholds, and sample metadata
-  as files.
-- Support deterministic code evaluators first.
-- Add model-graded evaluators through an explicit evaluator agent and provider
-  configuration.
-- Record output quality, tool behavior, latency, and normalized token usage.
-- Compare results across agent, prompt, model, and provider revisions.
-- Emit machine-readable evaluation reports without coupling Orcha to a hosted
-  platform.
+- Require `evaluations/index.js` to register the evaluations compiled for an
+  agent.
+- Define each LLM judge, model, predefined metrics, and per-metric thresholds
+  in the registered folder's `index.json`.
+- Run every enabled evaluation against the cumulative durable session after
+  each completed agent run.
+- Give judges a sanitized transcript containing user-visible messages, action
+  activity, results, and loaded skills without internal reasoning or replay
+  metadata.
+- Persist `evaluation.requested`, `evaluation.completed`, and
+  `evaluation.failed` events with scores, evidence, evaluator usage, model,
+  duration, and evaluated sequence.
+- Return evaluation results separately without converting a successful
+  production agent run into a failure.
+- Resolve `execution.result` as soon as agent work completes, run judges in
+  the background, and expose `execution.evaluations` for callers that choose
+  to await the outcomes.
+- Apply registered evaluations to agent tests and fail the test when a metric
+  threshold is missed or its judge fails.
 
 Completion criteria:
 
-- Evaluation runs are reproducible from the repository.
-- Scores retain per-case evidence rather than only aggregate numbers.
-- Threshold failures return a non-zero CLI exit code.
-- Evaluation runs retain inspectable logs in evaluation-specific storage
-  instead of mixing with normal application sessions.
+- Invalid evaluation definitions fail compilation with file-specific errors.
+- Every configured metric receives exactly one normalized score from 0 to 1,
+  concise reasoning, and supporting evidence.
+- Evaluation lifecycle and results remain inspectable in the same durable
+  session JSONL.
+- Agent and evaluator token usage remain separate.
+- Production runs expose evaluation outcomes without changing their agent
+  completion status.
+
+## Next
 
 ### 8. `/guardrails`
 
@@ -207,6 +220,8 @@ These remain outside the first-release sequence:
 - Comprehensive test fixtures with dynamic JavaScript action implementations,
   custom assertion functions, reusable fixtures, setup/teardown hooks,
   parameterized cases, retries, concurrency controls, and provider matrices.
+- Actor-driven simulation tests with independent actor and agent models,
+  repeated runs, turn limits, token budgets, and evaluation aggregation.
 - Remote session-store adapters.
 - OpenTelemetry tracing.
 - MCP interoperability adapters.

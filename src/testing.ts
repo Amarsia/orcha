@@ -24,6 +24,7 @@ import type {
   AgentTestReport,
   AgentTestValueExpectation,
   CompiledAgentManifest,
+  EvaluationResult,
   RunResult,
   RunTestsOptions,
   SessionEvent,
@@ -453,7 +454,7 @@ async function runTestCase(
   const startedAt = performance.now();
   const actionIndexes = new Map<string, number>();
   const actionNames = Object.keys(testCase.configuration.actions);
-  let result: RunResult = await agent.run({
+  let execution = agent.run({
     ...testCase.configuration.input,
     name: `${testCase.agent}/${testCase.name}`,
     metadata: {
@@ -463,7 +464,8 @@ async function runTestCase(
       testCase: testCase.name,
     },
     clientCapabilities: actionNames,
-  }).result;
+  });
+  let result: RunResult = await execution.result;
   let fixtureError: string | undefined;
 
   while (result.status === "waiting_for_client_action") {
@@ -486,16 +488,19 @@ async function runTestCase(
     if (fixtureError) {
       break;
     }
-    result = await agent.resume(result.sessionId, {
+    execution = agent.resume(result.sessionId, {
       toolResults,
-    }).result;
+    });
+    result = await execution.result;
   }
 
+  const evaluations = await execution.evaluations;
   const events = await store.read(result.sessionId);
   const actualActions = actionCallsFromEvents(events);
   const assertions = evaluateAssertions(
     testCase.configuration,
     result,
+    evaluations,
     actualActions,
   );
   if (fixtureError) {
@@ -525,6 +530,9 @@ async function runTestCase(
     ...("usage" in result && result.usage
       ? { usage: result.usage }
       : {}),
+    ...(evaluations.length > 0
+      ? { evaluations }
+      : {}),
     assertions,
     ...(result.status === "failed"
       ? { error: result.error }
@@ -545,6 +553,9 @@ async function runTestCase(
         durationMs: report.durationMs,
         assertions: report.assertions,
         ...(report.usage ? { usage: report.usage } : {}),
+        ...(report.evaluations
+          ? { evaluations: report.evaluations }
+          : {}),
         ...(report.error ? { error: report.error } : {}),
       },
       "session",
@@ -581,6 +592,7 @@ function actionCallsFromEvents(
 function evaluateAssertions(
   configuration: AgentTestCaseConfiguration,
   result: RunResult,
+  evaluations: EvaluationResult[],
   actualActions: ActualActionCall[],
 ): AgentTestAssertionResult[] {
   const assertions: AgentTestAssertionResult[] = [];
@@ -594,6 +606,21 @@ function evaluateAssertions(
       result.status,
     ),
   );
+  if (result.status === "completed") {
+    for (const evaluation of evaluations) {
+      assertions.push(
+        assertion(
+          `evaluations.${evaluation.name}`,
+          evaluation.status === "passed",
+          evaluation.status === "error"
+            ? `Evaluation "${evaluation.name}" failed to run: ${evaluation.error?.message ?? "Unknown error."}`
+            : `Evaluation "${evaluation.name}" did not meet every metric threshold.`,
+          "passed",
+          evaluation.status,
+        ),
+      );
+    }
+  }
 
   if (configuration.expect.output) {
     const actual =

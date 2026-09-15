@@ -27,7 +27,7 @@ providers.
 To verify the production boundary without changing application source:
 
 1. Run `npm run build`.
-2. Run `npm run start:production`.
+2. Run `npm run start:production:local`.
 3. Inspect `dist/index.js`; the generated Orcha runtime is embedded and
    there is no runtime import of the `orchajs` package.
 
@@ -46,8 +46,11 @@ to explain a delayed shipment without inventing carrier events.
 The incident scenario uses DeepSeek Reasoner and a sandboxed service-health
 lookup to produce an evidence-based initial incident assessment.
 
-The compliance scenario uses Claude through Amazon Bedrock Converse and a
-sandboxed security-control lookup to identify missing compliance evidence.
+The optional compliance scenario uses Claude through Amazon Bedrock Converse
+and a sandboxed security-control lookup to identify missing compliance
+evidence. Its registration and runner block are commented out by default.
 
 The risk scenario uses Vertex AI and a sandboxed transaction-risk lookup to
-recommend whether a payment needs manual review.
+recommend whether a payment needs manual review. It also demonstrates lazy
+skill loading and an OpenAI judge that scores groundedness, risk calibration,
+and the recommended review action after each run.
