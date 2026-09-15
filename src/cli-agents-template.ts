@@ -491,6 +491,8 @@ model, metrics, and thresholds:
 \`\`\`json
 {
   "name": "response_quality",
+  "description": "Grounding of agent responses.",
+  "instructions": "Judge the complete response using only confirmed evidence recorded in the session.",
   "enabled": true,
   "provider": "openai",
   "model": "gpt-5-mini",
@@ -514,7 +516,9 @@ Evaluation \`index.json\` fields:
 
 - \`name\` (required): durable model-facing identifier, 1–64 letters, numbers,
   underscores, or hyphens; unique within the agent.
-- \`description\` (optional): overall judging objective.
+- \`description\` (optional): short human-facing summary of the evaluator.
+- \`instructions\` (optional): detailed prompt supplied to the judge. When
+  omitted, \`description\` is used for backward compatibility.
 - \`enabled\` (optional): defaults to \`true\`. Disabled evaluations are
   compiled but do not run.
 - \`provider\` and \`model\` (required): independently select the judge. The
@@ -888,10 +892,14 @@ for faithful continuation but are omitted from evaluation transcripts.
   last output, metadata, and aggregate usage.
 - \`agent.history(sessionId, { page, pageSize })\` returns a safe user-facing
   timeline rather than raw provider bookkeeping.
+- \`agent.events(sessionId, { page, pageSize })\` returns the canonical durable
+  event records for observability, audit, and debugging tools. For subsequent
+  pages of a changing session, pass the first response's \`throughSequence\`
+  back in the options to keep pagination on a stable event boundary.
 - \`agent.list({ page, pageSize, status, metadata })\` lists projected session
   snapshots.
-- Read JSONL directly when building observability, audit, or debugging tools
-  that require the exact append-only event stream described above.
+- Never read storage files directly. Use these methods so applications remain
+  compatible with JSONL, SQLite, IndexedDB, remote, and future storage adapters.
 
 ## Change rules
 

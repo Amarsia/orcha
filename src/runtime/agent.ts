@@ -26,6 +26,8 @@ import type {
   ResumeInput,
   RunResult,
   SessionEvent,
+  SessionEventListOptions,
+  SessionEvents,
   SessionHistory,
   SessionHistoryItem,
   SessionList,
@@ -193,6 +195,42 @@ export class RuntimeAgent implements AgentRuntime {
       page,
       pageSize,
       total: allItems.length,
+      hasMore: start > 0,
+    };
+  }
+
+  async events(
+    sessionId: string,
+    options: SessionEventListOptions = {},
+  ): Promise<SessionEvents> {
+    const sessionEvents = await this.#readSession(sessionId);
+    this.#assertOwnedSession(sessionId, sessionEvents);
+    const { page, pageSize } = normalizePagination(options);
+    const latestSequence = sessionEvents.at(-1)?.sequence ?? 0;
+    const throughSequence = options.throughSequence ?? latestSequence;
+    if (
+      !Number.isInteger(throughSequence) ||
+      throughSequence < 1 ||
+      throughSequence > latestSequence
+    ) {
+      throw new OrchaError(
+        "invalid_input",
+        `Event pagination requires throughSequence between 1 and ${latestSequence}.`,
+      );
+    }
+    const events = sessionEvents.filter(
+      (event) => event.sequence <= throughSequence,
+    );
+    const end = Math.max(0, events.length - (page - 1) * pageSize);
+    const start = Math.max(0, end - pageSize);
+
+    return {
+      ...projectSessionSnapshot(events),
+      events: events.slice(start, end),
+      throughSequence,
+      page,
+      pageSize,
+      total: events.length,
       hasMore: start > 0,
     };
   }
@@ -1928,6 +1966,8 @@ function createEvaluationRequest(
               evaluation: {
                 name: evaluation.name,
                 description: evaluation.description,
+                instructions:
+                  evaluation.instructions ?? evaluation.description,
                 metrics: evaluation.metrics.map((metric) => ({
                   name: metric.name,
                   description: metric.description,

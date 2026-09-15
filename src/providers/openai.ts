@@ -355,6 +355,15 @@ function toProviderResponse(
       .filter((block) => block.type === "text")
       .map((block) => block.text)
       .join("");
+  if (
+    request.outputType === "json" &&
+    response.status === "incomplete" &&
+    response.incomplete_details?.reason === "max_output_tokens"
+  ) {
+    throw new Error(
+      "OpenAI reached max_output_tokens before completing structured output.",
+    );
+  }
   const output =
     request.outputType === "json" && toolCalls.length === 0
       ? parseStructuredOutput(textOutput, request.outputSchema ?? {})

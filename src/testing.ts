@@ -20,6 +20,7 @@ import type {
   AgentTestAssertionResult,
   AgentTestCaseConfiguration,
   AgentTestCaseReport,
+  AgentTestCaseSummary,
   AgentTestRegistrations,
   AgentTestReport,
   AgentTestValueExpectation,
@@ -45,6 +46,42 @@ export function defineTests<
   const Registrations extends AgentTestRegistrations,
 >(registrations: Registrations): Registrations {
   return registrations;
+}
+
+export async function listTests(
+  orcha: OrchaClient,
+  options: RunTestsOptions = {},
+): Promise<AgentTestCaseSummary[]> {
+  const context = getOrchaRuntimeContext(orcha);
+  const temporaryBuildDirectory = resolve(
+    context.projectRoot,
+    ".orcha/.test-build",
+    `list_${randomUUID()}`,
+  );
+  const registryBuildDirectory = resolve(
+    temporaryBuildDirectory,
+    "registries",
+  );
+  try {
+    const cases = await discoverTests(
+      context.projectRoot,
+      context.registrations,
+      context.bundle.agents,
+      options,
+      registryBuildDirectory,
+    );
+    return cases.map((testCase) => ({
+      agent: testCase.agent,
+      name: testCase.name,
+      description: testCase.configuration.description,
+      configuration: testCase.configuration,
+    }));
+  } finally {
+    await rm(temporaryBuildDirectory, {
+      recursive: true,
+      force: true,
+    });
+  }
 }
 
 export async function runTests(

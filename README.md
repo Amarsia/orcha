@@ -239,7 +239,7 @@ npx orcha build
 `run` and `test` support `--json` for scripts and coding agents.
 `orcha init` also creates a comprehensive `AGENTS.md` describing Orcha's
 filesystem contract and APIs. The CLI does not provide a UI; applications can
-build one from the runtime session APIs or durable JSONL logs.
+build one from the storage-neutral runtime session APIs.
 
 Orcha owns its built-in provider adapters. Messages, tool calls and results,
 streaming snapshots, usage, and errors are normalized before reaching the
@@ -401,6 +401,7 @@ Sessions are managed through the same registered agent:
 ```js
 await orcha.exampleAgent.get(sessionId);
 await orcha.exampleAgent.history(sessionId, { page: 1, pageSize: 50 });
+await orcha.exampleAgent.events(sessionId, { page: 1, pageSize: 100 });
 await orcha.exampleAgent.list({
   metadata: { customerId: "cus_123" },
   page: 1,
@@ -411,6 +412,13 @@ await orcha.exampleAgent.update(sessionId, {
   metadata: { approved: true },
 });
 ```
+
+`history()` returns a user-facing projection. `events()` returns the canonical
+durable event records for observability and debugging without exposing the
+active storage adapter. Applications should never read session files directly.
+When paging while a session is still changing, pass the first response's
+`throughSequence` into later `events()` calls to keep every page on the same
+event boundary.
 
 ## Agent tests
 
@@ -507,6 +515,8 @@ export default defineEvaluations({
 ```json
 {
   "name": "response_quality",
+  "description": "Grounding of agent responses.",
+  "instructions": "Judge the complete response using only confirmed evidence recorded in the session.",
   "enabled": true,
   "provider": "openai",
   "model": "gpt-5-mini",
@@ -526,6 +536,11 @@ a threshold result. Orcha stores the judge lifecycle and results as
 Evaluation errors and missed thresholds do not change a successful production
 agent result, but they do fail an agent test. Evaluator usage is reported
 separately from the agent's usage.
+
+`description` is a short human-facing summary. `instructions` contains the
+potentially detailed prompt that directs the evaluator; when omitted,
+`description` is used for backward compatibility. Metric descriptions define
+the individual scoring criteria.
 
 Evaluations do not delay the agent result. Await them only where the caller
 needs the scores:
