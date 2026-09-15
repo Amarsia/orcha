@@ -213,6 +213,34 @@ streaming are supported.
 `run()` always starts a new session; `resume()` continues one with either a new
 message or pending client tool results.
 
+The CLI provides the same focused workflows without introducing a separate
+application runtime:
+
+```bash
+# Offline validation that watches orcha/**
+npx orcha dev
+
+# Execute a registered agent. Input can also come from a JSON file or stdin.
+npx orcha run exampleAgent --input "Help me understand this invoice"
+
+# Continue an existing session or resolve pending client actions.
+npx orcha run exampleAgent --session ses_123 --input "Summarize it"
+npx orcha run exampleAgent --session ses_123 --tool-results results.json
+
+# Run all tests, one agent, or one case.
+npx orcha test
+npx orcha test exampleAgent
+npx orcha test exampleAgent/exampleCase
+
+# Offline production compilation.
+npx orcha build
+```
+
+`run` and `test` support `--json` for scripts and coding agents.
+`orcha init` also creates a comprehensive `AGENTS.md` describing Orcha's
+filesystem contract and APIs. The CLI does not provide a UI; applications can
+build one from the runtime session APIs or durable JSONL logs.
+
 Orcha owns its built-in provider adapters. Messages, tool calls and results,
 streaming snapshots, usage, and errors are normalized before reaching the
 runtime, so application and action APIs do not change when an agent switches
@@ -531,7 +559,7 @@ application continues to use its normal `npm run build` command.
 - [x] Registered LLM-judged `/evaluations`
 - [ ] Agent `/guardrails`
 - [x] Production compiler and `orcha build`
-- [ ] CLI `orcha init` and `orcha dev` workflows + quick examples
+- [x] Lightweight CLI for init, validation, execution, tests, and builds
 
 See [`ROADMAP.md`](./ROADMAP.md) for what's coming after — guardrails,
 OpenTelemetry tracing, MCP interop adapters, and remote session storage remain

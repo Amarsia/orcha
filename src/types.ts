@@ -311,6 +311,7 @@ export interface ClientToolCall {
 export interface ToolResult {
   callId: string;
   output: unknown;
+  isError?: boolean;
 }
 
 export interface ToolResumeInput {

@@ -196,11 +196,15 @@ Completion criteria:
 
 Finish the developer workflow after the runtime conventions are stable.
 
-- `orcha init` creates the registry and a minimal example agent.
-- `orcha dev` watches agent files, validates changes, and runs selected agents.
-- Extend `orcha build` diagnostics for tests, evaluations, and guardrails.
-- Add commands for running one agent test, all tests, and evaluation suites.
-- Support selecting a named playground/example agent from the command line.
+- `orcha init` safely creates the registry, a minimal example agent, and
+  comprehensive agent-facing documentation in `AGENTS.md`.
+- `orcha dev` performs offline validation and watches `orcha/**`.
+- `orcha run <agent>` executes or resumes one registered agent from text,
+  structured files, or stdin.
+- `orcha test [agent | agent/test]` runs all or selected model-backed tests.
+- `orcha build` remains an offline production compilation command.
+- `run` and `test` expose machine-readable JSON output for CI and coding
+  agents.
 - Keep every CLI command usable in local development and CI without a hosted
   Orcha account.
 
@@ -222,6 +226,10 @@ These remain outside the first-release sequence:
   parameterized cases, retries, concurrency controls, and provider matrices.
 - Actor-driven simulation tests with independent actor and agent models,
   repeated runs, turn limits, token budgets, and evaluation aggregation.
+- A standalone `npx orcha init <project>` playground generator that creates a
+  Node.js Orcha application with a small UI for listing and running agents,
+  browsing their sessions, and reading durable JSONL logs. Keep this separate
+  from the core headless CLI.
 - Remote session-store adapters.
 - OpenTelemetry tracing.
 - MCP interoperability adapters.
