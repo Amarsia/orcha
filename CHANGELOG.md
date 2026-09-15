@@ -1,5 +1,32 @@
 # orchajs
 
+## 0.3.0
+
+### Minor Changes
+
+- [#32](https://github.com/Amarsia/orcha/pull/32) [`ebaa5c0`](https://github.com/Amarsia/orcha/commit/ebaa5c0ebab2845d4abe51fe9ab52c70e9fa1bf3) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Add registered LLM-judged agent evaluations.
+
+  Agents can register evaluation folders through `evaluations/index.js`. Each
+  evaluation defines its judge provider and model alongside predefined metrics
+  and score thresholds. Enabled evaluations score the cumulative durable session
+  after every completed run and return normalized scores, reasoning, evidence,
+  usage, and pass status separately from the agent result.
+
+  Evaluation lifecycle and results are persisted as durable session events.
+  Registered evaluations also run during agent tests, where judge errors and
+  missed metric thresholds fail the test without changing production agent
+  completion semantics.
+
+### Patch Changes
+
+- [#32](https://github.com/Amarsia/orcha/pull/32) [`ebaa5c0`](https://github.com/Amarsia/orcha/commit/ebaa5c0ebab2845d4abe51fe9ab52c70e9fa1bf3) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Run registered agent evaluations asynchronously.
+
+  Completed agent runs now resolve `execution.result` without waiting for LLM
+  judges. Applications can optionally await `execution.evaluations`, while agent
+  tests continue to await all registered evaluations and enforce their metric
+  thresholds. Evaluation lifecycle events and results remain durably persisted
+  in the session log.
+
 ## 0.2.0
 
 ### Minor Changes
