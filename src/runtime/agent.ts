@@ -1166,11 +1166,17 @@ export class RuntimeAgent implements AgentRuntime {
     }
 
     for (const result of results) {
+      if (
+        result.isError !== undefined &&
+        typeof result.isError !== "boolean"
+      ) {
+        return "toolResults[].isError must be a boolean when provided.";
+      }
       const call = calls.find((candidate) => candidate.callId === result.callId);
       const schema = call
         ? (this.#manifest.actions ?? {})[call.name]?.outputSchema
         : undefined;
-      if (schema) {
+      if (schema && result.isError !== true) {
         try {
           validateStructuredValue(result.output, schema);
         } catch (error) {
@@ -1376,13 +1382,16 @@ function parseToolResults(value: unknown): ToolResult[] | undefined {
     if (
       !isRecord(item) ||
       typeof item.callId !== "string" ||
-      !("output" in item)
+      !("output" in item) ||
+      (item.isError !== undefined &&
+        typeof item.isError !== "boolean")
     ) {
       return undefined;
     }
     results.push({
       callId: item.callId,
       output: item.output,
+      ...(item.isError === true ? { isError: true } : {}),
     });
   }
   return results;
@@ -1392,6 +1401,7 @@ function toProviderToolResult(result: ToolResult): ProviderToolResult {
   return {
     callId: result.callId,
     output: result.output ?? null,
+    ...(result.isError === true ? { isError: true } : {}),
   };
 }
 

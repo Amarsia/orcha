@@ -511,6 +511,65 @@ test("compiles only explicitly registered skills and evaluations", async () => {
   }
 });
 
+test("initializes a safe agent-friendly Orcha project", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-cli-init-"));
+  const cliPath = resolve(repositoryRoot, "dist/cli.js");
+  try {
+    await executeFile(process.execPath, [cliPath, "init"], {
+      cwd: root,
+    });
+
+    const agentConfiguration = JSON.parse(
+      await readFile(
+        resolve(root, "orcha/exampleAgent/index.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(agentConfiguration.maxTokens, 10240);
+    assert.match(
+      await readFile(resolve(root, "orcha/index.ts"), "utf8"),
+      /exampleAgent/,
+    );
+    const agentGuide = await readFile(
+      resolve(root, "AGENTS.md"),
+      "utf8",
+    );
+    assert.match(agentGuide, /## Actions/);
+    assert.match(agentGuide, /## Skills/);
+    assert.match(agentGuide, /## Tests/);
+    assert.match(agentGuide, /## Evaluations/);
+    assert.match(agentGuide, /## Core execution model/);
+    assert.match(agentGuide, /Exact event payloads/);
+    assert.match(agentGuide, /## How Orcha works behind the scenes/);
+    assert.equal(
+      await readFile(resolve(root, ".gitignore"), "utf8"),
+      ".orcha/\n",
+    );
+
+    await writeFile(
+      resolve(root, "orcha/exampleAgent/instructions.md"),
+      "Keep this instruction.\n",
+      "utf8",
+    );
+    await executeFile(process.execPath, [cliPath, "init"], {
+      cwd: root,
+    });
+    assert.equal(
+      await readFile(
+        resolve(root, "orcha/exampleAgent/instructions.md"),
+        "utf8",
+      ),
+      "Keep this instruction.\n",
+    );
+    assert.equal(
+      await readFile(resolve(root, ".gitignore"), "utf8"),
+      ".orcha/\n",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("streams cumulative model snapshots and preserves the final result", async () => {
   const fixture = await createRuntimeFixture(() => ({
     streamText: ["Hello", " world"],

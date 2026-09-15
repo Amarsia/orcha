@@ -483,6 +483,7 @@ async function runTestCase(
       toolResults.push({
         callId: call.callId,
         output: response.output,
+        ...(response.isError === true ? { isError: true } : {}),
       });
     }
     if (fixtureError) {
