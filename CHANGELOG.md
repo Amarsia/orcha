@@ -1,5 +1,16 @@
 # orchajs
 
+## 0.5.0
+
+### Minor Changes
+
+- [#36](https://github.com/Amarsia/orcha/pull/36) [`ff9d873`](https://github.com/Amarsia/orcha/commit/ff9d873bde4e18c197919c8cf25d252e9b2bee71) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Improve the Orcha development and inspection contract:
+
+  - Add dedicated evaluator instructions so evaluations can keep a short human-facing description separate from the detailed judge prompt. Existing configurations continue to use `description` as a fallback.
+  - Add `agent.events()` for paginated access to canonical durable session events through the configured storage adapter, allowing observability and debugging interfaces to remain independent of JSONL or any other persistence strategy.
+  - Add `listTests()` discovery with complete registered test definitions for development interfaces.
+  - Report an explicit OpenAI error when structured output exhausts `max_output_tokens` before producing valid JSON.
+
 ## 0.4.0
 
 ### Minor Changes
