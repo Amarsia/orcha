@@ -1,0 +1,25 @@
+{
+  "name": "request_human_approval",
+  "description": "Ask the application for a human purchase decision.",
+  "execution": "client",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "amount": { "type": "number" },
+      "currency": { "type": "string" },
+      "reason": { "type": "string" }
+    },
+    "required": ["amount", "currency", "reason"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "approved": { "type": "boolean" },
+      "note": { "type": "string" }
+    },
+    "required": ["approved", "note"],
+    "additionalProperties": false
+  },
+  "sideEffect": true
+}

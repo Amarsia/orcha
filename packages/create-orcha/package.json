@@ -1,0 +1,41 @@
+{
+  "name": "create-orcha",
+  "version": "0.1.0",
+  "description": "Create a complete OrchaJS project with example agents and a local playground.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Amarsia/orcha.git",
+    "directory": "packages/create-orcha"
+  },
+  "homepage": "https://orcha.sh",
+  "bugs": {
+    "url": "https://github.com/Amarsia/orcha/issues"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "orcha",
+    "scaffold"
+  ],
+  "bin": {
+    "create-orcha": "./bin/create-orcha.js"
+  },
+  "files": [
+    "bin",
+    "template",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "orchaVersion": "^0.5.0"
+}

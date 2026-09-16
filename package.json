@@ -11,6 +11,9 @@
   "bugs": {
     "url": "https://github.com/Amarsia/orcha/issues"
   },
+  "workspaces": [
+    "packages/create-orcha"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -47,8 +50,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
-    "test": "npm run build && npm run test:runtime",
+    "test": "npm run build && npm run test:runtime && npm run test:create-orcha",
     "test:runtime": "node --test tests/*.test.mjs",
+    "test:create-orcha": "npm test --workspace=create-orcha",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",

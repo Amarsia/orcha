@@ -1,0 +1,22 @@
+{
+  "name": "response_quality",
+  "description": "Clarity and calibration of general assistant responses.",
+  "instructions": "Judge the complete assistant response for clarity, factual accuracy, and appropriate calibration. Reward direct explanations supported by the session, and penalize unsupported claims or assumptions presented as established facts.",
+  "enabled": true,
+  "provider": "openai",
+  "model": "gpt-5-mini",
+  "maxTokens": 4000,
+  "reasoningLevel": "minimal",
+  "metrics": [
+    {
+      "name": "clarity",
+      "description": "The response directly explains the requested concept in understandable language.",
+      "threshold": 0.8
+    },
+    {
+      "name": "calibration",
+      "description": "The response separates established facts from assumptions and avoids unsupported claims.",
+      "threshold": 0.8
+    }
+  ]
+}

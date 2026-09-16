@@ -1,0 +1,22 @@
+{
+  "name": "support_quality",
+  "description": "Grounding and usefulness of order-support responses.",
+  "instructions": "Judge whether the order guidance is fully grounded in recorded lookup results and gives the customer a useful confirmed next step. Do not reward invented delivery estimates, unsupported shipment claims, or operational promises absent from the session.",
+  "enabled": true,
+  "provider": "openai",
+  "model": "gpt-5-mini",
+  "maxTokens": 4000,
+  "reasoningLevel": "minimal",
+  "metrics": [
+    {
+      "name": "groundedness",
+      "description": "Every shipment claim is supported by the recorded lookup result.",
+      "threshold": 0.85
+    },
+    {
+      "name": "next_step",
+      "description": "The response clearly communicates the confirmed operational next step without inventing an estimate.",
+      "threshold": 0.8
+    }
+  ]
+}
