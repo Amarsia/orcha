@@ -1,0 +1,36 @@
+{
+  "description": "Requests human approval before reporting a purchase decision.",
+  "input": {
+    "content": "Request approval for a 1250 USD annual observability subscription needed by the platform team."
+  },
+  "actions": {
+    "request_human_approval": {
+      "responses": [
+        {
+          "output": {
+            "approved": true,
+            "note": "Approved within the platform tooling budget."
+          }
+        }
+      ]
+    }
+  },
+  "expect": {
+    "status": "completed",
+    "text": {
+      "contains": ["approved"],
+      "excludes": ["rejected"]
+    },
+    "actions": [
+      {
+        "name": "request_human_approval",
+        "arguments": {
+          "partial": {
+            "amount": 1250,
+            "currency": "USD"
+          }
+        }
+      }
+    ]
+  }
+}

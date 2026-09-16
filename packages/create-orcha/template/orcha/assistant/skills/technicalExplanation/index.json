@@ -1,0 +1,8 @@
+{
+  "name": "technical_explanation",
+  "description": "Explain a technical concept accurately with a compact practical example.",
+  "triggers": [
+    "The user asks how a technical concept works.",
+    "The user requests an example that makes an abstract idea concrete."
+  ]
+}

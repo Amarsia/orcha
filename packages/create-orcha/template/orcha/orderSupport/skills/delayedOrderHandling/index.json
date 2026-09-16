@@ -1,0 +1,8 @@
+{
+  "name": "delayed_order_handling",
+  "description": "Handle confirmed carrier delays without inventing delivery estimates.",
+  "triggers": [
+    "An order lookup reports a delayed status.",
+    "The customer says an expected shipment has not arrived."
+  ]
+}

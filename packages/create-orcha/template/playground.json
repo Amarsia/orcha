@@ -1,0 +1,49 @@
+{
+  "agents": {
+    "approvalAgent": {
+      "description": "Review purchase requests through an application-owned human approval step.",
+      "examples": [
+        {
+          "label": "Request purchase approval",
+          "content": "Request approval for a 1250 USD annual observability subscription needed by the platform team."
+        }
+      ]
+    },
+    "assistant": {
+      "description": "Answer general questions while keeping confirmed facts separate from assumptions.",
+      "examples": [
+        {
+          "label": "Explain a technical concept",
+          "content": "Explain idempotency in APIs with one practical example."
+        },
+        {
+          "label": "Multimodal content",
+          "content": [
+            {
+              "type": "text",
+              "text": "Describe the important information in this image."
+            },
+            {
+              "type": "image",
+              "mimeType": "image/png",
+              "fileUri": "https://raw.githubusercontent.com/github/explore/main/topics/nodejs/nodejs.png"
+            }
+          ]
+        }
+      ]
+    },
+    "orderSupport": {
+      "description": "Look up confirmed order data and explain its status and operational next step.",
+      "examples": [
+        {
+          "label": "Track an in-transit order",
+          "content": "Where is order ord_1001?"
+        },
+        {
+          "label": "Investigate a delayed order",
+          "content": "Order ord_1002 has not arrived. What happened and what happens next?"
+        }
+      ]
+    }
+  }
+}

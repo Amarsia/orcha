@@ -1,0 +1,37 @@
+{
+  "description": "Looks up a delayed order and reports its confirmed next step.",
+  "input": {
+    "content": "Order ord_1002 has not arrived. What happened and what happens next?"
+  },
+  "actions": {
+    "lookup_order": {
+      "responses": [
+        {
+          "output": {
+            "orderId": "ord_1002",
+            "status": "delayed",
+            "lastEvent": "Weather interrupted the scheduled carrier route.",
+            "nextStep": "The carrier will publish a revised route after conditions clear."
+          }
+        }
+      ]
+    }
+  },
+  "expect": {
+    "status": "completed",
+    "text": {
+      "contains": ["weather", "carrier"],
+      "excludes": ["delivered"]
+    },
+    "actions": [
+      {
+        "name": "lookup_order",
+        "arguments": {
+          "equals": {
+            "orderId": "ord_1002"
+          }
+        }
+      }
+    ]
+  }
+}

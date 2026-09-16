@@ -1,0 +1,8 @@
+{
+  "name": "purchase_review",
+  "description": "Prepare a concise, decision-ready purchase approval request.",
+  "triggers": [
+    "The user asks whether a purchase can be approved.",
+    "A purchase request includes an amount and business reason."
+  ]
+}

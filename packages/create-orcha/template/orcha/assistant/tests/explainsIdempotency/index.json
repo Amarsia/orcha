@@ -1,0 +1,15 @@
+{
+  "description": "Explains a technical concept with a practical example.",
+  "input": {
+    "content": "Explain idempotency in APIs with one practical example."
+  },
+  "actions": {},
+  "expect": {
+    "status": "completed",
+    "text": {
+      "contains": ["idempotent"],
+      "excludes": ["I cannot"]
+    },
+    "actions": []
+  }
+}

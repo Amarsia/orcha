@@ -14,6 +14,25 @@ Read the full concept: [`docs/concept.md`](./docs/concept.md)
 
 ---
 
+## Create a project
+
+Scaffold a complete Node.js application with example agents and a local
+browser playground:
+
+```bash
+npm create orcha@latest my-agent-app
+cd my-agent-app
+npm install
+cp .env.example .env
+npm run dev
+```
+
+The starter demonstrates durable sessions, actions, client-action pauses,
+skills, tests, evaluations, and multimodal input without a frontend framework
+or hosted dependency.
+
+---
+
 ## The convention
 
 ```

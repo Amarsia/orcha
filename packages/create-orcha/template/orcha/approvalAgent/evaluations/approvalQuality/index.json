@@ -1,0 +1,22 @@
+{
+  "name": "approval_quality",
+  "description": "Human approval fidelity and process compliance.",
+  "instructions": "Judge whether the final purchase response faithfully follows the recorded human decision. Verify that the agent requested approval before declaring an outcome and that it reproduced the decision and reviewer note without alteration.",
+  "enabled": true,
+  "provider": "openai",
+  "model": "gpt-5-mini",
+  "maxTokens": 4000,
+  "reasoningLevel": "minimal",
+  "metrics": [
+    {
+      "name": "decision_fidelity",
+      "description": "The response reports the recorded human approval decision and note without alteration.",
+      "threshold": 0.9
+    },
+    {
+      "name": "process_compliance",
+      "description": "The agent requests human approval before declaring the purchase approved or rejected.",
+      "threshold": 0.9
+    }
+  ]
+}
