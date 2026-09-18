@@ -162,14 +162,20 @@ Local actions export their implementation from `index.js` and execute
 automatically inside the model tool loop:
 
 ```js
+import { calculateRefund } from "../../../../lib/billing.js";
+
 export default async function sendRefund(parameters, context) {
   return {
-    refunded: true,
+    refunded: await calculateRefund(parameters),
     orderId: parameters.orderId,
     idempotencyKey: context.idempotencyKey,
   };
 }
 ```
+
+Action entrypoints and their imported JavaScript or TypeScript modules are
+bundled together. Relative project imports, package imports, transitive
+dependencies, and standard exports work normally.
 
 Projects with local actions must explicitly choose their runtime:
 
@@ -478,23 +484,26 @@ const second = await orcha.exampleAgent.resume(
 ).result;
 ```
 
-Canonical input uses a multimodal `content` array:
+Content accepts a single item or an array. Local paths and HTTP URLs infer
+their MIME type from the extension unless `mimeType` is provided:
 
 ```js
 const result = await orcha.exampleAgent.run({
   content: [
     { type: "text", text: "Summarize this document" },
-    {
-      type: "url",
-      mimeType: "application/pdf",
-      fileUri: "https://example.com/report.pdf",
-    },
+    { filePath: "./documents/local-report.pdf" },
+    { url: "https://example.com/supporting-report.pdf" },
   ],
   name: "Customer report",
   metadata: { customerId: "cus_123" },
   variables: { CUSTOMER_NAME: "Acme" },
 }).result;
 ```
+
+Orcha resolves local paths to absolute paths and stores only the path and MIME
+type in durable session events. File bytes are loaded and encoded only while
+constructing each provider request; base64 data is never persisted in the
+message history. Provider file-type and size limits still apply.
 
 Prompt variables replace `{{CUSTOMER_NAME}}` placeholders in
 `instructions.md`. They are fixed when the session is created and persisted

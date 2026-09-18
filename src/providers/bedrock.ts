@@ -4,11 +4,14 @@ import {
   type ContentBlock,
   type ConverseStreamCommandInput,
   type ConverseStreamOutput,
+  type DocumentFormat,
   type Message,
   type TokenUsage,
 } from "@aws-sdk/client-bedrock-runtime";
 import { createHash } from "node:crypto";
+import { basename, extname } from "node:path";
 import { OrchaError } from "../errors.js";
+import { readLocalFileContent } from "../file-content.js";
 import { parseStructuredOutput } from "../runtime/structured-output.js";
 import type {
   BedrockProviderConfiguration,
@@ -236,30 +239,111 @@ async function toBedrockUserBlock(
   if (block.type === "text") {
     return { text: block.text };
   }
+  if (block.type === "file") {
+    const file = await readLocalFileContent(block);
+    return toBedrockBinaryBlock(
+      file.bytes,
+      block.mimeType,
+      file.fileName,
+    );
+  }
   if (
-    (block.type === "image" || block.type === "url") &&
-    block.mimeType.startsWith("image/")
+    block.type === "image" ||
+    block.type === "url"
   ) {
-    const format = imageFormat(block.mimeType);
     const response = await fetch(block.fileUri);
     if (!response.ok) {
       throw new Error(
-        `Could not load Bedrock image input: HTTP ${response.status}.`,
+        `Could not load Bedrock file input: HTTP ${response.status}.`,
       );
     }
-    return {
-      image: {
-        format,
-        source: {
-          bytes: new Uint8Array(await response.arrayBuffer()),
-        },
-      },
-    };
+    return toBedrockBinaryBlock(
+      new Uint8Array(await response.arrayBuffer()),
+      block.mimeType,
+      fileNameFromUri(block.fileUri),
+    );
   }
   throw new OrchaError(
     "unsupported_content_type",
     `Amazon Bedrock does not support Orcha content type "${block.type}" with MIME type "${block.mimeType}".`,
   );
+}
+
+function toBedrockBinaryBlock(
+  bytes: Uint8Array,
+  mimeType: string,
+  fileName: string,
+): ContentBlock {
+  if (mimeType.startsWith("image/")) {
+    return {
+      image: {
+        format: imageFormat(mimeType),
+        source: {
+          bytes,
+        },
+      },
+    };
+  }
+  const format = documentFormat(fileName, mimeType);
+  if (format) {
+    return {
+      document: {
+        format,
+        name: safeBedrockDocumentName(fileName),
+        source: { bytes },
+      },
+    };
+  }
+  throw new OrchaError(
+    "unsupported_content_type",
+    `Amazon Bedrock does not support file MIME type "${mimeType}".`,
+  );
+}
+
+function documentFormat(
+  fileName: string,
+  mimeType: string,
+): DocumentFormat | undefined {
+  const extension = extname(fileName).slice(1).toLowerCase();
+  if (
+    ["csv", "doc", "docx", "html", "md", "pdf", "txt", "xls", "xlsx"].includes(
+      extension,
+    )
+  ) {
+    return extension as DocumentFormat;
+  }
+  if (mimeType === "application/pdf") return "pdf";
+  if (mimeType === "application/msword") return "doc";
+  if (
+    mimeType ===
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) return "docx";
+  if (mimeType === "application/vnd.ms-excel") return "xls";
+  if (
+    mimeType ===
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  ) return "xlsx";
+  if (mimeType === "text/csv") return "csv";
+  if (mimeType === "text/html") return "html";
+  if (mimeType === "text/markdown") return "md";
+  if (mimeType === "text/plain") return "txt";
+  return undefined;
+}
+
+function safeBedrockDocumentName(fileName: string): string {
+  const name = basename(fileName, extname(fileName))
+    .replace(/[^A-Za-z0-9()[\] -]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return name || "document";
+}
+
+function fileNameFromUri(uri: string): string {
+  try {
+    return basename(new URL(uri).pathname) || "document";
+  } catch {
+    return basename(uri) || "document";
+  }
 }
 
 function imageFormat(

@@ -1,4 +1,5 @@
 import { OrchaError } from "../errors.js";
+import { readLocalFileContent } from "../file-content.js";
 import { parseStructuredOutput } from "../runtime/structured-output.js";
 import type {
   MessageContent,
@@ -76,7 +77,7 @@ async function generateOpenAI(
   const body: Record<string, unknown> = {
     model: request.model,
     instructions: request.systemPrompt,
-    input: toOpenAIInput(request.messages),
+    input: await toOpenAIInput(request.messages),
     ...(request.maxTokens
       ? { max_output_tokens: request.maxTokens }
       : {}),
@@ -138,7 +139,9 @@ async function generateOpenAI(
   return toProviderResponse(request, responseBody);
 }
 
-function toOpenAIInput(messages: ProviderMessage[]): unknown[] {
+async function toOpenAIInput(
+  messages: ProviderMessage[],
+): Promise<unknown[]> {
   const input: unknown[] = [];
   for (const message of messages) {
     if (message.role === "user") {
@@ -147,7 +150,9 @@ function toOpenAIInput(messages: ProviderMessage[]): unknown[] {
         content:
           typeof message.content === "string"
             ? message.content
-            : message.content.map(toOpenAIUserContent),
+            : await Promise.all(
+                message.content.map(toOpenAIUserContent),
+              ),
       });
       continue;
     }
@@ -199,9 +204,26 @@ function toOpenAIInput(messages: ProviderMessage[]): unknown[] {
   return input;
 }
 
-function toOpenAIUserContent(content: MessageContent): unknown {
+async function toOpenAIUserContent(
+  content: MessageContent,
+): Promise<unknown> {
   if (content.type === "text") {
     return { type: "input_text", text: content.text };
+  }
+  if (content.type === "file") {
+    const file = await readLocalFileContent(content);
+    if (content.mimeType.startsWith("image/")) {
+      return {
+        type: "input_image",
+        image_url: file.dataUri,
+        detail: "auto",
+      };
+    }
+    return {
+      type: "input_file",
+      file_data: file.dataUri,
+      filename: file.fileName,
+    };
   }
   if (content.type === "image") {
     return {

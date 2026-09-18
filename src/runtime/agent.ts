@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { OrchaError } from "../errors.js";
+import {
+  normalizeLocalFile,
+  normalizeUrlContent,
+} from "../file-content.js";
 import type {
   ProviderMessage,
   ProviderRequest,
@@ -11,6 +15,7 @@ import type {
 } from "../providers/types.js";
 import type {
   AgentInput,
+  AgentContentInput,
   AgentRuntime,
   ClientCapability,
   ClientToolCall,
@@ -21,6 +26,7 @@ import type {
   EvaluationResult,
   Execution,
   MessageContent,
+  MessageContentInput,
   OrchaErrorCode,
   PaginationOptions,
   ProjectConfiguration,
@@ -92,6 +98,7 @@ export class RuntimeAgent implements AgentRuntime {
   readonly #delegatedOnly: boolean;
   readonly #agentKey: string;
   readonly #sessionIdPrefix: string;
+  readonly #projectRoot: string;
   readonly #evaluationTasks = new Map<
     string,
     Promise<EvaluationResult[]>
@@ -111,6 +118,7 @@ export class RuntimeAgent implements AgentRuntime {
     subagents?: Record<string, RuntimeAgent>;
     delegatedOnly?: boolean;
     sessionIdPrefix?: string;
+    projectRoot?: string;
   }) {
     this.#manifest = options.manifest;
     this.#configuration = options.configuration;
@@ -122,6 +130,7 @@ export class RuntimeAgent implements AgentRuntime {
     this.#delegatedOnly = options.delegatedOnly ?? false;
     this.#agentKey = options.manifest.key ?? options.manifest.name;
     this.#sessionIdPrefix = options.sessionIdPrefix ?? "ses_";
+    this.#projectRoot = options.projectRoot ?? process.cwd();
   }
 
   get agent(): string {
@@ -682,7 +691,16 @@ export class RuntimeAgent implements AgentRuntime {
     publishSnapshot?: ExecutionSnapshotPublisher<unknown>,
     lineage?: SessionLineage,
   ): Promise<RunResult> {
-    const content = normalizeContent(input.content);
+    let content: MessageContent[] | undefined;
+    try {
+      content = normalizeContent(input.content, this.#projectRoot);
+    } catch (error) {
+      return failure(
+        sessionId,
+        "invalid_input",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     if (!content) {
       return failure(
         sessionId,
@@ -2454,20 +2472,26 @@ function isEvaluationMetricResult(
 }
 
 function normalizeContent(
-  content: string | MessageContent[],
+  content: AgentContentInput,
+  projectRoot: string,
 ): MessageContent[] | undefined {
   if (typeof content === "string") {
     return content.trim()
       ? [{ type: "text", text: content }]
       : undefined;
   }
-  if (!Array.isArray(content) || content.length === 0) {
+  const items: MessageContentInput[] = Array.isArray(content)
+    ? content
+    : [content];
+  if (items.length === 0) {
     return undefined;
   }
   const normalized: MessageContent[] = [];
-  for (const item of content) {
+  for (const item of items) {
     if (
-      item?.type === "text" &&
+      item &&
+      "type" in item &&
+      item.type === "text" &&
       typeof item.text === "string" &&
       item.text.trim()
     ) {
@@ -2476,6 +2500,41 @@ function normalizeContent(
     }
     if (
       item &&
+      "filePath" in item &&
+      typeof item.filePath === "string" &&
+      item.filePath.trim()
+    ) {
+      normalized.push(
+        normalizeLocalFile(
+          item.filePath,
+          "mimeType" in item && typeof item.mimeType === "string"
+            ? item.mimeType
+            : undefined,
+          projectRoot,
+        ),
+      );
+      continue;
+    }
+    if (
+      item &&
+      "url" in item &&
+      typeof item.url === "string" &&
+      item.url.trim()
+    ) {
+      normalized.push(
+        normalizeUrlContent(
+          item.url,
+          "mimeType" in item && typeof item.mimeType === "string"
+            ? item.mimeType
+            : undefined,
+        ),
+      );
+      continue;
+    }
+    if (
+      item &&
+      "type" in item &&
+      typeof item.type === "string" &&
       ["image", "video", "audio", "url"].includes(item.type) &&
       "mimeType" in item &&
       "fileUri" in item &&
@@ -3288,6 +3347,12 @@ function isMessageContent(value: unknown): value is MessageContent {
   }
   if (value.type === "text") {
     return typeof value.text === "string";
+  }
+  if (value.type === "file") {
+    return (
+      typeof value.mimeType === "string" &&
+      typeof value.filePath === "string"
+    );
   }
   return (
     ["image", "video", "audio", "url"].includes(value.type) &&

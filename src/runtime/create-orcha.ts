@@ -108,6 +108,7 @@ class OrchaRuntimeCore implements Orcha {
               sessionControls: this.#sessionControls,
               generateProviderResponse: this.#generateProviderResponse,
               delegatedOnly: true,
+              projectRoot,
             }),
           ],
         ),
@@ -122,6 +123,7 @@ class OrchaRuntimeCore implements Orcha {
           sessionControls: this.#sessionControls,
           generateProviderResponse: this.#generateProviderResponse,
           subagents,
+          projectRoot,
         }),
       );
     }
