@@ -44,7 +44,7 @@ import "../orcha/index.js";
 //   }),
 // );
 // console.log("[invoiceBot] Result:", JSON.stringify(result, null, 2));
-// console.log(`\nSession log: .orcha/sessions/${result.sessionId}.jsonl`);
+// console.log(`\nSession log: .orcha/sessions/invoiceBot/${result.sessionId}.jsonl`);
 
 // const supportResult = await orcha.supportBot.run({
 //   content:
@@ -65,7 +65,7 @@ import "../orcha/index.js";
 // );
 // console.log("[supportBot] Result:", JSON.stringify(supportResult, null, 2));
 // console.log(
-//   `\nSession log: .orcha/sessions/${supportResult.sessionId}.jsonl`,
+//   `\nSession log: .orcha/sessions/supportBot/${supportResult.sessionId}.jsonl`,
 // );
 
 // const fulfillmentResult = await orcha.fulfillmentBot.run({
@@ -90,7 +90,7 @@ import "../orcha/index.js";
 //   JSON.stringify(fulfillmentResult, null, 2),
 // );
 // console.log(
-//   `\nSession log: .orcha/sessions/${fulfillmentResult.sessionId}.jsonl`,
+//   `\nSession log: .orcha/sessions/fulfillmentBot/${fulfillmentResult.sessionId}.jsonl`,
 // );
 
 // const incidentResult = await orcha.incidentBot.run({
@@ -115,7 +115,7 @@ import "../orcha/index.js";
 //   JSON.stringify(incidentResult, null, 2),
 // );
 // console.log(
-//   `\nSession log: .orcha/sessions/${incidentResult.sessionId}.jsonl`,
+//   `\nSession log: .orcha/sessions/incidentBot/${incidentResult.sessionId}.jsonl`,
 // );
 
 /* const complianceResult = await orcha.complianceBot.run({
@@ -140,7 +140,7 @@ console.log(
   JSON.stringify(complianceResult, null, 2),
 );
 console.log(
-  `\nSession log: .orcha/sessions/${complianceResult.sessionId}.jsonl`,
+  `\nSession log: .orcha/sessions/complianceBot/${complianceResult.sessionId}.jsonl`,
 ); */
 
 // const riskResult = await orcha.riskBot.run({
@@ -162,7 +162,7 @@ console.log(
 // );
 // console.log("[riskBot] Result:", JSON.stringify(riskResult, null, 2));
 // console.log(
-//   `\nSession log: .orcha/sessions/${riskResult.sessionId}.jsonl`,
+//   `\nSession log: .orcha/sessions/riskBot/${riskResult.sessionId}.jsonl`,
 // );
 
 let operationsResult = await orcha.operationsCoordinator.run({
@@ -216,7 +216,7 @@ console.log(
   JSON.stringify(operationsResult, null, 2),
 );
 console.log(
-  `\nSession log: .orcha/sessions/${operationsResult.sessionId}.jsonl`,
+  `\nSession log: .orcha/sessions/operationsCoordinator/${operationsResult.sessionId}.jsonl`,
 );
 
 for (const item of operationsHistory.items) {
@@ -234,7 +234,7 @@ for (const item of operationsHistory.items) {
     ),
   );
   console.log(
-    `Child session log: .orcha/sessions/${item.childSessionId}.jsonl`,
+    `Child session log: .orcha/sessions/${item.name}/${item.childSessionId}.jsonl`,
   );
 }
 

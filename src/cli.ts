@@ -234,7 +234,7 @@ async function runAgent(
   if (parsed.flags.has("--json")) {
     console.log(JSON.stringify({ result, evaluations }));
   } else {
-    printRunResult(projectRoot, result, evaluations);
+    printRunResult(projectRoot, agentName, result, evaluations);
   }
   if (result.status === "failed") {
     process.exitCode = 1;
@@ -451,6 +451,7 @@ async function readToolResults(path: string): Promise<ToolResult[]> {
 
 function printRunResult(
   projectRoot: string,
+  agentName: string,
   result: RunResult,
   evaluations: EvaluationResult[],
 ): void {
@@ -466,6 +467,7 @@ function printRunResult(
         projectRoot,
         getOrchaRuntimeContext(orcha).configuration.storage?.directory ??
           ".orcha/sessions",
+        agentName,
         `${result.sessionId}.jsonl`,
       ),
     )}:1`,

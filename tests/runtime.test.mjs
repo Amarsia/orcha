@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
@@ -891,7 +891,10 @@ test("allows a parent to complete while its child waits for a client action", as
 test("recovers an interrupted delegation without creating another child", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-subagent-recovery-"));
   const sessionsDirectory = resolve(root, ".orcha/sessions");
-  await mkdir(sessionsDirectory, { recursive: true });
+  await Promise.all([
+    mkdir(resolve(sessionsDirectory, "coordinator"), { recursive: true }),
+    mkdir(resolve(sessionsDirectory, "researcher"), { recursive: true }),
+  ]);
   const parentSessionId = "ses_interrupted_parent";
   const childSessionId = "ses_completed_child";
   const timestamp = "2026-09-18T00:00:00.000Z";
@@ -1043,11 +1046,11 @@ test("recovers an interrupted delegation without creating another child", async 
   ];
   await Promise.all([
     writeFile(
-      resolve(sessionsDirectory, `${parentSessionId}.jsonl`),
+      resolve(sessionsDirectory, "coordinator", `${parentSessionId}.jsonl`),
       `${parentEvents.map((event) => JSON.stringify(event)).join("\n")}\n`,
     ),
     writeFile(
-      resolve(sessionsDirectory, `${childSessionId}.jsonl`),
+      resolve(sessionsDirectory, "researcher", `${childSessionId}.jsonl`),
       `${childEvents.map((event) => JSON.stringify(event)).join("\n")}\n`,
     ),
   ]);
@@ -2573,12 +2576,13 @@ test("runs registered agent tests with durable test-prefixed logs and simulated 
     assert.match(report.cases[0].sessionId, /^ses_test_/);
     assert.equal(
       report.cases[0].sessionPath,
-      `.orcha/sessions/${report.cases[0].sessionId}.jsonl`,
+      `.orcha/sessions/testAgent/${report.cases[0].sessionId}.jsonl`,
     );
 
     const logPath = resolve(
       fixture.root,
       ".orcha/sessions",
+      "testAgent",
       `${report.cases[0].sessionId}.jsonl`,
     );
     const events = (await readFile(logPath, "utf8"))
@@ -3539,10 +3543,14 @@ async function collectStream(stream) {
 }
 
 async function readSessionEvents(root, sessionId) {
-  const source = await readFile(
-    resolve(root, ".orcha/sessions", `${sessionId}.jsonl`),
-    "utf8",
+  const sessionsDirectory = resolve(root, ".orcha/sessions");
+  const relativePaths = await readdir(sessionsDirectory, { recursive: true });
+  const relativePath = relativePaths.find(
+    (path) => path === `${sessionId}.jsonl` ||
+      path.endsWith(`/${sessionId}.jsonl`),
   );
+  assert.ok(relativePath, `Session log for "${sessionId}" was not found.`);
+  const source = await readFile(resolve(sessionsDirectory, relativePath), "utf8");
   return source
     .split("\n")
     .filter(Boolean)

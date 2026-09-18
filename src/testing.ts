@@ -116,13 +116,13 @@ export async function runTests(
   const reports: AgentTestCaseReport[] = [];
   const storageDirectory =
     context.configuration.storage?.directory ?? ".orcha/sessions";
-  const store = new NodeJsonlSessionStore(
-    storageDirectory,
-    context.projectRoot,
-  );
-
   for (const testCase of cases) {
     const manifest = context.bundle.agents[testCase.agent];
+    const store = new NodeJsonlSessionStore(
+      storageDirectory,
+      context.projectRoot,
+      manifest.key ?? manifest.name,
+    );
     const agent = new RuntimeAgent({
       manifest: withSimulatedActions(manifest),
       configuration: context.configuration,
@@ -565,6 +565,7 @@ async function runTestCase(
       resolve(
         projectRoot,
         storageDirectory,
+        testCase.agent,
         `${result.sessionId}.jsonl`,
       ),
     ),

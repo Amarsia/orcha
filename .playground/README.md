@@ -11,7 +11,8 @@ This directory is a small consumer project used to exercise the local
    an AWS profile, environment credentials, or an IAM role to run the Bedrock
    scenario.
 3. Run `npm start` from this directory.
-4. Inspect the printed result and `.orcha/sessions/<sessionId>.jsonl`.
+4. Inspect the printed result and
+   `.orcha/sessions/<agentName>/<sessionId>.jsonl`.
 
 The playground reads its API keys from the environment, and its generated
 `.orcha` runtime directory is ignored by git.
@@ -20,7 +21,7 @@ Run `npm run test:agents:local` to load `.env` and execute the registered test
 for every playground agent. In CI, provide credentials through environment
 secrets and run `npm run test:agents` before `npm run build`. Test reports
 include their session IDs, and each full log is written to
-`.orcha/sessions/ses_test_<uuid>.jsonl` with assertions in its final
+`.orcha/sessions/<agentName>/ses_test_<timestamp>_<uuid>.jsonl` with assertions in its final
 `test.completed` event. The build itself does not load `.env` or call model
 providers.
 
