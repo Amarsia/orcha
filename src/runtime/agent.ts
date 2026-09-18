@@ -1282,6 +1282,10 @@ export class RuntimeAgent implements AgentRuntime {
       const message = error instanceof Error ? error.message : String(error);
       const code =
         error instanceof OrchaError ? error.code : "execution_failed";
+      const details =
+        error instanceof OrchaError ? error.details : undefined;
+      const retryable =
+        error instanceof OrchaError ? error.retryable : false;
       await this.#store.append(sessionId, [
         writer.create("run.failed", {
           status: "failed",
@@ -1289,10 +1293,15 @@ export class RuntimeAgent implements AgentRuntime {
           error: {
             code,
             message,
+            retryable,
+            ...(details ? { details } : {}),
           },
         }),
       ]);
-      return failure(sessionId, code, message);
+      return failure(sessionId, code, message, {
+        retryable,
+        details,
+      });
     }
   }
 
@@ -3555,14 +3564,24 @@ function failure(
   sessionId: string,
   code: OrchaErrorCode,
   message: string,
+  options: {
+    retryable?: boolean;
+    details?: Record<string, unknown>;
+  } = {},
 ): RunResult {
   const retryable =
-    code === "session_busy" ||
-    code === "provider_error" ||
-    code === "storage_error";
+    options.retryable ??
+    (code === "session_busy" ||
+      code === "provider_error" ||
+      code === "storage_error");
   return {
     sessionId,
     status: "failed",
-    error: { code, message, retryable },
+    error: {
+      code,
+      message,
+      retryable,
+      ...(options.details ? { details: options.details } : {}),
+    },
   };
 }
