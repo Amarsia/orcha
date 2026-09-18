@@ -118,6 +118,7 @@ async function generateOpenAI(
         authorization: `Bearer ${configuration.apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: request.signal,
     },
   );
 

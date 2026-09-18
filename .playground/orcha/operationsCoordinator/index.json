@@ -1,0 +1,9 @@
+{
+  "name": "Operations Coordinator",
+  "description": "Coordinate incident, fulfillment, and payment-risk specialists into one operational assessment.",
+  "provider": "vertexai",
+  "model": "gemini-2.5-flash",
+  "region": "provider_managed",
+  "maxTokens": 4096,
+  "outputType": "text"
+}

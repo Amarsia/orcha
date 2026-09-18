@@ -1,0 +1,27 @@
+{
+  "name": "request_customer_identity",
+  "description": "Ask the parent agent to provide the customer email needed by this specialist.",
+  "execution": "client",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "reason": {
+        "type": "string",
+        "description": "Why the customer email is needed."
+      }
+    },
+    "required": ["reason"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "email": {
+        "type": "string",
+        "description": "The customer email supplied by the parent."
+      }
+    },
+    "required": ["email"],
+    "additionalProperties": false
+  }
+}

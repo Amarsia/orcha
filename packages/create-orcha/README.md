@@ -15,6 +15,7 @@ The generated project includes:
 - a framework-free HTML, CSS, and JavaScript playground;
 - text and multimodal agent input;
 - durable sessions and chronological execution traces;
+- parent agents with private durable subagents;
 - server and client actions;
 - lazy-loaded skills;
 - deterministic agent tests;

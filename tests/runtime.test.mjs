@@ -436,6 +436,8 @@ test("compiles only explicitly registered skills and evaluations", async () => {
   try {
     await writeProjectFiles(root, {
       "agent/index.json": JSON.stringify({
+        name: "Test Agent",
+        description: "Exercise compiled skills and evaluations.",
         provider: "anthropic",
         model: "claude-test",
       }),
@@ -520,6 +522,699 @@ test("compiles only explicitly registered skills and evaluations", async () => {
   }
 });
 
+test("compiles explicitly registered private subagents", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-subagents-"));
+  try {
+    await writeProjectFiles(root, {
+      "coordinator/index.json": JSON.stringify({
+        name: "Coordinator",
+        provider: "anthropic",
+        model: "claude-test",
+      }),
+      "coordinator/instructions.md": "Coordinate the final response.",
+      "researcher/index.json": JSON.stringify({
+        name: "Researcher",
+        provider: "openai",
+        model: "gpt-test",
+      }),
+      "researcher/instructions.md": "Return verified findings.",
+    });
+
+    const bundle = compileRegistry(
+      {
+        coordinator: {
+          path: "./coordinator",
+          subagents: {
+            researcher: "./researcher",
+          },
+        },
+      },
+      root,
+    );
+
+    assert.deepEqual(Object.keys(bundle.agents), ["coordinator"]);
+    assert.equal(bundle.agents.coordinator.key, "coordinator");
+    assert.equal(bundle.agents.coordinator.name, "Coordinator");
+    assert.equal(
+      bundle.agents.coordinator.subagents.researcher.key,
+      "researcher",
+    );
+    assert.equal(
+      bundle.agents.coordinator.subagents.researcher.description,
+      undefined,
+    );
+    assert.equal(bundle.agents.coordinator.subagentPolicy.maxPerRun, 10);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("runs a private subagent in a linked durable session", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-subagent-runtime-"));
+  const requests = [];
+  const usage = {
+    inputTokens: 1,
+    outputTokens: 1,
+    reasoningTokens: null,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  };
+  const childManifest = {
+    key: "researcher",
+    name: "Researcher",
+    provider: "anthropic",
+    model: "child-model",
+    systemPrompt: "Research the delegated task.",
+    outputType: "text",
+    actions: {},
+    skills: {},
+    evaluations: {},
+    subagents: {},
+  };
+  const bundle = {
+    schemaVersion: 1,
+    agents: {
+      coordinator: {
+        key: "coordinator",
+        name: "Coordinator",
+        provider: "anthropic",
+        model: "parent-model",
+        systemPrompt: "Delegate research when needed.",
+        outputType: "text",
+        actions: {},
+        skills: {},
+        evaluations: {},
+        subagentPolicy: { maxPerRun: 10 },
+        subagents: { researcher: childManifest },
+      },
+      otherCoordinator: {
+        key: "otherCoordinator",
+        name: "Other Coordinator",
+        provider: "anthropic",
+        model: "other-parent-model",
+        systemPrompt: "Coordinate unrelated work.",
+        outputType: "text",
+        actions: {},
+        skills: {},
+        evaluations: {},
+        subagentPolicy: { maxPerRun: 10 },
+        subagents: { researcher: childManifest },
+      },
+    },
+  };
+  const client = createOrcha(
+    () => bundle,
+    async (_provider, _configuration, request) => {
+      requests.push(request);
+      if (request.model === "child-model") {
+        return {
+          output: "Verified child finding.",
+          stopReason: "end_turn",
+          content: [{ type: "text", text: "Verified child finding." }],
+          toolCalls: [],
+          usage,
+        };
+      }
+      if (requests.filter((item) => item.model === "parent-model").length <= 2) {
+        const toolCall = {
+          type: "tool_call",
+          callId: "delegate_1",
+          name: "run_agent",
+          arguments: {
+            agent: "researcher",
+            input: "Verify the focused claim.",
+          },
+        };
+        return {
+          output: "",
+          stopReason: "tool_call",
+          content: [toolCall],
+          toolCalls: [toolCall],
+          usage,
+        };
+      }
+      return {
+        output: "Parent used the verified finding.",
+        stopReason: "end_turn",
+        content: [
+          { type: "text", text: "Parent used the verified finding." },
+        ],
+        toolCalls: [],
+        usage,
+      };
+    },
+  );
+  client.init({
+    root,
+    providers: { anthropic: "test-key" },
+    agents: {
+      coordinator: {
+        path: "./coordinator",
+        subagents: { researcher: "./researcher" },
+      },
+      otherCoordinator: {
+        path: "./otherCoordinator",
+        subagents: { researcher: "./researcher" },
+      },
+    },
+  });
+
+  try {
+    const result = await client.coordinator.run("Research this.").result;
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "Parent used the verified finding.");
+
+    const parentEvents = await readSessionEvents(root, result.sessionId);
+    assert.deepEqual(
+      parentEvents
+        .filter((event) => event.type.startsWith("subagent."))
+        .map((event) => event.type),
+      ["subagent.initiated", "subagent.completed"],
+    );
+    const childSessionId = parentEvents.find(
+      (event) => event.type === "subagent.initiated",
+    ).data.sessionId;
+    const childHistory = await client.coordinator.subagentHistory(
+      childSessionId,
+    );
+    assert.equal(childHistory.lineage.parentSessionId, result.sessionId);
+    assert.equal(childHistory.lineage.parentCallId, "delegate_1");
+    assert.equal(childHistory.lastOutput, "Verified child finding.");
+    await assert.rejects(
+      client.otherCoordinator.subagentHistory(childSessionId),
+      /was not found for agent "otherCoordinator"/,
+    );
+    assert.equal(
+      requests.filter((request) => request.model === "child-model").length,
+      1,
+    );
+    assert.equal(
+      requests.at(-1).messages
+        .flatMap((message) =>
+          message.role === "tool" ? message.results : [],
+        )
+        .some(
+          (toolResult) =>
+            toolResult.output.childSessionId === childSessionId &&
+            toolResult.output.output === "Verified child finding.",
+        ),
+      true,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("allows a parent to complete while its child waits for a client action", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-paused-child-"));
+  let parentCalls = 0;
+  const usage = {
+    inputTokens: 1,
+    outputTokens: 1,
+    reasoningTokens: null,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  };
+  const bundle = {
+    schemaVersion: 1,
+    agents: {
+      coordinator: {
+        key: "coordinator",
+        name: "Coordinator",
+        provider: "anthropic",
+        model: "parent-model",
+        systemPrompt: "Use the specialist when useful.",
+        outputType: "text",
+        actions: {},
+        skills: {},
+        evaluations: {},
+        subagentPolicy: { maxPerRun: 10 },
+        subagents: {
+          specialist: {
+            key: "specialist",
+            name: "Specialist",
+            provider: "anthropic",
+            model: "child-model",
+            systemPrompt: "Request confirmation when needed.",
+            outputType: "text",
+            actions: {
+              request_confirmation: {
+                name: "request_confirmation",
+                directoryName: "requestConfirmation",
+                description: "Request confirmation from the parent.",
+                execution: "client",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    question: { type: "string" },
+                  },
+                  required: ["question"],
+                },
+              },
+            },
+            skills: {},
+            evaluations: {},
+            subagents: {},
+          },
+        },
+      },
+    },
+  };
+  const client = createOrcha(
+    () => bundle,
+    async (_provider, _configuration, request) => {
+      if (request.model === "child-model") {
+        const toolCall = {
+          type: "tool_call",
+          callId: "confirmation_1",
+          name: "request_confirmation",
+          arguments: { question: "May I use the unverified source?" },
+        };
+        return {
+          output: "",
+          stopReason: "tool_call",
+          content: [toolCall],
+          toolCalls: [toolCall],
+          usage,
+        };
+      }
+      parentCalls += 1;
+      if (parentCalls === 1) {
+        const toolCall = {
+          type: "tool_call",
+          callId: "delegate_paused_child",
+          name: "run_agent",
+          arguments: {
+            agent: "specialist",
+            input: "Investigate the source.",
+          },
+        };
+        return {
+          output: "",
+          stopReason: "tool_call",
+          content: [toolCall],
+          toolCalls: [toolCall],
+          usage,
+        };
+      }
+      return {
+        output: "I completed without the unverified source.",
+        stopReason: "end_turn",
+        content: [
+          {
+            type: "text",
+            text: "I completed without the unverified source.",
+          },
+        ],
+        toolCalls: [],
+        usage,
+      };
+    },
+  );
+  client.init({
+    root,
+    providers: { anthropic: "test-key" },
+    agents: {
+      coordinator: {
+        path: "./coordinator",
+        subagents: { specialist: "./specialist" },
+      },
+    },
+  });
+
+  try {
+    const result = await client.coordinator.run("Investigate this.").result;
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "I completed without the unverified source.");
+
+    const events = await readSessionEvents(root, result.sessionId);
+    const pausedChild = events.find(
+      (event) => event.type === "subagent.paused",
+    );
+    assert.equal(pausedChild.data.status, "waiting_for_client_action");
+    assert.equal(pausedChild.data.clientToolCalls[0].name, "request_confirmation");
+    assert.equal(
+      events.some(
+        (event) =>
+          event.type === "run.paused" &&
+          event.data.status === "waiting_for_subagent",
+      ),
+      false,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recovers an interrupted delegation without creating another child", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-subagent-recovery-"));
+  const sessionsDirectory = resolve(root, ".orcha/sessions");
+  await mkdir(sessionsDirectory, { recursive: true });
+  const parentSessionId = "ses_interrupted_parent";
+  const childSessionId = "ses_completed_child";
+  const timestamp = "2026-09-18T00:00:00.000Z";
+  const usage = {
+    inputTokens: 1,
+    outputTokens: 1,
+    reasoningTokens: null,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  };
+  const parentEvents = [
+    {
+      sequence: 1,
+      type: "session.created",
+      timestamp,
+      data: {
+        schemaVersion: 1,
+        sessionId: parentSessionId,
+        agent: "coordinator",
+        status: "active",
+        metadata: {},
+        variables: {},
+      },
+    },
+    {
+      sequence: 2,
+      type: "run.started",
+      timestamp,
+      run: 1,
+      data: {
+        status: "running",
+        agent: "coordinator",
+        provider: "anthropic",
+        model: "parent-model",
+        clientCapabilities: [],
+      },
+    },
+    {
+      sequence: 3,
+      type: "message.created",
+      timestamp,
+      run: 1,
+      data: {
+        role: "user",
+        content: [{ type: "text", text: "Research this." }],
+      },
+    },
+    {
+      sequence: 4,
+      type: "message.created",
+      timestamp,
+      run: 1,
+      data: {
+        role: "assistant",
+        status: "completed",
+        provider: "anthropic",
+        model: "parent-model",
+        content: [
+          {
+            type: "tool_call",
+            callId: "delegate_recovery",
+            name: "run_agent",
+            arguments: {
+              agent: "researcher",
+              input: "Verify the claim.",
+            },
+          },
+        ],
+        usage,
+      },
+    },
+    {
+      sequence: 5,
+      type: "subagent.initiated",
+      timestamp,
+      run: 1,
+      data: {
+        callId: "delegate_recovery",
+        agent: "researcher",
+        sessionId: childSessionId,
+        status: "running",
+      },
+    },
+  ];
+  const childEvents = [
+    {
+      sequence: 1,
+      type: "session.created",
+      timestamp,
+      data: {
+        schemaVersion: 1,
+        sessionId: childSessionId,
+        agent: "researcher",
+        status: "active",
+        metadata: {},
+        variables: {},
+        lineage: {
+          origin: "delegated",
+          parentAgent: "coordinator",
+          parentSessionId,
+          parentCallId: "delegate_recovery",
+        },
+      },
+    },
+    {
+      sequence: 2,
+      type: "run.started",
+      timestamp,
+      run: 1,
+      data: {
+        status: "running",
+        agent: "researcher",
+        provider: "anthropic",
+        model: "child-model",
+        clientCapabilities: [],
+      },
+    },
+    {
+      sequence: 3,
+      type: "message.created",
+      timestamp,
+      run: 1,
+      data: {
+        role: "user",
+        content: [{ type: "text", text: "Verify the claim." }],
+      },
+    },
+    {
+      sequence: 4,
+      type: "message.created",
+      timestamp,
+      run: 1,
+      data: {
+        role: "assistant",
+        status: "completed",
+        provider: "anthropic",
+        model: "child-model",
+        content: [{ type: "text", text: "Verified before restart." }],
+        usage,
+      },
+    },
+    {
+      sequence: 5,
+      type: "run.completed",
+      timestamp,
+      run: 1,
+      data: { status: "completed", durationMs: 1, usage },
+    },
+  ];
+  await Promise.all([
+    writeFile(
+      resolve(sessionsDirectory, `${parentSessionId}.jsonl`),
+      `${parentEvents.map((event) => JSON.stringify(event)).join("\n")}\n`,
+    ),
+    writeFile(
+      resolve(sessionsDirectory, `${childSessionId}.jsonl`),
+      `${childEvents.map((event) => JSON.stringify(event)).join("\n")}\n`,
+    ),
+  ]);
+
+  const requests = [];
+  const childManifest = {
+    key: "researcher",
+    name: "Researcher",
+    provider: "anthropic",
+    model: "child-model",
+    systemPrompt: "Verify delegated claims.",
+    outputType: "text",
+    actions: {},
+    skills: {},
+    evaluations: {},
+    subagents: {},
+  };
+  const bundle = {
+    schemaVersion: 1,
+    agents: {
+      coordinator: {
+        key: "coordinator",
+        name: "Coordinator",
+        provider: "anthropic",
+        model: "parent-model",
+        systemPrompt: "Use recovered child results.",
+        outputType: "text",
+        actions: {},
+        skills: {},
+        evaluations: {},
+        subagentPolicy: { maxPerRun: 10 },
+        subagents: { researcher: childManifest },
+      },
+    },
+  };
+  const client = createOrcha(
+    () => bundle,
+    async (_provider, _configuration, request) => {
+      requests.push(request);
+      return {
+        output: "Recovered the existing result.",
+        stopReason: "end_turn",
+        content: [
+          { type: "text", text: "Recovered the existing result." },
+        ],
+        toolCalls: [],
+        usage,
+      };
+    },
+  );
+  client.init({
+    root,
+    providers: { anthropic: "test-key" },
+    agents: {
+      coordinator: {
+        path: "./coordinator",
+        subagents: { researcher: "./researcher" },
+      },
+    },
+  });
+
+  try {
+    const result = await client.coordinator.resume(parentSessionId).result;
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "Recovered the existing result.");
+    assert.deepEqual(
+      requests[0].messages.map((message) => message.role),
+      ["user", "assistant", "tool", "user"],
+    );
+    assert.equal(
+      requests[0].messages[2].results[0].output.childSessionId,
+      childSessionId,
+    );
+
+    const events = await readSessionEvents(root, parentSessionId);
+    assert.equal(
+      events.filter((event) => event.type === "subagent.initiated").length,
+      1,
+    );
+    const recovered = events.find(
+      (event) =>
+        event.type === "subagent.completed" &&
+        event.data.recovered === true,
+    );
+    assert.equal(recovered.data.sessionId, childSessionId);
+    assert.deepEqual(
+      events.filter((event) => event.type === "run.started").map((event) => event.run),
+      [1, 2],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("pauses active provider work and resumes in a new run with partial history", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-pause-runtime-"));
+  let releaseStarted;
+  const started = new Promise((resolveStarted) => {
+    releaseStarted = resolveStarted;
+  });
+  const requests = [];
+  const bundle = {
+    schemaVersion: 1,
+    agents: {
+      testAgent: {
+        key: "testAgent",
+        name: "Test Agent",
+        provider: "anthropic",
+        model: "test-model",
+        systemPrompt: "Continue from durable history.",
+        outputType: "text",
+        actions: {},
+        skills: {},
+        evaluations: {},
+        subagents: {},
+      },
+    },
+  };
+  const client = createOrcha(
+    () => bundle,
+    async (_provider, _configuration, request) => {
+      requests.push(request);
+      if (requests.length === 1) {
+        request.publishOutput("Partial streamed answer");
+        releaseStarted();
+        await new Promise((resolveRequest, rejectRequest) => {
+          request.signal.addEventListener(
+            "abort",
+            () => rejectRequest(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }
+      return {
+        output: "Completed after resume.",
+        stopReason: "end_turn",
+        content: [{ type: "text", text: "Completed after resume." }],
+        toolCalls: [],
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          reasoningTokens: null,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+      };
+    },
+  );
+  client.init({
+    root,
+    providers: { anthropic: "test-key" },
+    agents: { testAgent: "./testAgent" },
+  });
+
+  try {
+    const execution = client.testAgent.run("Start the answer.");
+    await started;
+    const sessionId = execution.snapshot.sessionId;
+    const paused = await client.testAgent.pause(sessionId);
+    assert.equal(paused.status, "paused");
+    assert.equal((await execution.result).status, "paused");
+
+    const resumed = await client.testAgent.resume(sessionId).result;
+    assert.equal(resumed.status, "completed");
+    assert.equal(resumed.output, "Completed after resume.");
+    assert.deepEqual(
+      requests[1].messages.map((message) => message.role),
+      ["user", "assistant", "user"],
+    );
+    assert.equal(requests[1].messages[1].content[0].text, "Partial streamed answer");
+    assert.equal(requests[1].messages[2].content[0].text, "Continue.");
+
+    const events = await readSessionEvents(root, sessionId);
+    const partial = events.find(
+      (event) =>
+        event.type === "message.created" &&
+        event.data.role === "assistant" &&
+        event.data.status === "incomplete",
+    );
+    assert.equal(partial.data.content[0].text, "Partial streamed answer");
+    assert.deepEqual(
+      events.filter((event) => event.type === "run.started").map((event) => event.run),
+      [1, 2],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("initializes a safe agent-friendly Orcha project", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-cli-init-"));
   const cliPath = resolve(repositoryRoot, "dist/cli.js");
@@ -533,6 +1228,11 @@ test("initializes a safe agent-friendly Orcha project", async () => {
         resolve(root, "orcha/exampleAgent/index.json"),
         "utf8",
       ),
+    );
+    assert.equal(agentConfiguration.name, "Example Agent");
+    assert.equal(
+      agentConfiguration.description,
+      "Answer general questions clearly and concisely.",
     );
     assert.equal(agentConfiguration.maxTokens, 10240);
     assert.match(
@@ -2834,6 +3534,8 @@ async function writeVertexFixtureProject(root) {
       type: "module",
     }),
     "orcha/vertexAgent/index.json": JSON.stringify({
+      name: "Vertex Agent",
+      description: "Exercise the Vertex AI production bundle.",
       provider: "vertexai",
       model: "gemini-test",
       maxTokens: 32,
@@ -2887,6 +3589,8 @@ async function writeBedrockFixtureProject(root) {
       type: "module",
     }),
     "orcha/bedrockAgent/index.json": JSON.stringify({
+      name: "Bedrock Agent",
+      description: "Exercise the Bedrock production bundle.",
       provider: "bedrock",
       model: "us.anthropic.claude-sonnet-4-6",
       maxTokens: 32,
@@ -2932,6 +3636,8 @@ async function writeFixtureProject(root, baseUrl, actionRuntime = "native") {
       type: "module",
     }),
     "orcha/testAgent/index.json": JSON.stringify({
+      name: "Test Agent",
+      description: "Exercise the production application bundle.",
       provider: "anthropic",
       model: "claude-test",
       maxTokens: 32,

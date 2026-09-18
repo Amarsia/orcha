@@ -12,13 +12,14 @@ const state = {
   sessionQuery: "",
   running: false,
   rawEvents: "",
+  children: [],
 };
 
 const element = Object.fromEntries(
   [
     "agent-count", "agent-list", "agent-title", "agent-description",
     "agent-badges", "configuration-grid", "system-instructions", "action-count", "action-list",
-    "skill-count", "skill-list", "evaluation-definitions",
+    "skill-count", "skill-list", "subagent-count", "subagent-list", "evaluation-definitions",
     "evaluation-session", "evaluation-results",
     "examples", "input-help", "prompt", "run-button", "clear-run", "run-section",
     "live-section", "live-session-label", "run-status", "live-timeline",
@@ -30,7 +31,7 @@ const element = Object.fromEntries(
     "raw-events", "copy-events", "resume-session", "refresh-sessions",
     "new-session", "session-count-side", "session-search", "session-list",
     "session-list-panel", "session-inspector", "close-session-inspector",
-    "inspector-status", "inspector-title", "inspector-evaluations", "toast",
+    "inspector-status", "inspector-title", "inspector-children", "inspector-evaluations", "toast",
   ].map((id) => [camel(id), document.querySelector(`#${id}`)]),
 );
 
@@ -100,7 +101,7 @@ function renderAgentNavigation() {
       button.innerHTML = `
         <span class="agent-icon">${escapeHtml(agent.name.slice(0, 2))}</span>
         <span class="agent-copy">
-          <strong>${escapeHtml(agent.name)}</strong>
+          <strong>${escapeHtml(agent.displayName || agent.name)}</strong>
           <span>${escapeHtml(agent.provider)} · ${escapeHtml(agent.model)}</span>
         </span>`;
       button.addEventListener("click", () => selectAgent(agent.name));
@@ -121,6 +122,7 @@ async function selectAgent(name) {
   state.testReports = new Map();
   state.sessionId = undefined;
   state.pendingCalls = [];
+  state.children = [];
   state.evaluations = [];
   state.sessionQuery = "";
   element.sessionSearch.value = "";
@@ -148,7 +150,7 @@ async function selectAgent(name) {
 function renderOverview() {
   const agent = state.agent;
   if (!agent) return;
-  element.agentTitle.textContent = agent.name;
+  element.agentTitle.textContent = agent.displayName || agent.name;
   element.agentDescription.textContent =
     agent.description || "Registered Orcha agent.";
   element.agentBadges.innerHTML = [
@@ -192,6 +194,18 @@ function renderOverview() {
         ? `Triggers: ${skill.triggers.join(" · ")}`
         : "Loaded by the model when needed",
       skill.instructions,
+    ),
+  );
+  renderCapabilities(
+    element.subagentList,
+    element.subagentCount,
+    agent.subagents || [],
+    (subagent) => capability(
+      subagent.name,
+      subagent.description,
+      "subagent",
+      `${subagent.provider} · ${subagent.model}`,
+      { key: subagent.key },
     ),
   );
   renderEvaluationDefinitions();
@@ -662,9 +676,10 @@ async function selectSession(sessionId) {
   try {
     const agent = encodeURIComponent(agentName);
     const session = encodeURIComponent(sessionId);
-    const [snapshot, eventData] = await Promise.all([
+    const [snapshot, eventData, children] = await Promise.all([
       requestJson(`/api/agents/${agent}/sessions/${session}`),
       requestJson(`/api/agents/${agent}/sessions/${session}/events`),
+      requestJson(`/api/agents/${agent}/sessions/${session}/children`),
     ]);
     if (
       state.agent?.name !== agentName ||
@@ -672,7 +687,9 @@ async function selectSession(sessionId) {
     ) {
       return;
     }
+    state.children = children.items || [];
     renderSession(snapshot, eventData.events);
+    renderInspectorChildren();
   } catch (error) {
     if (
       state.agent?.name === agentName &&
@@ -776,6 +793,102 @@ function renderInspectorEvaluations() {
                 </div>`).join("")}
         </details>`).join("")
     : "No evaluation results were recorded for this session.";
+}
+
+function renderInspectorChildren() {
+  const children = state.children || [];
+  element.inspectorChildren.className = children.length
+    ? "inspector-evaluations"
+    : "inspector-evaluations empty";
+  element.inspectorChildren.innerHTML = children.length
+    ? children.map((child) => `
+        <button class="center-session-card child-session-card" data-child-session="${escapeHtml(child.sessionId)}">
+          <span>
+            <strong>${escapeHtml(child.agent || "Subagent")}</strong>
+            <code>${escapeHtml(shortId(child.sessionId))}</code>
+          </span>
+          <span class="status ${escapeHtml(child.runStatus || child.status)}">${escapeHtml(child.runStatus || child.status)}</span>
+        </button>`).join("")
+    : "No child sessions were created by this session.";
+  for (const button of element.inspectorChildren.querySelectorAll("[data-child-session]")) {
+    button.addEventListener("click", () =>
+      selectChildSession(button.dataset.childSession),
+    );
+  }
+}
+
+async function selectChildSession(childSessionId) {
+  const agentName = state.agent?.name;
+  if (!agentName) return;
+  try {
+    const agent = encodeURIComponent(agentName);
+    const child = encodeURIComponent(childSessionId);
+    const history = await requestJson(
+      `/api/agents/${agent}/children/${child}/history?pageSize=100`,
+    );
+    renderChildHistory(history);
+    element.resumeSession.classList.add("hidden");
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+function renderChildHistory(history) {
+  const title = history.name || `${history.agent} subagent`;
+  element.sessionTitle.textContent = title;
+  element.inspectorTitle.textContent = title;
+  element.inspectorStatus.textContent = history.runStatus || history.status;
+  element.inspectorStatus.className =
+    `status ${history.runStatus || history.status}`;
+  element.sessionSummary.innerHTML = [
+    inspectorFact("Child session ID", history.sessionId),
+    inspectorFact("Agent", history.agent),
+    inspectorFact("Parent session", history.lineage?.parentSessionId || "—"),
+    inspectorFact("Created", formatDate(history.createdAt)),
+    inspectorFact("Updated", formatDate(history.updatedAt)),
+    inspectorFact("Input tokens", history.usage?.inputTokens ?? "—"),
+    inspectorFact("Output tokens", history.usage?.outputTokens ?? "—"),
+    inspectorFact("Reasoning tokens", history.usage?.reasoningTokens ?? "—"),
+  ].join("");
+  element.sessionTimeline.innerHTML = history.items.length
+    ? history.items.map(historyCard).join("")
+    : '<div class="empty">No projected history.</div>';
+  state.rawEvents = JSON.stringify(history, null, 2);
+  element.rawEvents.textContent = state.rawEvents;
+  element.liveSection.classList.add("hidden");
+  state.evaluations = history.items
+    .filter((item) => item.type === "evaluation")
+    .map((item) => ({
+      name: item.name,
+      status: item.status === "completed" ? "passed" : "failed",
+      metrics: item.metrics || [],
+      durationMs: item.durationMs,
+    }));
+  renderEvaluationResults();
+  renderInspectorEvaluations();
+  element.inspectorChildren.className = "inspector-evaluations empty";
+  element.inspectorChildren.textContent =
+    "Nested subagents are not available; delegation depth is limited to one.";
+  showSessionInspector();
+}
+
+function historyCard(item) {
+  return traceCard({
+    type: item.type,
+    label:
+      item.type === "message"
+        ? item.role === "user" ? "Input" : "Output"
+        : item.type.replace("_", " "),
+    title: item.name,
+    status: item.status,
+    content: item.content ? contentText(item.content) : item.summary,
+    fields: [
+      ...(item.childSessionId ? [["Child session", item.childSessionId]] : []),
+      ...(typeof item.durationMs === "number"
+        ? [["Duration", `${item.durationMs}ms`]]
+        : []),
+    ],
+  });
 }
 
 async function refreshLiveTrace(sessionId) {
@@ -983,6 +1096,47 @@ function executionTraceFromEvents(events) {
         title: event.data.name,
         status: event.type === "skill.loaded" ? "loaded" : "failed",
         content: skill?.instructions,
+      });
+    }
+    if (event.type === "subagent.initiated") {
+      trace.push({
+        type: "action",
+        label: "Subagent initiated",
+        title: event.data.agent,
+        status: event.data.status,
+        fields: [
+          ["Session", event.data.sessionId],
+          ["Call", event.data.callId],
+        ],
+      });
+    }
+    if (event.type === "subagent.resumed") {
+      trace.push({
+        type: "action",
+        label: "Subagent resumed",
+        title: event.data.agent,
+        status: event.data.status,
+        fields: [
+          ["Session", event.data.sessionId],
+          ["Call", event.data.callId],
+        ],
+      });
+    }
+    if (
+      event.type === "subagent.completed" ||
+      event.type === "subagent.paused" ||
+      event.type === "subagent.failed"
+    ) {
+      trace.push({
+        type: "action",
+        label: event.type.replace(".", " "),
+        title: event.data.agent,
+        status: event.data.status,
+        fields: [["Session", event.data.sessionId]],
+        sections: [[
+          event.data.error ? "Error" : "Result",
+          JSON.stringify(event.data.error || event.data.output, null, 2),
+        ]],
       });
     }
     if (

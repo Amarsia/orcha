@@ -118,6 +118,8 @@ orcha/
 
 ```json
 {
+  "name": "Support Agent",
+  "description": "Resolve customer support questions using confirmed account data.",
   "provider": "anthropic",
   "model": "claude-sonnet-4-6",
   "region": "provider_managed",
@@ -133,6 +135,8 @@ instructions in `instructions.md`.
 
 Agent `index.json` fields:
 
+- `name` (required): concise human-readable agent name.
+- `description` (optional): what the agent does and when it should be used.
 - `provider` (required): `"anthropic"`, `"bedrock"`, `"deepseek"`,
   `"openai"`, `"googlegenai"`, or `"vertexai"`.
 - `model` (required): exact provider model identifier.
@@ -150,6 +154,49 @@ Agent `index.json` fields:
 `instructions.md` is required and cannot be empty. At compile time it becomes
 the base system prompt. Orcha appends the compact available-skill catalog and
 the full instructions for skills already loaded in this durable session.
+
+## Subagents
+
+Register private subagents alongside a parent in `orcha/index.ts`:
+
+```js
+agents: {
+  coordinator: {
+    path: "./coordinator",
+    subagents: {
+      researcher: "./researcher",
+    },
+  },
+  researcher: "./researcher",
+}
+```
+
+Only top-level keys become `orcha.<agentName>`. In this example the
+researcher is both directly accessible and available to the coordinator.
+Remove its top-level entry to make it private.
+
+A parent may configure delegation limits in its `index.json`:
+
+```json
+{
+  "subagents": {
+    "maxPerRun": 3
+  }
+}
+```
+
+`maxPerRun` limits newly created child sessions in one parent run and
+defaults to 10.
+
+The parent receives a compact catalog containing each subagent's registered
+name and optional description. Internal `run_agent`, `resume_agent`,
+`inspect_agent` tools let it start, continue, and inspect only child sessions
+initiated by its current session. A delegated agent cannot delegate again.
+
+Subagent calls are synchronous. The parent becomes
+`waiting_for_subagent` while the child runs, then receives the child's text,
+pause state, client-action request, failure, or completion as a normal tool
+result. The parent and child keep separate linked JSONL sessions.
 
 ## Core execution model
 
@@ -169,8 +216,12 @@ next numbered run in that session. Each run accumulates its own model usage and
 ends in exactly one of these states:
 
 - `completed`: the model produced final output.
+- `waiting_for_subagent`: the parent is waiting for a synchronous child
+  response and continues automatically when it arrives.
 - `waiting_for_client_action`: the model requested work that only the
   application can perform. The run is paused, not completed.
+- `paused`: active provider work was aborted, streamed output was preserved,
+  and a later `resume()` starts a new run.
 - `failed`: validation, provider, storage, or execution failed. The durable
   events remain available for diagnosis.
 
@@ -617,6 +668,12 @@ type SessionCreated = SessionEvent<{
   name?: string;
   metadata: Record<string, string | number | boolean | null>;
   variables: Record<string, string>;
+  lineage?: {
+    origin: "delegated";
+    parentAgent: string;
+    parentSessionId: string;
+    parentCallId: string;
+  };
 }>; // type "session.created", no run
 
 type SessionUpdated = SessionEvent<{
@@ -760,14 +817,49 @@ type EvaluationFailed = SessionEvent<{
   evaluatedThroughSequence: number;
 }>; // type "evaluation.failed"
 
-type RunPaused = SessionEvent<{
-  status: "waiting_for_client_action";
-  clientToolCalls: Array<{
+type SubagentInitiated = SessionEvent<{
+  callId: string;
+  agent: string;
+  sessionId: string;
+  status: "running";
+}>; // type "subagent.initiated"
+
+type SubagentResumed = SessionEvent<{
+  callId: string;
+  agent: string;
+  sessionId: string;
+  status: "running";
+}>; // type "subagent.resumed"
+
+type SubagentCompletedOrPausedOrFailed = SessionEvent<{
+  callId: string;
+  agent: string;
+  sessionId: string;
+  status:
+    | "completed"
+    | "waiting_for_client_action"
+    | "paused"
+    | "failed";
+  output?: unknown;
+  usage?: Usage;
+  clientToolCalls?: Array<{
     callId: string;
     name: string;
     arguments: Record<string, unknown>;
   }>;
-  usage: Usage;
+  error?: ErrorData;
+}>; // type "subagent.completed" | "subagent.paused" | "subagent.failed"
+
+type RunPaused = SessionEvent<{
+  status: "waiting_for_client_action" | "paused";
+  clientToolCalls?: Array<{
+    callId: string;
+    name: string;
+    arguments: Record<string, unknown>;
+  }>;
+  usage?: Usage;
+  output?: unknown;
+  durationMs?: number;
 }>; // type "run.paused"
 
 type RunCompleted = SessionEvent<{
@@ -782,6 +874,14 @@ type RunFailed = SessionEvent<{
   usage?: Usage;
   error: ErrorData;
 }>; // type "run.failed"
+
+type SessionPaused = SessionEvent<{
+  status: "paused";
+}>; // type "session.paused", no run
+
+type SessionResumed = SessionEvent<{
+  status: "active";
+}>; // type "session.resumed", no run
 
 type TestCompleted = SessionEvent<{
   suiteId: string;
@@ -817,6 +917,12 @@ run.started
 message.created (user)
 message.created (assistant, possibly with tool_call)
 action.requested → action.completed|action.failed       # local action
+subagent.initiated
+...child session advances independently...
+subagent.paused
+subagent.resumed
+...child session advances independently...
+subagent.completed|subagent.paused|subagent.failed
 message.created (tool)
 ...additional model/action rounds...
 message.created (assistant final)
@@ -866,10 +972,12 @@ offline production compilation. Neither command invokes a provider.
 6. `load_skill` updates durable session instructions. Local actions execute
    through the configured runtime. Client actions pause safely. Tool results
    are reordered to match the model's original call order.
-7. The model loop continues until final output, failure, a client pause, or
-   the maximum of 10 action rounds.
-8. Usage is normalized and aggregated across every model call in the run.
-9. After `run.completed`, enabled evaluations start in the background.
+7. Internal agent tools start or continue linked child sessions. The parent
+   reports `waiting_for_subagent` until each synchronous child call returns.
+8. The model loop continues until final output, failure, a pause, or the
+   maximum of 10 action rounds.
+9. Usage is normalized and aggregated across every model call in the run.
+10. After `run.completed`, enabled evaluations start in the background.
    `execution.result` is already available; `execution.evaluations` waits
    for judge completion and durable persistence.
 
@@ -880,11 +988,12 @@ cause `resume()` to fail spuriously or reuse sequence numbers.
 ### Replay and context
 
 Orcha does not send raw JSONL back to the model. It projects durable events
-into provider-neutral conversation messages. Completed conversational runs
-become user, assistant, and tool messages; lifecycle bookkeeping such as
-durations, test assertions, and evaluation events is excluded from model
-context. Reasoning text and provider replay metadata are retained where needed
-for faithful continuation but are omitted from evaluation transcripts.
+into provider-neutral conversation messages. Completed and explicitly paused
+conversational runs become user, assistant, and tool messages, so a new run
+sees incomplete assistant text preserved by `pause()`. Lifecycle bookkeeping
+such as durations, test assertions, and evaluation events is excluded from
+model context. Reasoning text and provider replay metadata are retained where
+needed for faithful continuation but are omitted from evaluation transcripts.
 
 ### Reading sessions
 
@@ -898,6 +1007,14 @@ for faithful continuation but are omitted from evaluation transcripts.
   back in the options to keep pagination on a stable event boundary.
 - `agent.list({ page, pageSize, status, metadata })` lists projected session
   snapshots.
+- `agent.subagentHistory(childSessionId, { page, pageSize })` returns the
+  projected history of a child owned by this parent agent. Lineage checks
+  prevent access through unrelated agents.
+- `agent.pause(sessionId)` aborts active provider work for the session and
+  active children, preserving streamed text as an incomplete assistant
+  message. `agent.resume(sessionId)` starts a new run with `"Continue."`;
+  pass content to give different instructions. Pending client actions still
+  require their exact tool results.
 - Never read storage files directly. Use these methods so applications remain
   compatible with JSONL, SQLite, IndexedDB, remote, and future storage adapters.
 

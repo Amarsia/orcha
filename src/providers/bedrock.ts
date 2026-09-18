@@ -64,7 +64,10 @@ interface CollectedBedrockResponse {
 }
 
 export interface BedrockContentClient {
-  send(command: ConverseStreamCommand): Promise<{
+  send(
+    command: ConverseStreamCommand,
+    options?: { abortSignal?: AbortSignal },
+  ): Promise<{
     stream?: AsyncIterable<ConverseStreamOutput>;
     $metadata: { requestId?: string };
   }>;
@@ -134,6 +137,7 @@ export async function generateBedrockContent(
 
   const response = await client.send(
     new ConverseStreamCommand(input),
+    { abortSignal: request.signal },
   );
   if (!response.stream) {
     throw new Error("Amazon Bedrock returned no response stream.");

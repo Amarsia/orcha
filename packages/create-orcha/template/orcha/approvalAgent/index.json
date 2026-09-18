@@ -1,4 +1,6 @@
 {
+  "name": "Approval Agent",
+  "description": "Review purchase requests through an application-owned approval step.",
   "provider": "openai",
   "model": "gpt-5-mini",
   "region": "provider_managed",

@@ -1,0 +1,27 @@
+{
+  "name": "request_customer_identity",
+  "description": "Ask the user for the customer email requested by a paused specialist.",
+  "execution": "client",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "reason": {
+        "type": "string",
+        "description": "Why the specialist needs the customer email."
+      }
+    },
+    "required": ["reason"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "email": {
+        "type": "string",
+        "description": "The customer email supplied by the user."
+      }
+    },
+    "required": ["email"],
+    "additionalProperties": false
+  }
+}

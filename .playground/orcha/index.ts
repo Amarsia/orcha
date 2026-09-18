@@ -31,6 +31,15 @@ orcha.init({
     // complianceBot: "./complianceBot",
     fulfillmentBot: "./fulfillmentBot",
     incidentBot: "./incidentBot",
+    operationsCoordinator: {
+      path: "./operationsCoordinator",
+      subagents: {
+        customerContextSpecialist: "./customerContextBot",
+        incidentAnalyst: "./incidentBot",
+        fulfillmentSpecialist: "./fulfillmentBot",
+        riskAnalyst: "./riskBot",
+      },
+    },
     riskBot: "./riskBot",
     supportBot: "./supportBot",
   },

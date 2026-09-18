@@ -1,4 +1,6 @@
 {
+  "name": "Fulfillment Bot",
+  "description": "Coordinate order fulfillment using Google Gemini.",
   "provider": "googlegenai",
   "model": "gemini-2.5-flash",
   "region": "provider_managed",

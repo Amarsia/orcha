@@ -9,7 +9,12 @@ orcha.init({
   },
   agents: {
     approvalAgent: "./approvalAgent",
-    assistant: "./assistant",
+    assistant: {
+      path: "./assistant",
+      subagents: {
+        orderSupport: "./orderSupport",
+      },
+    },
     orderSupport: "./orderSupport",
   },
 });

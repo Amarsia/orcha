@@ -1,4 +1,6 @@
 {
+  "name": "Support Bot",
+  "description": "Resolve customer support questions with available actions.",
   "provider": "openai",
   "model": "gpt-5-mini",
   "region": "provider_managed",

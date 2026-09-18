@@ -75,15 +75,28 @@ export interface ProjectConfiguration {
   };
 }
 
+export type AgentRegistration =
+  | string
+  | {
+      path: string;
+      subagents?: Record<string, string>;
+    };
+
 export interface OrchaInitConfiguration {
   providers: ProviderInitConfigurations;
-  agents: Record<string, string>;
+  agents: Record<string, AgentRegistration>;
   actions?: LocalActionRuntimeConfiguration;
   storage?: ProjectConfiguration["storage"];
   root?: string;
 }
 
+export interface SubagentConfiguration {
+  maxPerRun?: number;
+}
+
 export interface AgentConfiguration {
+  name: string;
+  description?: string;
   provider: string;
   model: string;
   region?: string;
@@ -91,6 +104,7 @@ export interface AgentConfiguration {
   reasoningLevel?: string;
   outputType?: "text" | "json" | "image" | "audio";
   outputSchema?: Record<string, unknown>;
+  subagents?: SubagentConfiguration;
 }
 
 export interface ActionConfiguration {
@@ -182,13 +196,16 @@ export interface LocalActionRuntimeConfiguration {
 }
 
 export interface CompiledAgentManifest
-  extends Omit<AgentConfiguration, "provider"> {
+  extends Omit<AgentConfiguration, "provider" | "subagents"> {
+  key: string;
   name: string;
   provider: ProviderName;
   systemPrompt: string;
   actions: Record<string, CompiledActionManifest>;
   skills: Record<string, CompiledSkillManifest>;
   evaluations: Record<string, CompiledEvaluationManifest>;
+  subagentPolicy?: SubagentConfiguration;
+  subagents: Record<string, CompiledAgentManifest>;
 }
 
 export interface CompiledBundle {
@@ -275,6 +292,13 @@ export interface WaitingRunResult<TOutput = unknown> {
   clientToolCalls: ClientToolCall[];
 }
 
+export interface PausedRunResult<TOutput = unknown> {
+  sessionId: string;
+  status: "paused";
+  output?: TOutput;
+  usage?: Usage;
+}
+
 export interface FailedRunResult {
   sessionId: string;
   status: "failed";
@@ -284,6 +308,7 @@ export interface FailedRunResult {
 export type RunResult<TOutput = unknown> =
   | CompletedRunResult<TOutput>
   | WaitingRunResult<TOutput>
+  | PausedRunResult<TOutput>
   | FailedRunResult;
 
 export interface StreamingRunSnapshot<TOutput = unknown> {
@@ -292,8 +317,16 @@ export interface StreamingRunSnapshot<TOutput = unknown> {
   output: TOutput;
 }
 
+export interface WaitingForSubagentSnapshot {
+  sessionId: string;
+  status: "waiting_for_subagent";
+  childSessionId: string;
+  childAgent: string;
+}
+
 export type ExecutionSnapshot<TOutput = unknown> =
   | StreamingRunSnapshot<TOutput>
+  | WaitingForSubagentSnapshot
   | RunResult<TOutput>;
 
 export interface Execution<TOutput = unknown> {
@@ -340,9 +373,16 @@ export type SessionEventType =
   | "evaluation.requested"
   | "evaluation.completed"
   | "evaluation.failed"
+  | "subagent.initiated"
+  | "subagent.resumed"
+  | "subagent.completed"
+  | "subagent.paused"
+  | "subagent.failed"
   | "run.paused"
   | "run.completed"
   | "run.failed"
+  | "session.paused"
+  | "session.resumed"
   | "test.completed";
 
 export interface SessionEvent<TData = Record<string, unknown>> {
@@ -359,15 +399,25 @@ export interface SessionStore {
   listSessionIds(): Promise<string[]>;
 }
 
-export type SessionStatus = "active" | "completed";
+export type SessionStatus = "active" | "paused" | "completed";
 export type RunStatus =
   | "running"
+  | "waiting_for_subagent"
   | "waiting_for_client_action"
+  | "paused"
   | "completed"
   | "failed";
 
+export interface SessionLineage {
+  origin: "delegated";
+  parentAgent: string;
+  parentSessionId: string;
+  parentCallId: string;
+}
+
 export interface SessionSnapshot {
   sessionId: string;
+  agent: string;
   name?: string;
   status: SessionStatus;
   metadata: SessionMetadata;
@@ -375,6 +425,7 @@ export interface SessionSnapshot {
   updatedAt: string;
   runStatus?: RunStatus;
   pendingClientActions: ClientToolCall[];
+  lineage?: SessionLineage;
   lastOutput?: unknown;
   usage?: Usage;
 }
@@ -385,6 +436,7 @@ export interface SessionHistoryItem {
     | "message"
     | "action"
     | "client_action"
+    | "subagent"
     | "skill"
     | "evaluation"
     | "session_completed";
@@ -392,9 +444,15 @@ export interface SessionHistoryItem {
   role?: "user" | "assistant";
   content?: MessageContent[];
   name?: string;
-  status?: "waiting" | "completed" | "failed";
+  status?:
+    | "running"
+    | "waiting"
+    | "paused"
+    | "completed"
+    | "failed";
   summary?: string;
   callId?: string;
+  childSessionId?: string;
   arguments?: Record<string, unknown>;
   durationMs?: number;
   usage?: Usage;
@@ -448,7 +506,12 @@ export interface SessionUpdate {
 export interface AgentRuntime {
   readonly clientTools: CompiledActionManifest[];
   run(input: AgentInput | string): Execution;
-  resume(sessionId: string, input: ResumeInput): Execution;
+  resume(sessionId: string, input?: ResumeInput): Execution;
+  pause(sessionId: string): Promise<SessionSnapshot>;
+  subagentHistory(
+    childSessionId: string,
+    options?: PaginationOptions,
+  ): Promise<SessionHistory>;
   get(sessionId: string): Promise<SessionSnapshot>;
   history(
     sessionId: string,

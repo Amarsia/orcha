@@ -1,4 +1,6 @@
 {
+  "name": "Order Support",
+  "description": "Look up confirmed order data and explain its status and next step.",
   "provider": "openai",
   "model": "gpt-5-mini",
   "region": "provider_managed",

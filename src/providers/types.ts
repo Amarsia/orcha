@@ -73,6 +73,7 @@ export interface ProviderRequest {
   messages: ProviderMessage[];
   tools: ProviderToolDefinition[];
   publishOutput?: (output: string) => void;
+  signal?: AbortSignal;
 }
 
 export type ProviderStopReason =

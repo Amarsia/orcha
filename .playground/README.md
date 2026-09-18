@@ -54,3 +54,17 @@ The risk scenario uses Vertex AI and a sandboxed transaction-risk lookup to
 recommend whether a payment needs manual review. It also demonstrates lazy
 skill loading and an OpenAI judge that scores groundedness, risk calibration,
 and the recommended review action after each run.
+
+The operations-coordinator scenario uses Vertex AI as a parent agent. It
+synchronously delegates one customer-impacting checkout case to the existing
+incident, fulfillment, and risk agents, then synthesizes their separately
+grounded findings. The runner prints the parent history and each linked child
+history so delegation, local actions, lifecycle events, and lineage can be
+inspected together.
+
+To exercise nested pause and resume behavior, ask the operations coordinator:
+`Demonstrate missing customer context without an email address.` The customer
+context child requests an email and pauses. The coordinator propagates that
+request through its own client action and pauses for user input. Submit a tool
+result such as `{ "email": "customer@example.com" }`; the coordinator then
+resumes the child with that result and completes the parent run.

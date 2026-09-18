@@ -1,4 +1,6 @@
 {
+  "name": "Risk Bot",
+  "description": "Review transactions and explain material risk.",
   "provider": "vertexai",
   "model": "gemini-2.5-flash",
   "region": "provider_managed",

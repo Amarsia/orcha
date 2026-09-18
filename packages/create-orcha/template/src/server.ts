@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   orcha,
   type AgentRuntime,
+  type Execution,
   type MessageContent,
   type OrchaClient,
   type SessionEvent,
@@ -127,6 +128,38 @@ async function route(
   }
 
   if (
+    method === "POST" &&
+    segments.length === 6 &&
+    segments[0] === "api" &&
+    segments[1] === "agents" &&
+    segments[3] === "sessions" &&
+    segments[5] === "pause"
+  ) {
+    const agent = getAgent(segments[2]);
+    sendJson(response, 200, await agent.pause(segments[4]));
+    return;
+  }
+
+  if (
+    method === "GET" &&
+    segments.length >= 5 &&
+    segments[0] === "api" &&
+    segments[1] === "agents" &&
+    segments[3] === "children"
+  ) {
+    if (segments.length === 6 && segments[5] === "history") {
+      sendJson(response, 200, await getAgent(segments[2]).subagentHistory(
+        segments[4],
+        {
+          page: positiveInteger(url.searchParams.get("page"), 1),
+          pageSize: positiveInteger(url.searchParams.get("pageSize"), 100),
+        },
+      ));
+      return;
+    }
+  }
+
+  if (
     method === "GET" &&
     segments.length >= 5 &&
     segments[0] === "api" &&
@@ -152,6 +185,10 @@ async function route(
       });
       return;
     }
+    if (segments.length === 6 && segments[5] === "children") {
+      sendJson(response, 200, await childSessionSnapshots(agent, sessionId));
+      return;
+    }
   }
 
   if (method === "GET") {
@@ -168,6 +205,48 @@ async function route(
   }
 
   sendJson(response, 404, { error: "Not found." });
+}
+
+async function childSessionSnapshots(
+  agent: AgentRuntime,
+  parentSessionId: string,
+) {
+  const history = await readAllSessionHistory(agent, parentSessionId);
+  const childSessionIds = [
+    ...new Set(
+      history.items.flatMap((item) =>
+        item.type === "subagent" && item.childSessionId
+          ? [item.childSessionId]
+          : [],
+      ),
+    ),
+  ];
+  const items = await Promise.all(
+    childSessionIds.map(async (childSessionId) => {
+      const child = await agent.subagentHistory(childSessionId, {
+        page: 1,
+        pageSize: 1,
+      });
+      const {
+        items: _items,
+        page: _page,
+        pageSize: _pageSize,
+        total: _total,
+        hasMore: _hasMore,
+        ...snapshot
+      } = child;
+      return snapshot;
+    }),
+  );
+  return {
+    items: items.sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt),
+    ),
+    page: 1,
+    pageSize: items.length,
+    total: items.length,
+    hasMore: false,
+  };
 }
 
 async function executeAgent(
@@ -200,6 +279,13 @@ async function executeAgent(
         });
   }
 
+  await streamExecution(execution, response);
+}
+
+async function streamExecution(
+  execution: Execution,
+  response: ServerResponse,
+): Promise<void> {
   response.writeHead(200, {
     "content-type": "application/x-ndjson; charset=utf-8",
     "cache-control": "no-store",
@@ -241,11 +327,11 @@ function publicAgentManifest(
   manifest: ReturnType<typeof orcha.getCompiledBundle>["agents"][string],
 ) {
   return {
-    name: manifest.name,
-    description:
-      playgroundConfiguration.agents?.[manifest.name]?.description,
+    name: manifest.key,
+    displayName: manifest.name,
+    description: manifest.description,
     examples:
-      playgroundConfiguration.agents?.[manifest.name]?.examples ?? [],
+      playgroundConfiguration.agents?.[manifest.key]?.examples ?? [],
     provider: manifest.provider,
     model: manifest.model,
     region: manifest.region ?? "provider_managed",
@@ -280,6 +366,13 @@ function publicAgentManifest(
       maxTokens: evaluation.maxTokens,
       reasoningLevel: evaluation.reasoningLevel,
       metrics: evaluation.metrics,
+    })),
+    subagents: Object.entries(manifest.subagents).map(([key, subagent]) => ({
+      key,
+      name: subagent.name,
+      description: subagent.description,
+      provider: subagent.provider,
+      model: subagent.model,
     })),
   };
 }
@@ -441,6 +534,37 @@ async function readAllSessionEvents(
     page += 1;
   }
   return pages.flat();
+}
+
+async function readAllSessionHistory(
+  agent: AgentRuntime,
+  sessionId: string,
+) {
+  const pages = [];
+  let page = 1;
+  let hasMore = true;
+  let latest;
+  while (hasMore) {
+    latest = await agent.history(sessionId, {
+      page,
+      pageSize: 100,
+    });
+    pages.unshift(latest.items);
+    hasMore = latest.hasMore;
+    page += 1;
+  }
+  if (!latest) {
+    throw new Error(`Session "${sessionId}" has no history.`);
+  }
+  const items = pages.flat();
+  return {
+    ...latest,
+    items,
+    page: 1,
+    pageSize: items.length,
+    total: items.length,
+    hasMore: false,
+  };
 }
 
 function sessionNameFromContent(content: string | MessageContent[]): string {

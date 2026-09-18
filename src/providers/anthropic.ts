@@ -103,6 +103,7 @@ async function generateAnthropic(
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify(requestBody),
+      signal: request.signal,
     },
   );
 

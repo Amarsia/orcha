@@ -127,6 +127,7 @@ async function generateDeepSeek(
         authorization: `Bearer ${configuration.apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: request.signal,
     },
   );
 
