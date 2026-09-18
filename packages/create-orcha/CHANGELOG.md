@@ -1,5 +1,15 @@
 # create-orcha
 
+## 0.1.4
+
+### Patch Changes
+
+- [#47](https://github.com/Amarsia/orcha/pull/47) [`0d85800`](https://github.com/Amarsia/orcha/commit/0d8580052362535fa961b3f385cb175fa7d8a4ba) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Allow `run_agent` to accept the same text and multimodal content input as a
+  normal agent run. Parent agents can forward local files, URLs, images, audio,
+  video, and mixed content to linked child sessions. Local paths resolve from
+  the configured Orcha project root without copying encoded bytes into tool
+  arguments or logs.
+
 ## 0.1.3
 
 ### Patch Changes
