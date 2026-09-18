@@ -89,10 +89,14 @@ class OrchaRuntimeCore implements Orcha {
       throw new Error(`Storage strategy "${strategy}" is not implemented yet.`);
     }
 
-    const store = new NodeJsonlSessionStore(
-      configuration.storage?.directory ?? ".orcha/sessions",
-      projectRoot,
-    );
+    const storageDirectory =
+      configuration.storage?.directory ?? ".orcha/sessions";
+    const createStore = (manifest: CompiledAgentManifest) =>
+      new NodeJsonlSessionStore(
+        storageDirectory,
+        projectRoot,
+        manifest.key ?? manifest.name,
+      );
     const agents = new Map<string, AgentRuntime>();
 
     for (const [name, manifest] of Object.entries(bundle.agents)) {
@@ -103,7 +107,7 @@ class OrchaRuntimeCore implements Orcha {
             new RuntimeAgent({
               manifest: subagentManifest,
               configuration: runtimeConfiguration,
-              store,
+              store: createStore(subagentManifest),
               activeSessions: this.#activeSessions,
               sessionControls: this.#sessionControls,
               generateProviderResponse: this.#generateProviderResponse,
@@ -118,7 +122,7 @@ class OrchaRuntimeCore implements Orcha {
         new RuntimeAgent({
           manifest,
           configuration: runtimeConfiguration,
-          store,
+          store: createStore(manifest),
           activeSessions: this.#activeSessions,
           sessionControls: this.#sessionControls,
           generateProviderResponse: this.#generateProviderResponse,

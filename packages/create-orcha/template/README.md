@@ -47,7 +47,8 @@ npm run orcha:dev    # validate and watch the Orcha registry
 npm run orcha:test   # run registered agent tests
 ```
 
-The default Node configuration stores sessions in `.orcha/sessions`. The
+The default Node configuration stores sessions in
+`.orcha/sessions/<agentName>/ses_<timestamp>_<uuid>.jsonl`. The
 playground accesses parent sessions through `agent.list()`, `agent.get()`, and
 `agent.events()`, and child sessions through `agent.subagentHistory()`, so
 changing the storage adapter does not require UI or server changes.

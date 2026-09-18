@@ -148,7 +148,7 @@ export class RuntimeAgent implements AgentRuntime {
   }
 
   createDelegatedSessionId(): string {
-    return `${this.#sessionIdPrefix}${randomUUID()}`;
+    return createSessionId(this.#sessionIdPrefix);
   }
 
   runAsChild(
@@ -174,7 +174,7 @@ export class RuntimeAgent implements AgentRuntime {
   ): Execution {
     const normalized = typeof input === "string" ? { content: input } : input;
     const sessionId =
-      requestedSessionId ?? `${this.#sessionIdPrefix}${randomUUID()}`;
+      requestedSessionId ?? createSessionId(this.#sessionIdPrefix);
     if (
       typeof normalized === "object" &&
       normalized !== null &&
@@ -488,23 +488,22 @@ export class RuntimeAgent implements AgentRuntime {
     parentSessionId: string | undefined,
     childSessionId: string,
   ): Promise<RuntimeAgent> {
-    const events = await this.#readSession(childSessionId);
-    const lineage = sessionLineage(events);
-    const childKey = sessionAgent(events);
-    const child = childKey ? this.#subagents[childKey] : undefined;
-    if (
-      !lineage ||
-      lineage.parentAgent !== this.#agentKey ||
-      (parentSessionId !== undefined &&
-        lineage.parentSessionId !== parentSessionId) ||
-      !child
-    ) {
-      throw new OrchaError(
-        "session_not_found",
-        `Child session "${childSessionId}" was not found for agent "${this.#agentKey}".`,
-      );
+    for (const child of Object.values(this.#subagents)) {
+      const events = await child.#readSession(childSessionId);
+      const lineage = sessionLineage(events);
+      if (
+        sessionAgent(events) === child.#agentKey &&
+        lineage?.parentAgent === this.#agentKey &&
+        (parentSessionId === undefined ||
+          lineage.parentSessionId === parentSessionId)
+      ) {
+        return child;
+      }
     }
-    return child;
+    throw new OrchaError(
+      "session_not_found",
+      `Child session "${childSessionId}" was not found for agent "${this.#agentKey}".`,
+    );
   }
 
   async update(
@@ -2705,6 +2704,14 @@ function normalizeMetadata(
     normalized[key] = value;
   }
   return normalized;
+}
+
+function createSessionId(prefix: string): string {
+  const utcTimestamp = new Date()
+    .toISOString()
+    .replace(/\.\d{3}Z$/, "")
+    .replace("T", "_");
+  return `${prefix}${utcTimestamp}_${randomUUID()}`;
 }
 
 function normalizeVariables(

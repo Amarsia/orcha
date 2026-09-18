@@ -232,7 +232,8 @@ const followUp = await orcha.exampleAgent.resume(result.sessionId, {
 ```
 
 Registered agents are exposed as `orcha.<agentName>`. The first implementation
-supports durable Node.js runs backed by `.orcha/sessions/<sessionId>.jsonl`.
+supports durable Node.js runs backed by
+`.orcha/sessions/<agentName>/ses_<timestamp>_<uuid>.jsonl`.
 Client-action pause/resume, compiled local actions, and cumulative output
 streaming are supported.
 `run()` always starts a new session; `resume()` continues one with either a new
@@ -622,7 +623,7 @@ const report = await runTests(orcha);
 ```
 
 Test sessions retain complete JSONL logs beside normal sessions under
-`.orcha/sessions/ses_test_<uuid>.jsonl`. The final `test.completed` event
+`.orcha/sessions/<agentName>/ses_test_<timestamp>_<uuid>.jsonl`. The final `test.completed` event
 records the suite, case, status, duration, and every assertion. Run tests
 explicitly before building in CI. Tests use the configured providers, so the
 test step requires provider credentials and consumes model tokens; `orcha

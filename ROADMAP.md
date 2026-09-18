@@ -84,7 +84,7 @@ Agent-owned deterministic test cases live under each agent's `/tests` folder.
 - Execute the real compiled agent and provider through the durable `run()` and
   `resume()` contract.
 - Store complete JSONL logs beside normal sessions as
-  `.orcha/sessions/ses_test_<uuid>.jsonl`, ending with a durable
+  `.orcha/sessions/<agentName>/ses_test_<timestamp>_<uuid>.jsonl`, ending with a durable
   `test.completed` event containing the assertion results.
 - Export `runTests()` from `orchajs/testing` to run every registered test.
 - Run registered suites explicitly through `runTests()` before production

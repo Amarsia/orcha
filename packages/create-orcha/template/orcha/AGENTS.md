@@ -20,7 +20,7 @@ files under `.orcha/`.
 
 `run` and `test` use real providers and require credentials. `dev` and
 `build` are offline. Session logs are JSONL files under
-`.orcha/sessions/<sessionId>.jsonl`.
+`.orcha/sessions/<agentName>/ses_<timestamp>_<uuid>.jsonl`.
 
 ## Registry
 
@@ -512,7 +512,7 @@ real actions. The mocked action set must exactly match the compiled action set.
 }
 ```
 
-Test sessions use the `ses_test_` prefix and end with a `test.completed`
+Test sessions use the `ses_test_<timestamp>_<uuid>` format and end with a `test.completed`
 event. Prefer semantic output assertions; verify exact identifiers and values
 through action-argument assertions.
 
@@ -964,7 +964,7 @@ offline production compilation. Neither command invokes a provider.
 
 ### Run lifecycle
 
-1. `run()` creates a `ses_<uuid>`, acquires the per-session execution lock,
+1. `run()` creates a `ses_<timestamp>_<uuid>`, acquires the per-session execution lock,
    appends `session.created`, then starts run 1.
 2. `resume()` reads and validates the existing session. Message continuation
    starts a new run; submitted client results continue the paused run.
