@@ -7,6 +7,7 @@ import type {
   ThinkingLevel,
 } from "@google/genai/web";
 import { OrchaError } from "../errors.js";
+import { readLocalFileContent } from "../file-content.js";
 import { parseStructuredOutput } from "../runtime/structured-output.js";
 import type {
   MessageContent,
@@ -85,7 +86,7 @@ export async function generateGoogleContent(
 
   const stream = await client.models.generateContentStream({
     model: request.model,
-    contents: toGoogleContents(request.messages, provider),
+    contents: await toGoogleContents(request.messages, provider),
     config,
   });
   const abort = (): void => {
@@ -245,10 +246,10 @@ function appendGoogleTextPart(
   content.push({ type: "text", text });
 }
 
-function toGoogleContents(
+async function toGoogleContents(
   messages: ProviderMessage[],
   provider: "googlegenai" | "vertexai",
-): Content[] {
+): Promise<Content[]> {
   const contents: Content[] = [];
   const previousCalls = new Map<
     string,
@@ -265,7 +266,9 @@ function toGoogleContents(
         parts:
           typeof message.content === "string"
             ? [{ text: message.content }]
-            : message.content.map(toGoogleUserPart),
+            : await Promise.all(
+                message.content.map(toGoogleUserPart),
+              ),
       });
       continue;
     }
@@ -317,9 +320,39 @@ function toGoogleContents(
   return contents;
 }
 
-function toGoogleUserPart(content: MessageContent): Part {
+async function toGoogleUserPart(
+  content: MessageContent,
+): Promise<Part> {
   if (content.type === "text") {
     return { text: content.text };
+  }
+  if (content.type === "file") {
+    const file = await readLocalFileContent(content);
+    return {
+      inlineData: {
+        mimeType: content.mimeType,
+        data: file.base64,
+      },
+    };
+  }
+  if (
+    content.type === "url" &&
+    /^https?:\/\//i.test(content.fileUri) &&
+    !isGoogleFileUri(content.fileUri)
+  ) {
+    const response = await fetch(content.fileUri);
+    if (!response.ok) {
+      throw new OrchaError(
+        "invalid_input",
+        `Could not load Google Gemini file URL: HTTP ${response.status}.`,
+      );
+    }
+    return {
+      inlineData: {
+        mimeType: content.mimeType,
+        data: Buffer.from(await response.arrayBuffer()).toString("base64"),
+      },
+    };
   }
   if (!isGoogleFileUri(content.fileUri)) {
     throw new OrchaError(

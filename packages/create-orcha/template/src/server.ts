@@ -4,9 +4,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   orcha,
+  type AgentContentInput,
   type AgentRuntime,
   type Execution,
   type MessageContent,
+  type MessageContentInput,
   type OrchaClient,
   type SessionEvent,
   type ToolResult,
@@ -27,7 +29,7 @@ const playgroundConfiguration = JSON.parse(
       description?: string;
       examples?: Array<{
         label: string;
-        content: string | MessageContent[];
+        content: AgentContentInput;
       }>;
     }
   >;
@@ -424,19 +426,41 @@ function requiredString(value: unknown, name: string): string {
   return value.trim();
 }
 
-function parseContent(value: unknown): string | MessageContent[] {
+function parseContent(value: unknown): AgentContentInput {
   if (typeof value === "string") {
     return requiredString(value, "content");
   }
-  if (!Array.isArray(value) || value.length === 0) {
+  const items = Array.isArray(value) ? value : [value];
+  if (items.length === 0) {
     throw new Error(
-      "content must be a non-empty string or MessageContent array.",
+      "content must be a non-empty string, content item, or content array.",
     );
   }
-  return value.map((item) => {
-    if (!isRecord(item) || typeof item.type !== "string") {
-      throw new Error("Every content item requires a valid type.");
-    }
+  const parsed = items.map(parseContentItem);
+  return Array.isArray(value) ? parsed : parsed[0];
+}
+
+function parseContentItem(item: unknown): MessageContentInput {
+  if (!isRecord(item)) {
+    throw new Error("Every content item must be an object.");
+  }
+  if (typeof item.filePath === "string") {
+    return {
+      filePath: item.filePath,
+      ...(typeof item.mimeType === "string"
+        ? { mimeType: item.mimeType }
+        : {}),
+    };
+  }
+  if (typeof item.url === "string") {
+    return {
+      url: item.url,
+      ...(typeof item.mimeType === "string"
+        ? { mimeType: item.mimeType }
+        : {}),
+    };
+  }
+  if (typeof item.type === "string") {
     if (item.type === "text" && typeof item.text === "string") {
       return { type: "text", text: item.text };
     }
@@ -451,10 +475,8 @@ function parseContent(value: unknown): string | MessageContent[] {
         fileUri: item.fileUri,
       };
     }
-    throw new Error(
-      `Content item "${item.type}" has invalid fields.`,
-    );
-  });
+  }
+  throw new Error("Content item has invalid fields.");
 }
 
 function isFileContentType(
@@ -567,12 +589,12 @@ async function readAllSessionHistory(
   };
 }
 
-function sessionNameFromContent(content: string | MessageContent[]): string {
+function sessionNameFromContent(content: AgentContentInput): string {
   const text = typeof content === "string"
     ? content
-    : content.find(
+    : (Array.isArray(content) ? content : [content]).find(
         (item): item is Extract<MessageContent, { type: "text" }> =>
-          item.type === "text",
+          "type" in item && item.type === "text",
       )?.text ?? "Untitled session";
   const normalized = text.replace(/\s+/g, " ").trim();
   return normalized.length > 64

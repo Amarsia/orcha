@@ -335,7 +335,7 @@ function setInputMode(mode) {
   const structured = mode === "json";
   element.prompt.classList.toggle("json-mode", structured);
   element.prompt.placeholder = structured
-    ? '[\n  { "type": "text", "text": "Describe this image." },\n  { "type": "image", "mimeType": "image/png", "fileUri": "https://…" }\n]'
+    ? '[\n  { "type": "text", "text": "Summarize these files." },\n  { "filePath": "./documents/report.pdf" },\n  { "url": "https://example.com/supporting.pdf" }\n]'
     : "Enter a message…";
   element.inputHelp.textContent = structured
     ? "Enter the complete MessageContent[] JSON array."

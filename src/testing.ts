@@ -130,6 +130,7 @@ export async function runTests(
       activeSessions: new Set(),
       generateProviderResponse: context.generateProviderResponse,
       sessionIdPrefix: "ses_test_",
+      projectRoot: context.projectRoot,
     });
     reports.push(
       await runTestCase(

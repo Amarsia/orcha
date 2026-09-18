@@ -3,6 +3,7 @@ import type {
   Usage,
 } from "../types.js";
 import { OrchaError } from "../errors.js";
+import { readLocalFileContent } from "../file-content.js";
 import { parseStructuredOutput } from "../runtime/structured-output.js";
 import { readServerSentEvents } from "./sse.js";
 import type {
@@ -74,7 +75,7 @@ async function generateAnthropic(
     model: request.model,
     max_tokens: reasoning.maxTokens,
     system: systemPrompt,
-    messages: toAnthropicMessages(request.messages),
+    messages: await toAnthropicMessages(request.messages),
     ...(request.publishOutput ? { stream: true } : {}),
   };
   const tools = request.tools.map((tool) => ({
@@ -386,10 +387,12 @@ function numberOrUndefined(value: unknown): number | undefined {
     : undefined;
 }
 
-function toAnthropicMessages(
+async function toAnthropicMessages(
   messages: ProviderMessage[],
-): Array<{ role: "user" | "assistant"; content: string | unknown[] }> {
-  return messages.map((message) => {
+): Promise<
+  Array<{ role: "user" | "assistant"; content: string | unknown[] }>
+> {
+  return Promise.all(messages.map(async (message) => {
     if (message.role === "assistant") {
       return {
         role: "assistant",
@@ -440,7 +443,7 @@ function toAnthropicMessages(
     }
     return {
       role: "user",
-      content: message.content.map((block) => {
+      content: await Promise.all(message.content.map(async (block) => {
         if (!isRecord(block) || typeof block.type !== "string") {
           throw new OrchaError(
             "invalid_input",
@@ -451,6 +454,29 @@ function toAnthropicMessages(
           block.type === "text"
         ) {
           return block;
+        }
+        if (block.type === "file") {
+          const file = await readLocalFileContent(block);
+          if (block.mimeType.startsWith("image/")) {
+            return {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: block.mimeType,
+                data: file.base64,
+              },
+            };
+          }
+          if (block.mimeType === "application/pdf") {
+            return {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: block.mimeType,
+                data: file.base64,
+              },
+            };
+          }
         }
         if (
           block.type === "image" &&
@@ -481,9 +507,9 @@ function toAnthropicMessages(
           "unsupported_content_type",
           `Anthropic does not support content type "${block.type}" with MIME type "${String(block.mimeType)}".`,
         );
-      }),
+      })),
     };
-  });
+  }));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

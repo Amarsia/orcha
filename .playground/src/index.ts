@@ -251,7 +251,10 @@ function logHistory(
           ?.map((content) =>
             content.type === "text"
               ? content.text
-              : `[${content.type}: ${content.fileUri}]`,
+              : "filePath" in content &&
+                  typeof content.filePath === "string"
+                ? `[file: ${content.filePath}]`
+                : `[${content.type}: ${content.fileUri}]`,
           )
           .join("\n"),
       );

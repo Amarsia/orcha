@@ -306,9 +306,11 @@ const evaluations = await execution.evaluations;
 
 \`run()\` input fields:
 
-- \`content\` (required): a non-empty string or array of text/file blocks.
-  File blocks contain \`type\`, \`mimeType\`, and \`fileUri\`; unsupported
-  provider/content combinations fail explicitly.
+- \`content\` (required): a non-empty string, one content item, or an array.
+  Use \`{ filePath: "./document.pdf" }\` for a local file or
+  \`{ url: "https://example.com/document.pdf" }\` for a remote file.
+  \`mimeType\` is optional when it can be inferred from the extension. Durable
+  events store local paths and MIME types, never encoded file bytes.
 - \`name\` (optional): trimmed session label from 1 through 200 characters.
 - \`metadata\` (optional): at most 50 fields with non-empty keys and finite
   string, number, boolean, or null values. Metadata is durable and available
@@ -381,6 +383,10 @@ export default async function lookupAccount({ accountId }) {
   return { status: "active" };
 }
 \`\`\`
+
+Action entrypoints can use ordinary relative project imports, TypeScript
+modules, npm packages, transitive dependencies, and standard exports. Orcha
+bundles the complete import graph for development and production.
 
 Client actions use \`"execution": "client"\` and do not include executable
 code. Orcha pauses until the caller submits their results. Keep action names,
@@ -629,6 +635,7 @@ type ErrorData = {
 
 type UserContent =
   | { type: "text"; text: string }
+  | { type: "file"; filePath: string; mimeType: string }
   | {
       type: "image" | "video" | "audio" | "url";
       mimeType: string;

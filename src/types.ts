@@ -225,7 +225,35 @@ export interface FileContent {
   fileUri: string;
 }
 
-export type MessageContent = TextContent | FileContent;
+export interface LocalFileContent {
+  type: "file";
+  filePath: string;
+  mimeType: string;
+}
+
+export type MessageContent = TextContent | FileContent | LocalFileContent;
+
+export interface FilePathContentInput {
+  type?: "file";
+  filePath: string;
+  mimeType?: string;
+}
+
+export interface UrlContentInput {
+  type?: "url";
+  url: string;
+  mimeType?: string;
+}
+
+export type MessageContentInput =
+  | MessageContent
+  | FilePathContentInput
+  | UrlContentInput;
+
+export type AgentContentInput =
+  | string
+  | MessageContentInput
+  | MessageContentInput[];
 export type MetadataValue = string | number | boolean | null;
 export type SessionMetadata = Record<string, MetadataValue>;
 export type ClientCapability =
@@ -233,7 +261,7 @@ export type ClientCapability =
   | Pick<CompiledActionManifest, "name">;
 
 export interface AgentInput {
-  content: string | MessageContent[];
+  content: AgentContentInput;
   name?: string;
   metadata?: SessionMetadata;
   variables?: Record<string, string>;
@@ -241,7 +269,7 @@ export interface AgentInput {
 }
 
 export interface AgentContinueInput {
-  content: string | MessageContent[];
+  content: AgentContentInput;
   clientCapabilities?: ClientCapability[];
 }
 
@@ -564,7 +592,7 @@ export interface AgentTestExpectation {
 export interface AgentTestCaseConfiguration {
   description?: string;
   input: {
-    content: string | MessageContent[];
+    content: AgentContentInput;
     variables?: Record<string, string>;
     metadata?: SessionMetadata;
   };
