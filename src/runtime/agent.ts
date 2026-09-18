@@ -1670,8 +1670,9 @@ export class RuntimeAgent implements AgentRuntime {
               description: "The registered subagent to run.",
             },
             input: {
-              type: "string",
-              description: "The complete task and relevant context for the subagent.",
+              ...agentContentInputSchema(),
+              description:
+                "The complete text or multimodal content for the subagent. Local file paths resolve from the configured Orcha project root.",
             },
           },
           required: ["agent", "input"],
@@ -1789,18 +1790,19 @@ export class RuntimeAgent implements AgentRuntime {
   ): Promise<Record<string, unknown>> {
     if (call.name === RUN_AGENT_TOOL_NAME) {
       const agentName = requiredToolString(call.arguments.agent, "agent");
-      const input = requiredToolString(call.arguments.input, "input");
       const child = this.#subagents[agentName];
       if (!child) {
         throw new Error(`Unknown subagent "${agentName}".`);
       }
-      const existing = previousSubagentCall(
-        await this.#readSession(parentSessionId),
-        call.callId,
-      );
+      const parentEvents = await this.#readSession(parentSessionId);
+      const existing = previousSubagentCall(parentEvents, call.callId);
       if (existing) {
         return subagentToolOutput(existing);
       }
+      const input = normalizeDelegatedInput(
+        call.arguments.input,
+        this.#projectRoot,
+      );
       const lineage: SessionLineage = {
         origin: "delegated",
         parentAgent: this.#manifest.key,
@@ -1818,7 +1820,7 @@ export class RuntimeAgent implements AgentRuntime {
       events.push(initiated);
       const childExecution = child.runAsChild(
         childSessionId,
-        input,
+        { content: input },
         lineage,
       );
       publishSnapshot?.({
@@ -2551,6 +2553,94 @@ function normalizeContent(
   return normalized;
 }
 
+function normalizeDelegatedInput(
+  input: unknown,
+  projectRoot: string,
+): AgentContentInput {
+  if (typeof input === "string") {
+    if (!input.trim()) {
+      throw new Error('run_agent requires a non-empty "input".');
+    }
+    return input;
+  }
+  if (!isRecord(input) && !Array.isArray(input)) {
+    throw new Error(
+      "run_agent input must be text, one content item, or a content array.",
+    );
+  }
+  const content = normalizeContent(
+    input as MessageContentInput | MessageContentInput[],
+    projectRoot,
+  );
+  if (!content) {
+    throw new Error(
+      "run_agent input must contain at least one valid content item.",
+    );
+  }
+  return content;
+}
+
+function agentContentInputSchema(): Record<string, unknown> {
+  const textItem = {
+    type: "object",
+    properties: {
+      type: { type: "string", enum: ["text"] },
+      text: { type: "string", minLength: 1 },
+    },
+    required: ["type", "text"],
+    additionalProperties: false,
+  };
+  const fileItems = [
+    {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["file"] },
+        filePath: { type: "string", minLength: 1 },
+        mimeType: { type: "string", minLength: 1 },
+      },
+      required: ["filePath"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["url"] },
+        url: { type: "string", minLength: 1 },
+        mimeType: { type: "string", minLength: 1 },
+      },
+      required: ["url"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          enum: ["image", "video", "audio", "url"],
+        },
+        fileUri: { type: "string", minLength: 1 },
+        mimeType: { type: "string", minLength: 1 },
+      },
+      required: ["type", "fileUri", "mimeType"],
+      additionalProperties: false,
+    },
+  ];
+  const item = {
+    anyOf: [textItem, ...fileItems],
+  };
+  return {
+    anyOf: [
+      { type: "string", minLength: 1 },
+      item,
+      {
+        type: "array",
+        items: item,
+        minItems: 1,
+      },
+    ],
+  };
+}
+
 function normalizeClientCapabilities(
   capabilities: ClientCapability[],
 ): string[] | undefined {
@@ -2704,7 +2794,8 @@ function buildSystemPrompt(
     sections.push(
       [
         "## Available subagents",
-        "Use `run_agent` to start a specialist. Give it the complete task and only the context it needs.",
+        "Use `run_agent` to start a specialist. Give it the complete task and only the context it needs. Its input accepts the same text and multimodal content format as a normal agent run.",
+        "Local file paths in subagent input resolve from the configured Orcha project root.",
         "You may request multiple independent subagents in one response; Orcha runs them concurrently and returns each result by call ID.",
         "The call waits synchronously while the child is actively running, and the child's text response returns as a normal tool result.",
         "If a child pauses for a client action or because its session was paused, decide whether to resume it with `resume_agent`, inspect it with `inspect_agent`, invoke one of your own client actions for missing information, or continue without it.",
