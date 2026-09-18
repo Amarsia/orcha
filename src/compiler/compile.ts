@@ -8,6 +8,7 @@ import { isBuiltInProvider } from "../providers/catalog.js";
 import type {
   AgentConfiguration,
   AgentEvaluationRegistrations,
+  AgentRegistration,
   AgentSkillRegistrations,
   ActionConfiguration,
   CompiledActionManifest,
@@ -20,7 +21,7 @@ import type {
 } from "../types.js";
 
 export function compileRegistry(
-  registrations: Record<string, string>,
+  registrations: Record<string, AgentRegistration>,
   registryRoot: string,
   actionRuntime?: "native" | "sandbox",
 ): CompiledBundle {
@@ -36,13 +37,94 @@ export function compileRegistry(
 
   const agents: Record<string, CompiledAgentManifest> = {};
 
-  for (const [name, registeredPath] of Object.entries(registrations)) {
-    if (!name.trim()) {
+  for (const [key, registration] of Object.entries(registrations)) {
+    if (!key.trim()) {
       throw new Error("Registered agent names cannot be empty.");
     }
-    if (typeof registeredPath !== "string" || !registeredPath.trim()) {
-      throw new Error(`Agent "${name}" must register a folder path.`);
+    const normalized = normalizeAgentRegistration(key, registration);
+    const subagents: Record<string, CompiledAgentManifest> = {};
+    for (const [subagentKey, registeredPath] of Object.entries(
+      normalized.subagents,
+    )) {
+      if (!subagentKey.trim()) {
+        throw new Error(`Agent "${key}" has an empty subagent name.`);
+      }
+      subagents[subagentKey] = compileAgent(
+        subagentKey,
+        registeredPath,
+        registryRoot,
+      );
     }
+    const parent = compileAgent(key, normalized.path, registryRoot);
+    agents[key] = Object.freeze({
+      ...parent,
+      subagentPolicy:
+        Object.keys(subagents).length > 0
+          ? Object.freeze({
+              ...parent.subagentPolicy,
+              maxPerRun: parent.subagentPolicy?.maxPerRun ?? 10,
+            })
+          : parent.subagentPolicy,
+      subagents: Object.freeze(subagents),
+    });
+  }
+
+  if (Object.keys(agents).length === 0) {
+    throw new Error("At least one agent must be registered.");
+  }
+
+  return Object.freeze({
+    schemaVersion: 1,
+    actionRuntime,
+    agents: Object.freeze(agents),
+  });
+}
+
+function normalizeAgentRegistration(
+  key: string,
+  registration: AgentRegistration,
+): { path: string; subagents: Record<string, string> } {
+  if (typeof registration === "string") {
+    if (!registration.trim()) {
+      throw new Error(`Agent "${key}" must register a folder path.`);
+    }
+    return { path: registration, subagents: {} };
+  }
+  if (!registration || typeof registration !== "object") {
+    throw new Error(`Agent "${key}" must register a folder path.`);
+  }
+  if (typeof registration.path !== "string" || !registration.path.trim()) {
+    throw new Error(`Agent "${key}" must register a folder path.`);
+  }
+  if (
+    registration.subagents !== undefined &&
+    (!registration.subagents ||
+      typeof registration.subagents !== "object" ||
+      Array.isArray(registration.subagents))
+  ) {
+    throw new Error(`Agent "${key}" subagents must be an object of folder paths.`);
+  }
+  for (const [subagentKey, registeredPath] of Object.entries(
+    registration.subagents ?? {},
+  )) {
+    if (typeof registeredPath !== "string" || !registeredPath.trim()) {
+      throw new Error(
+        `Subagent "${key}/${subagentKey}" must register a folder path.`,
+      );
+    }
+  }
+  return {
+    path: registration.path,
+    subagents: registration.subagents ?? {},
+  };
+}
+
+function compileAgent(
+  key: string,
+  registeredPath: string,
+  registryRoot: string,
+): CompiledAgentManifest {
+    const name = key;
 
     const sourceDirectory = resolve(registryRoot, registeredPath);
     const configPath = resolve(sourceDirectory, "index.json");
@@ -57,6 +139,18 @@ export function compileRegistry(
         { cause: error },
       );
     }
+    if (typeof configuration.name !== "string" || !configuration.name.trim()) {
+      throw new Error(`Agent "${name}" requires a name.`);
+    }
+    if (
+      configuration.description !== undefined &&
+      (typeof configuration.description !== "string" ||
+        !configuration.description.trim())
+    ) {
+      throw new Error(
+        `Agent "${name}" description must be a non-empty string when provided.`,
+      );
+    }
     if (!isBuiltInProvider(configuration.provider)) {
       throw new Error(
         `Agent "${name}" uses unsupported provider "${configuration.provider}".`,
@@ -69,6 +163,20 @@ export function compileRegistry(
       integer: true,
       minimum: 1,
     });
+    if (
+      configuration.subagents !== undefined &&
+      (!configuration.subagents ||
+        typeof configuration.subagents !== "object" ||
+        Array.isArray(configuration.subagents))
+    ) {
+      throw new Error(`Agent "${name}" subagents must be an object.`);
+    }
+    validateNumber(
+      name,
+      "subagents.maxPerRun",
+      configuration.subagents?.maxPerRun,
+      { integer: true, minimum: 1 },
+    );
     if (
       configuration.outputType &&
       !["text", "json", "image", "audio"].includes(configuration.outputType)
@@ -113,8 +221,10 @@ export function compileRegistry(
       throw new Error(`Agent "${name}" instructions.md cannot be empty.`);
     }
 
-    agents[name] = Object.freeze({
-      name,
+    return Object.freeze({
+      key,
+      name: configuration.name.trim(),
+      description: configuration.description?.trim(),
       provider: configuration.provider,
       model: configuration.model,
       systemPrompt,
@@ -126,18 +236,11 @@ export function compileRegistry(
       actions: compileActions(name, sourceDirectory),
       skills: compileSkills(name, sourceDirectory),
       evaluations: compileEvaluations(name, sourceDirectory),
+      subagentPolicy: configuration.subagents
+        ? Object.freeze({ ...configuration.subagents })
+        : undefined,
+      subagents: Object.freeze({}),
     });
-  }
-
-  if (Object.keys(agents).length === 0) {
-    throw new Error("At least one agent must be registered.");
-  }
-
-  return Object.freeze({
-    schemaVersion: 1,
-    actionRuntime,
-    agents: Object.freeze(agents),
-  });
 }
 
 function compileActions(
@@ -182,9 +285,16 @@ function compileActions(
         `Action "${agentName}/${entry.name}" has an invalid model-facing name.`,
       );
     }
-    if (configuration.name === "load_skill") {
+    if (
+      [
+        "load_skill",
+        "run_agent",
+        "resume_agent",
+        "inspect_agent",
+      ].includes(configuration.name)
+    ) {
       throw new Error(
-        `Action "${agentName}/${entry.name}" uses reserved name "load_skill".`,
+        `Action "${agentName}/${entry.name}" uses reserved name "${configuration.name}".`,
       );
     }
     if (!["client", "local"].includes(configuration.execution)) {

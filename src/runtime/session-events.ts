@@ -54,11 +54,14 @@ export function messagesFromEvents(
   includeRun?: number,
 ): ProviderMessage[] {
   const messages: ProviderMessage[] = [];
-  const completedRuns = new Set(
+  const replayableRuns = new Set(
     events
       .filter(
         (event) =>
-          event.type === "run.completed" && typeof event.run === "number",
+          typeof event.run === "number" &&
+          (event.type === "run.completed" ||
+            (event.type === "run.paused" &&
+              event.data.status === "paused")),
       )
       .map((event) => event.run as number),
   );
@@ -66,7 +69,7 @@ export function messagesFromEvents(
   for (const event of events) {
     if (
       !event.run ||
-      (!completedRuns.has(event.run) && event.run !== includeRun)
+      (!replayableRuns.has(event.run) && event.run !== includeRun)
     ) {
       continue;
     }

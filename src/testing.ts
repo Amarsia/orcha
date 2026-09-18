@@ -15,6 +15,7 @@ import type { OrchaClient } from "./runtime/create-orcha.js";
 import { SessionEventWriter } from "./runtime/session-events.js";
 import { NodeJsonlSessionStore } from "./storage/node-jsonl.js";
 import type {
+  AgentRegistration,
   AgentRuntime,
   AgentTestActionConfiguration,
   AgentTestAssertionResult,
@@ -158,7 +159,7 @@ export async function runTests(
 
 async function discoverTests(
   projectRoot: string,
-  registrations: Record<string, string>,
+  registrations: Record<string, AgentRegistration>,
   manifests: Record<string, CompiledAgentManifest>,
   options: RunTestsOptions,
   registryBuildDirectory: string,
@@ -177,7 +178,9 @@ async function discoverTests(
     }
     const testsDirectory = resolve(
       registryRoot,
-      registeredPath,
+      typeof registeredPath === "string"
+        ? registeredPath
+        : registeredPath.path,
       "tests",
     );
     const registryPath = resolve(testsDirectory, "index.js");

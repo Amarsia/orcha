@@ -7,11 +7,15 @@ import type {
 } from "../types.js";
 
 export type OutputSnapshotPublisher<TOutput> = (output: TOutput) => void;
+export type ExecutionSnapshotPublisher<TOutput> = (
+  snapshot: ExecutionSnapshot<TOutput>,
+) => void;
 
 export function createExecution<TOutput>(
   sessionId: string,
   execute: (
     publishOutput: OutputSnapshotPublisher<TOutput>,
+    publishSnapshot: ExecutionSnapshotPublisher<TOutput>,
   ) => Promise<RunResult<TOutput>>,
   resolveEvaluations?: () => Promise<EvaluationResult[]>,
 ): Execution<TOutput> {
@@ -71,8 +75,16 @@ export function createExecution<TOutput>(
     flush();
   };
 
+  const publishSnapshot = (
+    nextSnapshot: ExecutionSnapshot<TOutput>,
+  ): void => {
+    snapshot = nextSnapshot;
+    snapshotVersion += 1;
+    flush();
+  };
+
   const result = Promise.resolve()
-    .then(() => execute(publishOutput))
+    .then(() => execute(publishOutput, publishSnapshot))
     .then(
       (runResult) => {
         snapshot = runResult;

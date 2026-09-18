@@ -1,4 +1,6 @@
 {
+  "name": "Compliance Bot",
+  "description": "Assess compliance evidence and required follow-up.",
   "provider": "bedrock",
   "model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
   "region": "provider_managed",

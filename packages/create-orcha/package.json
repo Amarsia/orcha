@@ -37,5 +37,5 @@
   "publishConfig": {
     "access": "public"
   },
-  "orchaVersion": "^0.5.0"
+  "orchaVersion": "^0.6.0"
 }

@@ -8,6 +8,10 @@ import {
   builtInProviderCatalog,
   isBuiltInProvider,
 } from "../providers/catalog.js";
+import type {
+  CompiledAgentManifest,
+  CompiledBundle,
+} from "../types.js";
 
 export interface BuildProjectOptions {
   projectRoot?: string;
@@ -75,7 +79,7 @@ export async function buildProject(
     ).replaceAll("\\", "/");
     const includedProviders = [
       ...new Set(
-        Object.values(compiledBundle.agents).flatMap(
+        allCompiledAgents(compiledBundle.agents).flatMap(
           (agent) => [
             agent.provider,
             ...Object.values(agent.evaluations ?? {})
@@ -140,6 +144,15 @@ export async function buildProject(
       force: true,
     });
   }
+}
+
+function allCompiledAgents(
+  agents: CompiledBundle["agents"],
+): CompiledAgentManifest[] {
+  return Object.values(agents).flatMap((agent) => [
+    agent,
+    ...Object.values(agent.subagents ?? {}),
+  ]);
 }
 
 function createProviderRuntimeSource(providerNames: string[]): string {

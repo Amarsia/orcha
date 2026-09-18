@@ -12,6 +12,7 @@
     "url": "https://github.com/Amarsia/orcha/issues"
   },
   "workspaces": [
+    ".",
     "packages/create-orcha"
   ],
   "type": "module",

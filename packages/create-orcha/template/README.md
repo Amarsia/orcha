@@ -23,7 +23,10 @@ to exercise the client-action pause and continuation flow.
 - Inspect model configuration, actions, skills, and evaluations.
 - Start runs from text or a complete multimodal `MessageContent[]` JSON array.
 - Start a durable run and stream cumulative output.
+- Delegate order questions from `assistant` to a linked `orderSupport` child
+  session.
 - Continue an existing session with another message.
+- Inspect parent and child session histories independently.
 - Submit results when an agent pauses for client actions.
 - Browse sessions and projected history.
 - Inspect usage, status, and canonical durable session events.
@@ -45,6 +48,6 @@ npm run orcha:test   # run registered agent tests
 ```
 
 The default Node configuration stores sessions in `.orcha/sessions`. The
-playground accesses sessions exclusively through `agent.list()`, `agent.get()`,
-and `agent.events()`, so changing the storage adapter does not require UI or
-server changes.
+playground accesses parent sessions through `agent.list()`, `agent.get()`, and
+`agent.events()`, and child sessions through `agent.subagentHistory()`, so
+changing the storage adapter does not require UI or server changes.

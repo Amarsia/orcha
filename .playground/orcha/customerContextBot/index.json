@@ -1,0 +1,9 @@
+{
+  "name": "Customer Context Bot",
+  "description": "Collect missing customer identity context before completing a customer-specific assessment.",
+  "provider": "vertexai",
+  "model": "gemini-2.5-flash",
+  "region": "provider_managed",
+  "maxTokens": 2048,
+  "outputType": "text"
+}

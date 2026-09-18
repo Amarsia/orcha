@@ -71,6 +71,8 @@ async function initializeProject(projectRoot: string): Promise<void> {
       "orcha/exampleAgent/index.json",
       `${JSON.stringify(
         {
+          name: "Example Agent",
+          description: "Answer general questions clearly and concisely.",
           provider: "anthropic",
           model: "claude-sonnet-4-6",
           region: "provider_managed",

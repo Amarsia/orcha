@@ -1,4 +1,6 @@
 {
+  "name": "Incident Bot",
+  "description": "Investigate and explain operational incidents.",
   "provider": "deepseek",
   "model": "deepseek-reasoner",
   "region": "provider_managed",

@@ -1,12 +1,13 @@
 import type { ProviderResponseGenerator } from "../providers/types.js";
 import type {
+  AgentRegistration,
   CompiledBundle,
   ProjectConfiguration,
 } from "../types.js";
 
 export interface OrchaRuntimeContext {
   projectRoot: string;
-  registrations: Record<string, string>;
+  registrations: Record<string, AgentRegistration>;
   bundle: CompiledBundle;
   configuration: ProjectConfiguration;
   generateProviderResponse: ProviderResponseGenerator;

@@ -37,7 +37,7 @@ or hosted dependency.
 
 ```
 /agentname
-  index.js | index.json     → provider, model, generation config, output schema
+  index.json                 → name, description, model, limits, output schema
   instructions.md           → required base agent instructions
   /skills
     /skillname
@@ -266,6 +266,88 @@ runtime, so application and action APIs do not change when an agent switches
 providers. Provider-specific capabilities that cannot be represented safely
 fail with an explicit Orcha error instead of silently degrading.
 
+### Parent agents and subagents
+
+Register private subagents on a top-level agent:
+
+```js
+orcha.init({
+  providers: {
+    openai: process.env.OPENAI_API_KEY,
+  },
+  agents: {
+    coordinator: {
+      path: "./coordinator",
+      subagents: {
+        researcher: "./researcher",
+      },
+    },
+    researcher: "./researcher",
+  },
+});
+```
+
+Only top-level registrations are exposed directly, so `orcha.coordinator`
+and `orcha.researcher` exist in this example. Removing the top-level
+`researcher` registration makes it private while preserving delegation.
+
+Every agent `index.json` requires a model-facing `name`; `description` is
+optional and helps parent models understand when to delegate. A parent may
+also configure delegation limits:
+
+```json
+{
+  "name": "Coordinator",
+  "description": "Delegate research and assemble the final answer.",
+  "provider": "openai",
+  "model": "gpt-5-mini",
+  "subagents": {
+    "maxPerRun": 3
+  }
+}
+```
+
+`maxPerRun` limits new child sessions in one parent run and defaults to `10`.
+
+Starting or continuing a child is a synchronous internal tool call. While it
+runs, the parent reports `waiting_for_subagent`. Child text, pause state,
+client-action request, failure, or completion returns to the parent as a tool
+result. Delegated agents cannot start further subagents.
+
+Applications inspect a durable child through its owning parent agent:
+
+```js
+const history = await orcha.coordinator.subagentHistory(childSessionId);
+```
+
+The child session ID is included in the parent's projected history and
+`subagent.initiated` event. Access is lineage-checked, so another parent agent
+cannot inspect it. Parent traces record each child transition as
+`subagent.initiated`, `subagent.paused`, `subagent.resumed`,
+`subagent.completed`, or `subagent.failed`.
+
+`orcha.coordinator.pause(sessionId)` immediately aborts active provider work
+for the parent and active children. Already streamed text is persisted as an
+incomplete assistant message. `resume()` always starts a new run with the
+complete prior history, including that incomplete message:
+
+```js
+await orcha.coordinator.pause(parentSessionId);
+
+// Adds "Continue." as the next user message.
+await orcha.coordinator.resume(parentSessionId).result;
+
+// Or provide different instructions.
+await orcha.coordinator.resume(parentSessionId, {
+  content: "Continue, but only use confirmed findings.",
+}).result;
+```
+
+A child waiting for a client action returns control to the parent. The parent
+can resolve it through its internal `resume_agent` tool, ask its own client
+for information, inspect the child history, or finish without resuming the
+paused child. Paused children do not block parent completion.
+
 Anthropic, Amazon Bedrock Converse, DeepSeek Chat Completions, OpenAI
 Responses, the Gemini Developer API through Google GenAI, and Vertex AI are
 built in:
@@ -319,6 +401,8 @@ ID, or ARN:
 
 ```json
 {
+  "name": "Bedrock Agent",
+  "description": "Handle requests using the configured Bedrock model.",
   "provider": "bedrock",
   "model": "us.anthropic.claude-sonnet-4-6",
   "outputType": "text"
@@ -371,6 +455,8 @@ Choose the adapter and model in the agent's `index.json`:
 
 ```json
 {
+  "name": "Gemini Agent",
+  "description": "Handle requests using the Gemini Developer API.",
   "provider": "googlegenai",
   "model": "gemini-2.5-flash",
   "outputType": "text"

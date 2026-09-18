@@ -1,4 +1,6 @@
 {
+  "name": "Invoice Bot",
+  "description": "Calculate invoices and request approvals when required.",
   "provider": "anthropic",
   "model": "claude-sonnet-4-6",
   "region": "provider_managed",

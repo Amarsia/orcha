@@ -1,7 +1,12 @@
 {
+  "name": "Assistant",
+  "description": "Answer general questions while separating confirmed facts from assumptions.",
   "provider": "openai",
   "model": "gpt-5-mini",
   "region": "provider_managed",
   "maxTokens": 4096,
-  "outputType": "text"
+  "outputType": "text",
+  "subagents": {
+    "maxPerRun": 2
+  }
 }

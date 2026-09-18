@@ -5,6 +5,7 @@ import type { ProviderResponseGenerator } from "../providers/types.js";
 import { setOrchaRuntimeContext } from "./context.js";
 import type {
   AgentRuntime,
+  CompiledAgentManifest,
   CompiledBundle,
   OrchaInitConfiguration,
   ProjectConfiguration,
@@ -28,6 +29,13 @@ class OrchaRuntimeCore implements Orcha {
   #bundle: CompiledBundle | undefined;
   #client: OrchaClient | undefined;
   readonly #activeSessions = new Set<string>();
+  readonly #sessionControls = new Map<
+    string,
+    {
+      pauseRequested: boolean;
+      controller: AbortController;
+    }
+  >();
   readonly #resolveBundle: BundleResolver;
   readonly #generateProviderResponse: ProviderResponseGenerator;
 
@@ -60,7 +68,7 @@ class OrchaRuntimeCore implements Orcha {
       actions: configuration.actions,
       storage: configuration.storage,
     };
-    const hasLocalActions = Object.values(bundle.agents).some((agent) =>
+    const hasLocalActions = allCompiledAgents(bundle.agents).some((agent) =>
       Object.values(agent.actions).some((action) => action.execution === "local"),
     );
     if (hasLocalActions && !configuration.actions?.runtime) {
@@ -88,6 +96,22 @@ class OrchaRuntimeCore implements Orcha {
     const agents = new Map<string, AgentRuntime>();
 
     for (const [name, manifest] of Object.entries(bundle.agents)) {
+      const subagents = Object.fromEntries(
+        Object.entries(manifest.subagents ?? {}).map(
+          ([subagentName, subagentManifest]) => [
+            subagentName,
+            new RuntimeAgent({
+              manifest: subagentManifest,
+              configuration: runtimeConfiguration,
+              store,
+              activeSessions: this.#activeSessions,
+              sessionControls: this.#sessionControls,
+              generateProviderResponse: this.#generateProviderResponse,
+              delegatedOnly: true,
+            }),
+          ],
+        ),
+      );
       agents.set(
         name,
         new RuntimeAgent({
@@ -95,7 +119,9 @@ class OrchaRuntimeCore implements Orcha {
           configuration: runtimeConfiguration,
           store,
           activeSessions: this.#activeSessions,
+          sessionControls: this.#sessionControls,
           generateProviderResponse: this.#generateProviderResponse,
+          subagents,
         }),
       );
     }
@@ -126,6 +152,15 @@ class OrchaRuntimeCore implements Orcha {
   agent(name: string): AgentRuntime | undefined {
     return this.#agents.get(name);
   }
+}
+
+function allCompiledAgents(
+  agents: CompiledBundle["agents"],
+): CompiledAgentManifest[] {
+  return Object.values(agents).flatMap((agent) => [
+    agent,
+    ...Object.values(agent.subagents ?? {}),
+  ]);
 }
 
 export function createOrcha(

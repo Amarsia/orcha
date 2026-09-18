@@ -46,6 +46,7 @@ export async function generateGoogleContent(
   request: ProviderRequest,
   provider: "googlegenai" | "vertexai",
 ): Promise<ProviderResponse> {
+  request.signal?.throwIfAborted();
   if (request.outputType === "image" || request.outputType === "audio") {
     throw new OrchaError(
       "unsupported_provider_capability",
@@ -87,21 +88,33 @@ export async function generateGoogleContent(
     contents: toGoogleContents(request.messages, provider),
     config,
   });
-  const response = await collectGoogleStream(
-    stream,
-    request.publishOutput,
-  );
-  return toProviderResponse(request, response);
+  const abort = (): void => {
+    void stream.return(undefined);
+  };
+  request.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const response = await collectGoogleStream(
+      stream,
+      request.publishOutput,
+      request.signal,
+    );
+    request.signal?.throwIfAborted();
+    return toProviderResponse(request, response);
+  } finally {
+    request.signal?.removeEventListener("abort", abort);
+  }
 }
 
 async function collectGoogleStream(
   stream: AsyncGenerator<GenerateContentResponse>,
   publishOutput?: (output: string) => void,
+  signal?: AbortSignal,
 ): Promise<CollectedGoogleResponse> {
   const collected: CollectedGoogleResponse = { parts: [] };
   let cumulativeText = "";
 
   for await (const chunk of stream) {
+    signal?.throwIfAborted();
     collected.responseId = chunk.responseId ?? collected.responseId;
     collected.usage = chunk.usageMetadata ?? collected.usage;
     collected.promptBlockReason =

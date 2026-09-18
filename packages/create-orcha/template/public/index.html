@@ -58,6 +58,13 @@
             </div>
             <div id="skill-list" class="card-list"></div>
           </section>
+          <section class="section">
+            <div class="section-title">
+              <div><span class="overline">Delegation</span><h2>Subagents</h2></div>
+              <span id="subagent-count" class="count"></span>
+            </div>
+            <div id="subagent-list" class="card-list"></div>
+          </section>
         </div>
 
         <div id="actions-view" class="main-view">
@@ -157,8 +164,8 @@
           </section>
           <section class="section">
             <details>
-              <summary>Raw session events</summary>
-              <div class="raw-toolbar"><span>Storage-neutral data from agent.events()</span><button id="copy-events" class="quiet-button">Copy</button></div>
+              <summary>Session data</summary>
+              <div class="raw-toolbar"><span>Storage-neutral events or projected child history</span><button id="copy-events" class="quiet-button">Copy</button></div>
               <pre id="raw-events" class="raw-events"></pre>
             </details>
           </section>
@@ -193,6 +200,13 @@
             <span class="overline">Selected session</span>
             <h2 id="inspector-title">Session</h2>
             <div id="session-summary" class="inspector-summary"></div>
+            <section class="inspector-section">
+              <div class="inspector-section-title">
+                <span class="overline">Delegation</span>
+                <strong>Child sessions</strong>
+              </div>
+              <div id="inspector-children" class="inspector-evaluations empty">No child sessions.</div>
+            </section>
             <section class="inspector-section">
               <div class="inspector-section-title">
                 <span class="overline">Quality</span>
