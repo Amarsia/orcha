@@ -1,5 +1,8 @@
+import { createRequire } from "node:module";
 import type { CompiledActionManifest } from "../../types.js";
 import type { LocalActionContext } from "./context.js";
+
+const require = createRequire(import.meta.url);
 
 type LocalActionFunction = (
   parameters: Record<string, unknown>,
@@ -16,9 +19,10 @@ export async function executeNativeAction(
   }
 
   const loadAction = new Function(
+    "require",
     `"use strict";\n${action.source}\nreturn __orchaActionModule.default;`,
-  ) as () => unknown;
-  const executable = loadAction();
+  ) as (require: NodeJS.Require) => unknown;
+  const executable = loadAction(require);
   if (typeof executable !== "function") {
     throw new Error(
       `Action "${action.name}" index.js must export a default function.`,

@@ -176,20 +176,20 @@ Projects with local actions must explicitly choose their runtime:
 ```js
 orcha.init({
   actions: {
-    runtime: "sandbox", // QuickJS WASM
-    env: {
-      REFUND_API_KEY: process.env.REFUND_API_KEY,
-    },
+    runtime: "native",
   },
   // providers and agents...
 });
 ```
 
-Use `"native"` to execute compiled action JavaScript directly without the
-QuickJS dependency in the production bundle. Native execution is trusted code
-with full host privileges; declared permissions are only securely enforced by
-the sandbox runtime. Native timeouts can reject asynchronous work but cannot
+Native execution runs compiled action JavaScript directly without the QuickJS
+dependency in the production bundle. It is trusted code with full host
+privileges, including Node.js built-ins such as `node:fs`, the network, and
+`process.env`. Native timeouts can reject asynchronous work but cannot
 interrupt a synchronous infinite loop.
+
+Use `"sandbox"` for isolated QuickJS execution. Declared environment and
+network permissions are only securely enforced by the sandbox runtime.
 
 ---
 

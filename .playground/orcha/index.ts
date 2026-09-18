@@ -24,7 +24,7 @@ orcha.init({
     },
   },
   actions: {
-    runtime: "sandbox",
+    runtime: "native",
   },
   agents: {
     invoiceBot: "./invoiceBot",
