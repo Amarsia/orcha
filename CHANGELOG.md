@@ -1,5 +1,15 @@
 # orchajs
 
+## 0.6.2
+
+### Patch Changes
+
+- [#43](https://github.com/Amarsia/orcha/pull/43) [`afd3977`](https://github.com/Amarsia/orcha/commit/afd39778ce94984269ad1cc0eb4def18b47c8b3a) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Include actionable Bedrock tool-argument diagnostics with the sent tool
+  definition, expected schema, received payload boundaries, size and hash, model
+  and request identifiers, retry guidance, and the Orcha issue URL. Preserve
+  structured provider error details in failed run results and durable session
+  events.
+
 ## 0.6.1
 
 ### Patch Changes
