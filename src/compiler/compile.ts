@@ -53,9 +53,15 @@ export function compileRegistry(
         subagentKey,
         registeredPath,
         registryRoot,
+        actionRuntime,
       );
     }
-    const parent = compileAgent(key, normalized.path, registryRoot);
+    const parent = compileAgent(
+      key,
+      normalized.path,
+      registryRoot,
+      actionRuntime,
+    );
     agents[key] = Object.freeze({
       ...parent,
       subagentPolicy:
@@ -123,6 +129,7 @@ function compileAgent(
   key: string,
   registeredPath: string,
   registryRoot: string,
+  actionRuntime?: "native" | "sandbox",
 ): CompiledAgentManifest {
     const name = key;
 
@@ -233,7 +240,7 @@ function compileAgent(
       reasoningLevel: configuration.reasoningLevel,
       outputType: configuration.outputType ?? "text",
       outputSchema: configuration.outputSchema,
-      actions: compileActions(name, sourceDirectory),
+      actions: compileActions(name, sourceDirectory, actionRuntime),
       skills: compileSkills(name, sourceDirectory),
       evaluations: compileEvaluations(name, sourceDirectory),
       subagentPolicy: configuration.subagents
@@ -246,6 +253,7 @@ function compileAgent(
 function compileActions(
   agentName: string,
   sourceDirectory: string,
+  actionRuntime?: "native" | "sandbox",
 ): Record<string, CompiledActionManifest> {
   const actionsDirectory = resolve(sourceDirectory, "actions");
   if (!existsSync(actionsDirectory)) {
@@ -361,7 +369,12 @@ function compileActions(
 
     const compiledSource =
       configuration.execution === "local"
-        ? compileLocalAction(agentName, entry.name, actionsDirectory)
+        ? compileLocalAction(
+            agentName,
+            entry.name,
+            actionsDirectory,
+            actionRuntime,
+          )
         : undefined;
     actions[configuration.name] = Object.freeze({
       ...configuration,
@@ -779,6 +792,7 @@ function compileLocalAction(
   agentName: string,
   directoryName: string,
   actionsDirectory: string,
+  actionRuntime?: "native" | "sandbox",
 ): { source: string; sourceHash: string } {
   const entryPath = resolve(actionsDirectory, directoryName, "index.js");
   if (!existsSync(entryPath)) {
@@ -795,7 +809,7 @@ function compileLocalAction(
       write: false,
       format: "iife",
       globalName: "__orchaActionModule",
-      platform: "neutral",
+      platform: actionRuntime === "native" ? "node" : "neutral",
       target: "es2022",
       logLevel: "silent",
     });

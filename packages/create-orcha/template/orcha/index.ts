@@ -5,7 +5,7 @@ orcha.init({
     openai: process.env.OPENAI_API_KEY ?? "",
   },
   actions: {
-    runtime: "sandbox",
+    runtime: "native",
   },
   agents: {
     approvalAgent: "./approvalAgent",
