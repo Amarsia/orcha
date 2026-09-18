@@ -1,5 +1,13 @@
 # create-orcha
 
+## 0.1.2
+
+### Patch Changes
+
+- [#41](https://github.com/Amarsia/orcha/pull/41) [`0bd7319`](https://github.com/Amarsia/orcha/commit/0bd7319b55dc55f536dcb1da8792b7a7d912891a) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Compile native local actions for Node.js so trusted actions can import built-in
+  modules such as `node:fs`, and configure the development playground and newly
+  generated projects to use native action execution.
+
 ## 0.1.1
 
 ### Patch Changes
