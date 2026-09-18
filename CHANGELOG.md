@@ -1,5 +1,15 @@
 # orchajs
 
+## 0.8.0
+
+### Minor Changes
+
+- [#49](https://github.com/Amarsia/orcha/pull/49) [`6cf947e`](https://github.com/Amarsia/orcha/commit/6cf947e032984cd300df80b89d77c52b69067213) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Organize durable JSONL logs by agent and include a compact, sortable UTC timestamp
+  in generated session IDs. Default Node storage now writes sessions to
+  `.orcha/sessions/<agentName>/ses_<timestamp>_<uuid>.jsonl`, including test
+  sessions and private subagent sessions. Existing flat session logs remain
+  readable and resumable in their original location.
+
 ## 0.7.1
 
 ### Patch Changes
