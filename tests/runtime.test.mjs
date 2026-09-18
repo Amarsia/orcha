@@ -642,7 +642,15 @@ test("runs a private subagent in a linked durable session", async () => {
           name: "run_agent",
           arguments: {
             agent: "researcher",
-            input: "Verify the focused claim.",
+            input: [
+              {
+                type: "text",
+                text: "Verify the focused claim from this document.",
+              },
+              {
+                filePath: "./evidence/claim.pdf",
+              },
+            ],
           },
         };
         return {
@@ -708,6 +716,20 @@ test("runs a private subagent in a linked durable session", async () => {
       requests.filter((request) => request.model === "child-model").length,
       1,
     );
+    const childRequest = requests.find(
+      (request) => request.model === "child-model",
+    );
+    assert.deepEqual(childRequest.messages[0].content, [
+      {
+        type: "text",
+        text: "Verify the focused claim from this document.",
+      },
+      {
+        type: "file",
+        filePath: resolve(root, "evidence/claim.pdf"),
+        mimeType: "application/pdf",
+      },
+    ]);
     assert.equal(
       requests.at(-1).messages
         .flatMap((message) =>

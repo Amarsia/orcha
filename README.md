@@ -320,6 +320,22 @@ runs, the parent reports `waiting_for_subagent`. Child text, pause state,
 client-action request, failure, or completion returns to the parent as a tool
 result. Delegated agents cannot start further subagents.
 
+`run_agent.input` accepts the same text or multimodal content shape as
+`agent.run().content`:
+
+```js
+{
+  agent: "documentParser",
+  input: [
+    { type: "text", text: "Extract the material facts." },
+    { filePath: "/absolute/path/to/report.pdf" }
+  ]
+}
+```
+
+Local file paths resolve from the configured Orcha project root and are loaded
+with the same provider-specific encoding used by normal agent input.
+
 Applications inspect a durable child through its owning parent agent:
 
 ```js
