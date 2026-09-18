@@ -1,5 +1,18 @@
 # create-orcha
 
+## 0.1.3
+
+### Patch Changes
+
+- [#45](https://github.com/Amarsia/orcha/pull/45) [`605c6ff`](https://github.com/Amarsia/orcha/commit/605c6fffdc826a715587e166e48145b6c12c17ef) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Add first-class local file and URL content inputs. Orcha now accepts
+  `{ filePath }` and `{ url }` content, infers common MIME types, loads and
+  encodes bytes only while constructing provider requests, and persists only
+  local paths and MIME metadata in durable session history.
+
+  Native actions now compile project-relative JavaScript and TypeScript imports,
+  package imports, transitive dependencies, and Node.js built-ins into
+  self-contained development and production runtimes.
+
 ## 0.1.2
 
 ### Patch Changes
