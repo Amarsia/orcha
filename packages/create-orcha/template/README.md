@@ -11,6 +11,8 @@ cp .env.example .env
 npm run dev
 ```
 
+The included Node.js scripts load `.env` before starting the application.
+
 Open [http://127.0.0.1:4310](http://127.0.0.1:4310).
 
 Try the general `assistant`, ask `orderSupport` about `ord_1001`, `ord_1002`,

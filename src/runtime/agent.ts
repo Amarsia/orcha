@@ -1133,7 +1133,8 @@ export class RuntimeAgent implements AgentRuntime {
         role: "assistant",
         content: response.content,
         ...(this.#manifest.outputType === "json" &&
-        response.toolCalls.length === 0
+        response.toolCalls.length === 0 &&
+        response.stopReason !== "max_tokens"
           ? { parsedOutput: response.output }
           : {}),
         usage: response.usage,
@@ -1141,8 +1142,16 @@ export class RuntimeAgent implements AgentRuntime {
       });
 
       if (response.stopReason === "max_tokens") {
+        const outputKind =
+          this.#manifest.outputType === "json" ? "JSON response" : "response";
         const message =
-          "The model reached its output-token limit before completing the response.";
+          `The model reached its output token limit before completing the ${outputKind}. ` +
+          "Increase maxTokens or request a shorter response.";
+        const details = {
+          reason: "max_tokens",
+          outputType: this.#manifest.outputType,
+          configuredMaxTokens: this.#manifest.maxTokens ?? null,
+        };
         await this.#store.append(sessionId, [
           assistantEvent,
           writer.create("run.failed", {
@@ -1153,10 +1162,11 @@ export class RuntimeAgent implements AgentRuntime {
               code: "provider_error",
               message,
               retryable: true,
+              details,
             },
           }),
         ]);
-        return failure(sessionId, "provider_error", message);
+        return failure(sessionId, "provider_error", message, { details });
       }
 
       if (response.toolCalls.length > 0) {

@@ -378,17 +378,11 @@ function toProviderResponse(
       .filter((block) => block.type === "text")
       .map((block) => block.text)
       .join("");
-  if (
-    request.outputType === "json" &&
-    response.status === "incomplete" &&
-    response.incomplete_details?.reason === "max_output_tokens"
-  ) {
-    throw new Error(
-      "OpenAI reached max_output_tokens before completing structured output.",
-    );
-  }
+  const stopReason = normalizeStopReason(response, toolCalls, refused);
   const output =
-    request.outputType === "json" && toolCalls.length === 0
+    request.outputType === "json" &&
+    toolCalls.length === 0 &&
+    stopReason !== "max_tokens"
       ? parseStructuredOutput(textOutput, request.outputSchema ?? {})
       : textOutput;
   if (textOutput) {
@@ -398,7 +392,7 @@ function toProviderResponse(
   return {
     output,
     responseId: response.id,
-    stopReason: normalizeStopReason(response, toolCalls, refused),
+    stopReason,
     content,
     toolCalls,
     usage: normalizeUsage(response.usage),

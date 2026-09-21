@@ -60,6 +60,10 @@ allows action modules to execute in its Node.js process.
 - \`root\` (optional): absolute or working-directory-relative project root;
   defaults to \`ORCHA_PROJECT_ROOT\` and then \`process.cwd()\`.
 
+The Orcha library reads the host application's existing \`process.env\`.
+Standalone Orcha CLI commands also load \`.env\` from the project root without
+overriding environment variables already in the process.
+
 Provider configuration shapes:
 
 \`\`\`ts

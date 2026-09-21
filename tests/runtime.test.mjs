@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import test from "node:test";
 import { build } from "esbuild";
 import { compileRegistry } from "../dist/compiler/compile.js";
+import { loadProjectEnvironment } from "../dist/env.js";
 import { orchaPlugin } from "../dist/integrations/esbuild.js";
 import { generateBedrockContent } from "../dist/providers/bedrock.js";
 import { generateProviderResponse } from "../dist/providers/index.js";
@@ -1304,6 +1305,29 @@ test("initializes a safe agent-friendly Orcha project", async () => {
   }
 });
 
+test("loads project .env values without overriding process environment", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-env-"));
+  const loadedName = `ORCHA_ENV_LOADED_${Date.now()}`;
+  const existingName = `ORCHA_ENV_EXISTING_${Date.now()}`;
+  process.env[existingName] = "from-process";
+  try {
+    await writeFile(
+      resolve(root, ".env"),
+      `${loadedName}=from-file\n${existingName}=from-file\n`,
+      "utf8",
+    );
+
+    loadProjectEnvironment(root);
+
+    assert.equal(process.env[loadedName], "from-file");
+    assert.equal(process.env[existingName], "from-process");
+  } finally {
+    delete process.env[loadedName];
+    delete process.env[existingName];
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("streams cumulative model snapshots and preserves the final result", async () => {
   const fixture = await createRuntimeFixture(() => ({
     streamText: ["Hello", " world"],
@@ -2195,6 +2219,18 @@ test("fails safely when a provider exhausts its output-token budget", async () =
       incomplete_details: { reason: "max_output_tokens" },
       output: [
         {
+          type: "message",
+          role: "assistant",
+          status: "incomplete",
+          content: [
+            {
+              type: "output_text",
+              text: '{"accepted":',
+              annotations: [],
+            },
+          ],
+        },
+        {
           type: "reasoning",
           id: "rs_openai_incomplete",
           summary: [],
@@ -2203,7 +2239,15 @@ test("fails safely when a provider exhausts its output-token budget", async () =
         },
       ],
     }),
-    { provider: "openai" },
+    {
+      provider: "openai",
+      outputType: "json",
+      outputSchema: {
+        type: "object",
+        properties: { accepted: { type: "boolean" } },
+        required: ["accepted"],
+      },
+    },
   );
   try {
     const result = await fixture.client.testAgent.run("Think deeply.").result;
@@ -2211,9 +2255,17 @@ test("fails safely when a provider exhausts its output-token budget", async () =
     assert.equal(result.status, "failed");
     assert.equal(result.error.code, "provider_error");
     assert.equal(result.error.retryable, true);
+    assert.match(result.error.message, /reached its output token limit/);
+    assert.match(result.error.message, /JSON response/);
+    assert.deepEqual(result.error.details, {
+      reason: "max_tokens",
+      outputType: "json",
+      configuredMaxTokens: 32,
+    });
     const events = await readSessionEvents(fixture.root, result.sessionId);
     assert.equal(events.at(-2).type, "message.created");
     assert.equal(events.at(-2).data.status, "incomplete");
+    assert.equal("parsedOutput" in events.at(-2).data, false);
     assert.equal(events.at(-1).type, "run.failed");
     assert.equal(events.at(-1).data.usage.outputTokens, 3);
   } finally {

@@ -27,6 +27,10 @@ cp .env.example .env
 npm run dev
 ```
 
+Orcha library code reads credentials from the host application's existing
+`process.env`. Standalone Orcha CLI commands additionally load `.env` from the
+project root without overriding environment variables already in the process.
+
 The starter demonstrates durable sessions, actions, client-action pauses,
 skills, tests, evaluations, and multimodal input without a frontend framework
 or hosted dependency.
@@ -262,7 +266,9 @@ npx orcha test exampleAgent/exampleCase
 npx orcha build
 ```
 
-`run` and `test` support `--json` for scripts and coding agents.
+Human-readable `run` output includes the execution timeline, actions,
+subagent lifecycle, each child agent's actions, and clickable session logs.
+`run` and `test` support `--json` for clean machine-readable output.
 `orcha init` also creates a comprehensive `AGENTS.md` describing Orcha's
 filesystem contract and APIs. The CLI does not provide a UI; applications can
 build one from the storage-neutral runtime session APIs.

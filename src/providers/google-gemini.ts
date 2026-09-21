@@ -192,19 +192,22 @@ function toProviderResponse(
     )
     .map((block) => block.text)
     .join("");
+  const stopReason = normalizeStopReason(
+    response.finishReason,
+    toolCalls.length > 0,
+    response.promptBlockReason !== undefined,
+  );
   const output =
-    request.outputType === "json" && toolCalls.length === 0
+    request.outputType === "json" &&
+    toolCalls.length === 0 &&
+    stopReason !== "max_tokens"
       ? parseStructuredOutput(textOutput, request.outputSchema ?? {})
       : textOutput;
 
   return {
     output,
     responseId: response.responseId,
-    stopReason: normalizeStopReason(
-      response.finishReason,
-      toolCalls.length > 0,
-      response.promptBlockReason !== undefined,
-    ),
+    stopReason,
     content,
     toolCalls,
     usage: normalizeUsage(response.usage),
