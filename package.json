@@ -61,7 +61,7 @@
     "prepublishOnly": "npm run build"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.12"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1131.0",

@@ -13,15 +13,19 @@ import { pathToFileURL } from "node:url";
 import { build as bundleEntry } from "esbuild";
 import { AGENTS_MD } from "./cli-agents-template.js";
 import { buildProject } from "./compiler/build-project.js";
+import { loadProjectEnvironment } from "./env.js";
 import { orcha } from "./orcha.js";
 import type { OrchaClient } from "./orcha.js";
 import { getOrchaRuntimeContext } from "./runtime/context.js";
+import { sessionAgentDirectoryName } from "./storage/node-jsonl.js";
 import { runTests } from "./testing.js";
 import type {
   AgentInput,
   AgentRuntime,
   EvaluationResult,
   RunResult,
+  SessionEvent,
+  SessionHistory,
   ToolResult,
 } from "./types.js";
 
@@ -47,6 +51,7 @@ try {
       break;
     case "build": {
       assertNoArguments(commandArguments, "build");
+      loadProjectEnvironment(projectRoot);
       const outputPath = await buildProject({ projectRoot });
       console.log(`Built ${relative(projectRoot, outputPath)}`);
       break;
@@ -213,6 +218,9 @@ async function runAgent(
     );
   }
 
+  const previousSequence = sessionId
+    ? (await agent.events(sessionId, { pageSize: 1 })).throughSequence
+    : 0;
   let execution: ReturnType<AgentRuntime["run"]>;
   if (toolResultsPath) {
     if (!sessionId) {
@@ -234,6 +242,12 @@ async function runAgent(
   if (parsed.flags.has("--json")) {
     console.log(JSON.stringify({ result, evaluations }));
   } else {
+    await printExecutionTrace(
+      projectRoot,
+      agent,
+      result.sessionId,
+      previousSequence,
+    );
     printRunResult(projectRoot, agentName, result, evaluations);
   }
   if (result.status === "failed") {
@@ -287,6 +301,7 @@ async function testAgents(
 }
 
 async function loadProject(projectRoot: string): Promise<void> {
+  loadProjectEnvironment(projectRoot);
   const registryPath = resolve(projectRoot, "orcha/index.ts");
   if (!existsSync(registryPath)) {
     throw new Error('Missing "orcha/index.ts". Run "orcha init" first.');
@@ -461,16 +476,196 @@ function printRunResult(
     console.log(JSON.stringify(evaluations, null, 2));
   }
   console.log(
-    `Session log: ${relative(
+    `Session log: ${sessionLogPath(projectRoot, agentName, result.sessionId)}:1`,
+  );
+}
+
+async function printExecutionTrace(
+  projectRoot: string,
+  agent: AgentRuntime,
+  sessionId: string,
+  afterSequence: number,
+): Promise<void> {
+  const events = await readAllEvents(agent, sessionId);
+  const currentEvents = events.filter(
+    (event) => event.sequence > afterSequence,
+  );
+  console.log("Execution trace:");
+  for (const event of currentEvents) {
+    const line = traceLine(event);
+    if (line) {
+      console.log(`  ${line}`);
+    }
+  }
+
+  const children = new Map<string, string>();
+  for (const event of events) {
+    if (
+      event.type === "subagent.initiated" &&
+      typeof event.data.agent === "string" &&
+      typeof event.data.sessionId === "string"
+    ) {
+      children.set(event.data.sessionId, event.data.agent);
+    }
+  }
+  if (children.size === 0) {
+    return;
+  }
+
+  console.log("Subagents:");
+  for (const [childSessionId, childAgent] of children) {
+    const history = await readAllSubagentHistory(agent, childSessionId);
+    console.log(
+      `  ${childAgent} — ${history.runStatus ?? history.status}`,
+    );
+    for (const item of history.items) {
+      if (
+        (item.type === "action" || item.type === "skill") &&
+        item.name
+      ) {
+        console.log(
+          `    ${item.type === "action" ? "Action" : "Skill"} ${item.name} — ${item.status ?? "completed"}${formatDuration(item.durationMs)}`,
+        );
+      }
+    }
+    console.log(
+      `    Log: ${sessionLogPath(projectRoot, childAgent, childSessionId)}:1`,
+    );
+  }
+
+}
+
+async function readAllEvents(
+  agent: AgentRuntime,
+  sessionId: string,
+): Promise<SessionEvent[]> {
+  const first = await agent.events(sessionId, {
+    page: 1,
+    pageSize: 100,
+  });
+  const events = [...first.events];
+  for (let page = 2; (page - 1) * 100 < first.total; page += 1) {
+    const result = await agent.events(sessionId, {
+      page,
+      pageSize: 100,
+      throughSequence: first.throughSequence,
+    });
+    events.unshift(...result.events);
+  }
+  return events;
+}
+
+async function readAllSubagentHistory(
+  agent: AgentRuntime,
+  childSessionId: string,
+): Promise<SessionHistory> {
+  const first = await agent.subagentHistory(childSessionId, {
+    page: 1,
+    pageSize: 100,
+  });
+  const items = [...first.items];
+  for (let page = 2; (page - 1) * 100 < first.total; page += 1) {
+    const result = await agent.subagentHistory(childSessionId, {
+      page,
+      pageSize: 100,
+    });
+    items.unshift(...result.items);
+  }
+  return { ...first, items };
+}
+
+function traceLine(event: SessionEvent): string | undefined {
+  const name =
+    typeof event.data.name === "string" ? event.data.name : undefined;
+  const agent =
+    typeof event.data.agent === "string" ? event.data.agent : undefined;
+  switch (event.type) {
+    case "run.started":
+      return `Run ${event.run ?? ""} started (${String(event.data.provider)}/${String(event.data.model)}).`;
+    case "skill.loaded":
+      return `Skill ${name ?? "unknown"} loaded.`;
+    case "evaluation.requested":
+      return `Evaluation ${name ?? "unknown"} started.`;
+    case "evaluation.completed":
+      return `Evaluation ${name ?? "unknown"} completed${formatDuration(event.data.durationMs)}.`;
+    case "evaluation.failed":
+      return `Evaluation ${name ?? "unknown"} failed${formatDuration(event.data.durationMs)}.`;
+    case "action.requested":
+      return `Action ${name ?? "unknown"} started.`;
+    case "action.completed":
+      return `Action ${name ?? "unknown"} completed${formatDuration(event.data.durationMs)}.`;
+    case "action.failed":
+      return `Action ${name ?? "unknown"} failed${formatDuration(event.data.durationMs)}.`;
+    case "subagent.initiated":
+      return `Subagent ${agent ?? "unknown"} started.`;
+    case "subagent.resumed":
+      return `Subagent ${agent ?? "unknown"} resumed.`;
+    case "subagent.completed":
+      return `Subagent ${agent ?? "unknown"} completed.`;
+    case "subagent.paused":
+      return `Subagent ${agent ?? "unknown"} paused (${String(event.data.status)}).`;
+    case "subagent.failed":
+      return `Subagent ${agent ?? "unknown"} failed.`;
+    case "client_action.requested":
+      return `Waiting for ${clientActionNames(event)}.`;
+    case "client_action.resolved":
+      return "Client action resolved.";
+    case "run.completed":
+      return `Run completed${formatDuration(event.data.durationMs)}.`;
+    case "run.paused":
+      return `Run paused (${String(event.data.status)}).`;
+    case "run.failed":
+      return `Run failed: ${eventErrorMessage(event)}.`;
+    default:
+      return undefined;
+  }
+}
+
+function clientActionNames(event: SessionEvent): string {
+  if (!Array.isArray(event.data.calls)) {
+    return "client action";
+  }
+  const names = event.data.calls
+    .map((call) =>
+      call &&
+      typeof call === "object" &&
+      "name" in call &&
+      typeof call.name === "string"
+        ? call.name
+        : undefined,
+    )
+    .filter((name): name is string => name !== undefined);
+  return names.length > 0 ? names.join(", ") : "client action";
+}
+
+function eventErrorMessage(event: SessionEvent): string {
+  const error = event.data.error;
+  return error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+    ? error.message
+    : "unknown error";
+}
+
+function formatDuration(value: unknown): string {
+  return typeof value === "number" ? ` (${value}ms)` : "";
+}
+
+function sessionLogPath(
+  projectRoot: string,
+  agentName: string,
+  sessionId: string,
+): string {
+  return relative(
+    projectRoot,
+    resolve(
       projectRoot,
-      resolve(
-        projectRoot,
-        getOrchaRuntimeContext(orcha).configuration.storage?.directory ??
-          ".orcha/sessions",
-        agentName,
-        `${result.sessionId}.jsonl`,
-      ),
-    )}:1`,
+      getOrchaRuntimeContext(orcha).configuration.storage?.directory ??
+        ".orcha/sessions",
+      sessionAgentDirectoryName(agentName),
+      `${sessionId}.jsonl`,
+    ),
   );
 }
 

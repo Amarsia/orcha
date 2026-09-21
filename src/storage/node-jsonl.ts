@@ -15,7 +15,7 @@ export class NodeJsonlSessionStore implements SessionStore {
     this.#legacyDirectory = resolve(projectRoot, directory);
     this.directory = resolve(
       this.#legacyDirectory,
-      agent ? normalizeAgentDirectory(agent) : "",
+      agent ? sessionAgentDirectoryName(agent) : "",
     );
   }
 
@@ -118,7 +118,7 @@ export class NodeJsonlSessionStore implements SessionStore {
   }
 }
 
-function normalizeAgentDirectory(agent: string): string {
+export function sessionAgentDirectoryName(agent: string): string {
   if (!agent.trim()) {
     throw new Error("Agent name cannot be empty for session storage.");
   }

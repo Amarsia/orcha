@@ -135,8 +135,11 @@ function toProviderResponse(
   const toolCalls = content.filter(
     (item): item is ProviderToolCall => item.type === "tool_call",
   );
+  const stopReason = normalizeStopReason(body.stop_reason);
   const output =
-    request.outputType === "json" && toolCalls.length === 0
+    request.outputType === "json" &&
+    toolCalls.length === 0 &&
+    stopReason !== "max_tokens"
       ? parseStructuredOutput(textOutput, request.outputSchema ?? {})
       : textOutput;
   if (textOutput && request.publishOutput) {
@@ -146,7 +149,7 @@ function toProviderResponse(
   return {
     output,
     responseId: body.id,
-    stopReason: normalizeStopReason(body.stop_reason),
+    stopReason,
     content,
     toolCalls,
     usage: {

@@ -674,16 +674,19 @@ function toProviderResponse(
     (block): block is ProviderToolCall =>
       block.type === "tool_call",
   );
+  const stopReason = normalizeStopReason(response.stopReason);
   return {
     output:
-      request.outputType === "json" && toolCalls.length === 0
+      request.outputType === "json" &&
+      toolCalls.length === 0 &&
+      stopReason !== "max_tokens"
         ? parseStructuredOutput(
             textOutput,
             request.outputSchema ?? {},
           )
         : textOutput,
     responseId: response.requestId,
-    stopReason: normalizeStopReason(response.stopReason),
+    stopReason,
     content: response.blocks,
     toolCalls,
     usage: {
