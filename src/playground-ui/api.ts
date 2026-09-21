@@ -124,6 +124,41 @@ export function streamSubagentEvents(
   return stream;
 }
 
+export function streamSessionEvents(
+  agent: string,
+  sessionId: string,
+  onEvents: (events: SessionEvent[]) => void,
+): EventSource {
+  const stream = new EventSource(
+    `/api/agents/${encodeURIComponent(agent)}/sessions/${encodeURIComponent(sessionId)}/stream`,
+  );
+  stream.onmessage = (message) => {
+    const value = JSON.parse(message.data) as { events?: SessionEvent[] };
+    if (Array.isArray(value.events)) {
+      onEvents(value.events);
+    }
+  };
+  return stream;
+}
+
+export function streamAgentSessions(
+  agent: string,
+  onSnapshot: (snapshot: SessionSnapshot) => void,
+): EventSource {
+  const stream = new EventSource(
+    `/api/agents/${encodeURIComponent(agent)}/sessions/stream`,
+  );
+  stream.onmessage = (message) => {
+    const value = JSON.parse(message.data) as {
+      snapshot?: SessionSnapshot;
+    };
+    if (value.snapshot) {
+      onSnapshot(value.snapshot);
+    }
+  };
+  return stream;
+}
+
 async function requestJson<T>(
   path: string,
   init?: RequestInit,

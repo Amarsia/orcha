@@ -430,6 +430,9 @@ export interface SessionStore {
     sessionId: string,
     listener: (events: SessionEvent[]) => void,
   ): () => void;
+  subscribeAll?(
+    listener: (sessionId: string, events: SessionEvent[]) => void,
+  ): () => void;
 }
 
 export type SessionStatus = "active" | "paused" | "completed";

@@ -1,3 +1,4 @@
+import { mkdirSync, watch, type FSWatcher } from "node:fs";
 import { access, appendFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { SessionEvent, SessionStore } from "../types.js";
@@ -10,6 +11,12 @@ export class NodeJsonlSessionStore implements SessionStore {
     string,
     Set<(events: SessionEvent[]) => void>
   >();
+  readonly #allListeners = new Set<
+    (sessionId: string, events: SessionEvent[]) => void
+  >();
+  readonly #watchers: FSWatcher[] = [];
+  readonly #watchTimers = new Map<string, NodeJS.Timeout>();
+  readonly #observedSequences = new Map<string, number>();
 
   constructor(
     directory = ".orcha/sessions",
@@ -63,13 +70,7 @@ export class NodeJsonlSessionStore implements SessionStore {
       await mkdir(dirname(path), { recursive: true });
       const lines = `${events.map((event) => JSON.stringify(event)).join("\n")}\n`;
       await appendFile(path, lines, "utf8");
-      for (const listener of this.#listeners.get(sessionId) ?? []) {
-        try {
-          listener(events);
-        } catch {
-          // Observers cannot invalidate a durable write.
-        }
-      }
+      this.#notify(sessionId, events);
     });
 
     this.#queues.set(sessionId, write);
@@ -110,6 +111,7 @@ export class NodeJsonlSessionStore implements SessionStore {
     listener: (events: SessionEvent[]) => void,
   ): () => void {
     this.#sessionPath(this.directory, sessionId);
+    this.#ensureWatchers();
     const listeners = this.#listeners.get(sessionId) ?? new Set();
     listeners.add(listener);
     this.#listeners.set(sessionId, listeners);
@@ -118,7 +120,114 @@ export class NodeJsonlSessionStore implements SessionStore {
       if (listeners.size === 0) {
         this.#listeners.delete(sessionId);
       }
+      this.#releaseWatchersIfUnused();
     };
+  }
+
+  subscribeAll(
+    listener: (sessionId: string, events: SessionEvent[]) => void,
+  ): () => void {
+    this.#ensureWatchers();
+    this.#allListeners.add(listener);
+    return () => {
+      this.#allListeners.delete(listener);
+      this.#releaseWatchersIfUnused();
+    };
+  }
+
+  #notify(sessionId: string, events: SessionEvent[]): void {
+    if (events.length === 0) {
+      return;
+    }
+    this.#observedSequences.set(
+      sessionId,
+      Math.max(...events.map((event) => event.sequence)),
+    );
+    for (const listener of this.#listeners.get(sessionId) ?? []) {
+      safelyNotify(() => listener(events));
+    }
+    for (const listener of this.#allListeners) {
+      safelyNotify(() => listener(sessionId, events));
+    }
+  }
+
+  #ensureWatchers(): void {
+    if (this.#watchers.length > 0) {
+      return;
+    }
+    const directories = new Set([this.directory, this.#legacyDirectory]);
+    for (const directory of directories) {
+      mkdirSync(directory, { recursive: true });
+      this.#watchers.push(
+        watch(directory, (_eventType, filename) => {
+          if (!filename) {
+            void this.#refreshAllSessions();
+            return;
+          }
+          const name = filename.toString();
+          if (!name.endsWith(".jsonl")) {
+            return;
+          }
+          const sessionId = name.slice(0, -".jsonl".length);
+          if (!/^[A-Za-z0-9_:\-]+$/.test(sessionId)) {
+            return;
+          }
+          const previous = this.#watchTimers.get(sessionId);
+          clearTimeout(previous);
+          this.#watchTimers.set(
+            sessionId,
+            setTimeout(() => {
+              this.#watchTimers.delete(sessionId);
+              void this.#refreshSession(sessionId);
+            }, 25),
+          );
+        }),
+      );
+    }
+  }
+
+  async #refreshAllSessions(): Promise<void> {
+    for (const sessionId of await this.listSessionIds()) {
+      await this.#refreshSession(sessionId);
+    }
+  }
+
+  async #refreshSession(sessionId: string, retries = 2): Promise<void> {
+    try {
+      const events = await this.read(sessionId);
+      const observed = this.#observedSequences.get(sessionId) ?? 0;
+      const appended = events.filter((event) => event.sequence > observed);
+      if (appended.length > 0) {
+        this.#notify(sessionId, appended);
+      }
+    } catch {
+      if (retries === 0) {
+        return;
+      }
+      const previous = this.#watchTimers.get(sessionId);
+      clearTimeout(previous);
+      this.#watchTimers.set(
+        sessionId,
+        setTimeout(() => {
+          this.#watchTimers.delete(sessionId);
+          void this.#refreshSession(sessionId, retries - 1);
+        }, 75),
+      );
+    }
+  }
+
+  #releaseWatchersIfUnused(): void {
+    if (this.#listeners.size > 0 || this.#allListeners.size > 0) {
+      return;
+    }
+    for (const watcher of this.#watchers.splice(0)) {
+      watcher.close();
+    }
+    for (const timer of this.#watchTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.#watchTimers.clear();
+    this.#observedSequences.clear();
   }
 
   async #readSessionPath(sessionId: string): Promise<string | undefined> {
@@ -142,6 +251,14 @@ export class NodeJsonlSessionStore implements SessionStore {
       throw new Error("Invalid session ID.");
     }
     return resolve(directory, `${sessionId}.jsonl`);
+  }
+}
+
+function safelyNotify(notify: () => void): void {
+  try {
+    notify();
+  } catch {
+    // Observers cannot invalidate a durable write.
   }
 }
 

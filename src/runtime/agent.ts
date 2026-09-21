@@ -151,6 +151,13 @@ export class RuntimeAgent implements AgentRuntime {
     return this.#store.subscribe?.(sessionId, listener) ?? (() => undefined);
   }
 
+  /** @internal Used by the local playground for live session indexes. */
+  _subscribeAllSessionEvents(
+    listener: (sessionId: string, events: SessionEvent[]) => void,
+  ): () => void {
+    return this.#store.subscribeAll?.(listener) ?? (() => undefined);
+  }
+
   /** @internal Used by the local playground for live child traces. */
   async _subscribeSubagentSessionEvents(
     childSessionId: string,
