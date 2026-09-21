@@ -1,5 +1,23 @@
 # create-orcha
 
+## 0.1.6
+
+### Patch Changes
+
+- [#51](https://github.com/Amarsia/orcha/pull/51) [`c640e49`](https://github.com/Amarsia/orcha/commit/c640e4957c7853627af0f427812e7a94d5d1641a) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Load `.env` from the project root for standalone Orcha CLI commands while
+  preserving environment variables already supplied by the process. Library and
+  production-bundle imports remain side-effect free and consume the host
+  application's existing `process.env`.
+
+  Report output-token exhaustion as an explicit failed run for both text and
+  structured JSON agents. Truncated JSON is preserved as incomplete assistant
+  content instead of being misreported as an invalid structured response, and
+  the failure includes the output type and configured token limit.
+
+  Improve human-readable `orcha run` output with a chronological execution
+  trace, action and subagent statuses, child action summaries, and direct paths
+  to every parent and subagent JSONL log. `--json` remains machine-readable.
+
 ## 0.1.5
 
 ### Patch Changes
