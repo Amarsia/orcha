@@ -6,6 +6,10 @@ export class NodeJsonlSessionStore implements SessionStore {
   readonly directory: string;
   readonly #legacyDirectory: string;
   readonly #queues = new Map<string, Promise<void>>();
+  readonly #listeners = new Map<
+    string,
+    Set<(events: SessionEvent[]) => void>
+  >();
 
   constructor(
     directory = ".orcha/sessions",
@@ -59,6 +63,13 @@ export class NodeJsonlSessionStore implements SessionStore {
       await mkdir(dirname(path), { recursive: true });
       const lines = `${events.map((event) => JSON.stringify(event)).join("\n")}\n`;
       await appendFile(path, lines, "utf8");
+      for (const listener of this.#listeners.get(sessionId) ?? []) {
+        try {
+          listener(events);
+        } catch {
+          // Observers cannot invalidate a durable write.
+        }
+      }
     });
 
     this.#queues.set(sessionId, write);
@@ -92,6 +103,22 @@ export class NodeJsonlSessionStore implements SessionStore {
       }
     }
     return [...sessionIds].sort();
+  }
+
+  subscribe(
+    sessionId: string,
+    listener: (events: SessionEvent[]) => void,
+  ): () => void {
+    this.#sessionPath(this.directory, sessionId);
+    const listeners = this.#listeners.get(sessionId) ?? new Set();
+    listeners.add(listener);
+    this.#listeners.set(sessionId, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) {
+        this.#listeners.delete(sessionId);
+      }
+    };
   }
 
   async #readSessionPath(sessionId: string): Promise<string | undefined> {

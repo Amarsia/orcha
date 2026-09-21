@@ -1,7 +1,7 @@
 # create-orcha
 
-Create a complete OrchaJS application with example agents and a lightweight
-local playground.
+Create a complete OrchaJS project with example agents and the built-in local
+playground.
 
 ```bash
 npm create orcha@latest my-agent-app
@@ -11,8 +11,8 @@ npm install
 
 The generated project includes:
 
-- a Node.js and TypeScript application;
-- a framework-free HTML, CSS, and JavaScript playground;
+- an Orcha agent registry with example agents;
+- `orcha playground` for a hot-reloading local interface;
 - text and multimodal agent input;
 - durable sessions and chronological execution traces;
 - parent agents with private durable subagents;
@@ -20,7 +20,7 @@ The generated project includes:
 - lazy-loaded skills;
 - deterministic agent tests;
 - model-graded evaluations;
-- production build and start commands.
+- a production agent build command that excludes playground assets.
 
 ## Options
 
