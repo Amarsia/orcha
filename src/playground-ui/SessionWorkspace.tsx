@@ -83,19 +83,23 @@ export function SessionWorkspace({
   >({});
   const [inputErrors, setInputErrors] = useState<Record<string, string>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
-  const scrollPositions = useRef(new Map<string, number>());
 
   useEffect(() => {
     const element = scrollRef.current;
-    if (element) {
-      element.scrollTop = scrollPositions.current.get(active?.id ?? "") ?? 0;
+    if (!element) {
+      return;
     }
+    const frame = requestAnimationFrame(() => {
+      element.scrollTop = element.scrollHeight;
+    });
     return () => {
-      if (element && active) {
-        scrollPositions.current.set(active.id, element.scrollTop);
-      }
+      cancelAnimationFrame(frame);
     };
-  }, [active]);
+  }, [
+    active?.id,
+    activeEvents.length,
+    active ? streamingOutput[active.id] : undefined,
+  ]);
 
   if (!active) {
     return null;
@@ -192,12 +196,26 @@ export function SessionWorkspace({
           {active.kind === "subagent" ? "Subagent" : "Session"} ·{" "}
           {active.sessionId || "New session"}
           {summary.status ? ` · ${summary.status}` : ""}
+          {summary.status === "Running" ? (
+            <span
+              style={{
+                display: "inline-flex",
+                marginLeft: 5,
+                verticalAlign: "-1px",
+              }}
+            >
+              <Spinner
+                $size={9}
+                $borderWidth={1}
+                $color="currentColor"
+              />
+            </span>
+          ) : null}
           {summary.timestamp ? ` · ${summary.timestamp}` : ""}
           {summary.tokens !== undefined
             ? ` · ${summary.tokens.toLocaleString()} tokens`
             : ""}
         </Muted>
-        {busy ? <Spinner $size={14} /> : null}
       </MetaRow>
       <ModalBody
         ref={scrollRef}
@@ -585,7 +603,11 @@ function EventTimeline({
               key={event.sequence}
               title={`Evaluation · ${String(event.data.name ?? "unknown")}`}
               status={
-                event.type === "evaluation.completed" ? "completed" : "failed"
+                event.type === "evaluation.failed"
+                  ? "failed"
+                  : event.data.status === "passed"
+                    ? "passed"
+                    : "failed"
               }
             >
               <CodeBlock>{JSON.stringify(event.data, null, 2)}</CodeBlock>

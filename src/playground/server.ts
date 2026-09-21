@@ -260,6 +260,36 @@ async function routeRequest(context: RouteContext): Promise<void> {
       );
       return;
     }
+    if (
+      method === "GET" &&
+      segments.length === 5 &&
+      segments[4] === "stream"
+    ) {
+      response.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-store",
+        connection: "keep-alive",
+      });
+      response.write(": connected\n\n");
+      let closed = false;
+      const unsubscribe = agent._subscribeAllSessionEvents((sessionId) => {
+        void agent.get(sessionId).then(
+          (snapshot) => {
+            if (!closed) {
+              response.write(
+                `data: ${JSON.stringify({ snapshot })}\n\n`,
+              );
+            }
+          },
+          () => undefined,
+        );
+      });
+      response.once("close", () => {
+        closed = true;
+        unsubscribe();
+      });
+      return;
+    }
     const sessionId = segments[4];
     if (method === "GET" && segments.length === 5) {
       sendJson(response, 200, await agent.get(sessionId));
@@ -273,6 +303,39 @@ async function routeRequest(context: RouteContext): Promise<void> {
       sendJson(response, 200, {
         events: await readAllEvents(agent, sessionId),
       });
+      return;
+    }
+    if (
+      method === "GET" &&
+      segments.length === 6 &&
+      segments[5] === "stream"
+    ) {
+      await agent.get(sessionId);
+      let ready = false;
+      const pending: SessionEvent[][] = [];
+      const publish = (events: SessionEvent[]): void => {
+        if (!ready) {
+          pending.push(events);
+          return;
+        }
+        response.write(`data: ${JSON.stringify({ events })}\n\n`);
+      };
+      const unsubscribe = agent._subscribeSessionEvents(
+        sessionId,
+        publish,
+      );
+      response.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-store",
+        connection: "keep-alive",
+      });
+      response.write(": connected\n\n");
+      ready = true;
+      for (const events of pending) {
+        publish(events);
+      }
+      pending.length = 0;
+      response.once("close", unsubscribe);
       return;
     }
     if (

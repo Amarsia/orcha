@@ -19,6 +19,8 @@ import {
   listAgents,
   listSessions,
   runAgent,
+  streamAgentSessions,
+  streamSessionEvents,
   streamSubagentEvents,
 } from "./api";
 import { AgentDetails } from "./AgentDetails";
@@ -63,6 +65,7 @@ export function App() {
     Record<string, string>
   >({});
   const childStreams = useRef(new Map<string, EventSource>());
+  const parentStreams = useRef(new Map<string, EventSource>());
   const selectedRequest = useRef(0);
 
   const refreshAgents = useCallback(async () => {
@@ -104,6 +107,10 @@ export function App() {
         stream.close();
       }
       childStreams.current.clear();
+      for (const stream of parentStreams.current.values()) {
+        stream.close();
+      }
+      parentStreams.current.clear();
     },
     [],
   );
@@ -132,6 +139,16 @@ export function App() {
     );
   }, [refreshSelected, revision]);
 
+  useEffect(() => {
+    if (!selectedAgent) {
+      return;
+    }
+    const stream = streamAgentSessions(selectedAgent, (snapshot) => {
+      setSessions((current) => upsertSession(current, snapshot));
+    });
+    return () => stream.close();
+  }, [selectedAgent, revision]);
+
   const visibleAgents = useMemo(() => {
     const query = filter.trim().toLowerCase();
     return query
@@ -142,6 +159,26 @@ export function App() {
         )
       : agents;
   }, [agents, filter]);
+
+  const startParentStream = useCallback(
+    (agent: string, sessionId: string, tabId: string) => {
+      if (parentStreams.current.has(tabId)) {
+        return;
+      }
+      const stream = streamSessionEvents(
+        agent,
+        sessionId,
+        (appended) => {
+          setEvents((current) => ({
+            ...current,
+            [tabId]: mergeEvents(current[tabId] ?? [], appended),
+          }));
+        },
+      );
+      parentStreams.current.set(tabId, stream);
+    },
+    [],
+  );
 
   const openSession = async (session: SessionSnapshot) => {
     if (!selectedAgent) return;
@@ -161,6 +198,7 @@ export function App() {
           ],
     );
     setActiveTabId(id);
+    startParentStream(selectedAgent, session.sessionId, id);
     if (!events[id]) {
       try {
         const sessionEvents = await getSessionEvents(
@@ -277,6 +315,7 @@ export function App() {
           typeof message.sessionId === "string"
         ) {
           const sessionId = message.sessionId;
+          startParentStream(tab.agent, sessionId, tab.id);
           setWorkspaceTabs((current) =>
             current.map((item) =>
               item.id === tab.id ? { ...item, sessionId } : item,
@@ -355,6 +394,8 @@ export function App() {
   const closeTab = (id: string) => {
     childStreams.current.get(id)?.close();
     childStreams.current.delete(id);
+    parentStreams.current.get(id)?.close();
+    parentStreams.current.delete(id);
     setWorkspaceTabs((current) => {
       const index = current.findIndex((tab) => tab.id === id);
       const next = current.filter((tab) => tab.id !== id);
@@ -513,6 +554,10 @@ export function App() {
             stream.close();
           }
           childStreams.current.clear();
+          for (const stream of parentStreams.current.values()) {
+            stream.close();
+          }
+          parentStreams.current.clear();
           setWorkspaceTabs([]);
           setActiveTabId(undefined);
           setEvents({});
@@ -560,5 +605,21 @@ function mergeEvents(
   );
   return [...bySequence.values()].sort(
     (left, right) => left.sequence - right.sequence,
+  );
+}
+
+function upsertSession(
+  sessions: SessionSnapshot[],
+  snapshot: SessionSnapshot,
+): SessionSnapshot[] {
+  return [
+    snapshot,
+    ...sessions.filter(
+      (session) => session.sessionId !== snapshot.sessionId,
+    ),
+  ].sort(
+    (left, right) =>
+      new Date(right.updatedAt).getTime() -
+      new Date(left.updatedAt).getTime(),
   );
 }

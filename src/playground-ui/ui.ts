@@ -162,9 +162,12 @@ export const PanelCard = styled("section", ({ $theme }) => ({
 export const CodeBlock = styled("pre", ({ $theme }) => ({
   margin: 0,
   padding: $theme.sizing.scale500,
+  width: "100%",
+  maxWidth: "100%",
+  boxSizing: "border-box",
   overflowX: "auto",
-  whiteSpace: "pre-wrap",
-  overflowWrap: "anywhere",
+  whiteSpace: "pre",
+  overflowWrap: "normal",
   color: $theme.colors.contentPrimary,
   backgroundColor: $theme.colors.backgroundSecondary,
   fontFamily:
