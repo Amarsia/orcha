@@ -8,6 +8,7 @@ files under `.orcha/`.
 
 - `orcha init` creates the initial Orcha files without overwriting files.
 - `orcha dev` validates the registry and watches `orcha/**` for changes.
+- `orcha playground` opens the built-in local UI and hot reloads agent source.
 - `orcha run <agent> --input "…"` executes one registered agent.
 - `orcha run <agent> --input-file request.json` accepts structured input.
 - `orcha run <agent> --session <id> --input "…"` continues a session.
@@ -18,8 +19,8 @@ files under `.orcha/`.
 - `orcha build` creates the production Orcha bundle without calling models.
 - Add `--json` to `run` and `test` for machine-readable output.
 
-`run` and `test` use real providers and require credentials. `dev` and
-`build` are offline. Session logs are JSONL files under
+`run`, `test`, and playground executions use real providers and require
+credentials. `dev` and `build` are offline. Session logs are JSONL files under
 `.orcha/sessions/<agentName>/ses_<timestamp>_<uuid>.jsonl`.
 
 ## Registry
@@ -1024,6 +1025,8 @@ needed for faithful continuation but are omitted from evaluation transcripts.
 - `agent.subagentHistory(childSessionId, { page, pageSize })` returns the
   projected history of a child owned by this parent agent. Lineage checks
   prevent access through unrelated agents.
+- `agent.subagentEvents(childSessionId, { page, pageSize })` returns that
+  owned child's canonical events for full transcript and debugging interfaces.
 - `agent.pause(sessionId)` aborts active provider work for the session and
   active children, preserving streamed text as an incomplete assistant
   message. `agent.resume(sessionId)` starts a new run with `"Continue."`;

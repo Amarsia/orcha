@@ -157,7 +157,7 @@ async function createProject(options) {
   console.log("  cp .env.example .env");
   console.log("  # Add OPENAI_API_KEY to .env");
   console.log("  npm run dev");
-  console.log("\nThen open http://127.0.0.1:4310");
+  console.log("\nThen open http://localhost:4310");
 }
 
 async function main() {

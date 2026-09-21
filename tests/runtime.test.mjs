@@ -22,9 +22,12 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 test("writes a useful JSONL timeline for a successful model run", async () => {
   const fixture = await createRuntimeFixture();
   try {
-    const result = await fixture.client.testAgent.run("hello").result;
+    const execution = fixture.client.testAgent.run("hello");
+    assert.match(execution.sessionId, /^ses_/);
+    const result = await execution.result;
 
     assert.equal(result.status, "completed");
+    assert.equal(execution.sessionId, result.sessionId);
     assert.equal(result.output, "mock-response-1");
     assert.deepEqual(result.usage, {
       inputTokens: 7,
@@ -706,9 +709,18 @@ test("runs a private subagent in a linked durable session", async () => {
     const childHistory = await client.coordinator.subagentHistory(
       childSessionId,
     );
+    const childEvents = await client.coordinator.subagentEvents(
+      childSessionId,
+      { pageSize: 100 },
+    );
     assert.equal(childHistory.lineage.parentSessionId, result.sessionId);
     assert.equal(childHistory.lineage.parentCallId, "delegate_1");
     assert.equal(childHistory.lastOutput, "Verified child finding.");
+    assert.equal(childEvents.agent, "researcher");
+    assert.equal(
+      childEvents.events.some((event) => event.type === "run.completed"),
+      true,
+    );
     await assert.rejects(
       client.otherCoordinator.subagentHistory(childSessionId),
       /was not found for agent "otherCoordinator"/,

@@ -33,16 +33,23 @@ test("creates a complete standalone project without installing dependencies", as
     );
     assert.equal(packageJson.name, "my-agent-app");
     assert.equal(packageJson.dependencies.orchajs, packageMetadata.orchaVersion);
+    assert.equal(packageJson.scripts.dev, "orcha playground");
+    assert.equal(packageJson.scripts.build, "orcha build");
+    assert.equal(packageJson.scripts.test, "orcha test");
+    assert.equal(packageJson.engines.node, ">=20.12");
     await assert.rejects(access(join(targetDirectory, "node_modules")));
 
     await Promise.all([
-      readFile(join(targetDirectory, "src", "server.ts"), "utf8"),
-      readFile(join(targetDirectory, "public", "index.html"), "utf8"),
       readFile(join(targetDirectory, "orcha", "index.ts"), "utf8"),
       readFile(join(targetDirectory, "orcha", "AGENTS.md"), "utf8"),
       readFile(join(targetDirectory, "orcha", "assistant", "index.json"), "utf8"),
       readFile(join(targetDirectory, "orcha", "orderSupport", "index.json"), "utf8"),
       readFile(join(targetDirectory, "orcha", "approvalAgent", "index.json"), "utf8"),
+    ]);
+    await Promise.all([
+      assert.rejects(access(join(targetDirectory, "src", "server.ts"))),
+      assert.rejects(access(join(targetDirectory, "public", "index.html"))),
+      assert.rejects(access(join(targetDirectory, "playground.json"))),
     ]);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });

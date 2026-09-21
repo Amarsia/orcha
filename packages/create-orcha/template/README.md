@@ -1,7 +1,7 @@
 # __PROJECT_NAME__
 
-A complete OrchaJS starter with example agents and a lightweight local
-playground for running them and inspecting their durable sessions.
+A complete OrchaJS starter with example agents and the built-in local
+playground for inspecting, testing, and running them.
 
 ## Get started
 
@@ -11,9 +11,7 @@ cp .env.example .env
 npm run dev
 ```
 
-The included Node.js scripts load `.env` before starting the application.
-
-Open [http://127.0.0.1:4310](http://127.0.0.1:4310).
+Open [http://localhost:4310](http://localhost:4310).
 
 Try the general `assistant`, ask `orderSupport` about `ord_1001`, `ord_1002`,
 or an unknown order identifier, or ask `approvalAgent` to approve a purchase
@@ -31,26 +29,25 @@ to exercise the client-action pause and continuation flow.
 - Inspect parent and child session histories independently.
 - Submit results when an agent pauses for client actions.
 - Browse sessions and projected history.
-- Inspect usage, status, and canonical durable session events.
+- Inspect usage, status, and chronological durable session traces.
 - Wait for and display asynchronous evaluations when configured.
 - Run the selected agent's registered model-backed tests with one click.
 
-The browser has no direct filesystem or provider access. A localhost-only Node
-server owns Orcha and exposes a small JSON/NDJSON API. There is no frontend
-framework, database, authentication layer, or hosted dependency.
+The browser has no direct filesystem or provider access. `orcha playground`
+binds to localhost, loads `.env`, watches `orcha/**`, and reports invalid edits
+in the interface.
 
 ## Commands
 
 ```bash
-npm run dev          # local server with file watching
-npm run build        # production bundle
-npm start            # run the production bundle
+npm run dev          # built-in playground with hot reload
+npm run build        # production agent bundle only
+npm test             # run all registered agent tests
 npm run orcha:dev    # validate and watch the Orcha registry
 npm run orcha:test   # run registered agent tests
 ```
 
 The default Node configuration stores sessions in
 `.orcha/sessions/<agentName>/ses_<timestamp>_<uuid>.jsonl`. The
-playground accesses parent sessions through `agent.list()`, `agent.get()`, and
-`agent.events()`, and child sessions through `agent.subagentHistory()`, so
-changing the storage adapter does not require UI or server changes.
+playground accesses sessions through storage-neutral agent APIs, so changing
+the storage adapter does not require generated application code.

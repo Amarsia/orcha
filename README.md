@@ -250,6 +250,9 @@ application runtime:
 # Offline validation that watches orcha/**
 npx orcha dev
 
+# Open the built-in localhost playground and watch orcha/**
+npx orcha playground
+
 # Execute a registered agent. Input can also come from a JSON file or stdin.
 npx orcha run exampleAgent --input "Help me understand this invoice"
 
@@ -266,9 +269,18 @@ npx orcha test exampleAgent/exampleCase
 npx orcha build
 ```
 
+`playground` accepts `--host`, `--port`, and `--no-open`; it binds to
+`localhost:4310` and opens the browser by default. Network access requires an
+explicit hostname or IP address; wildcard hosts are rejected. Mutation routes
+use same-origin checks and a per-process token.
+
 Human-readable `run` output includes the execution timeline, actions,
 subagent lifecycle, each child agent's actions, and clickable session logs.
 `run` and `test` support `--json` for clean machine-readable output.
+`playground` serves Orcha's prebuilt React and Base Web interface from the
+installed package. It exposes agent instructions, actions, skills,
+evaluations, tests, durable sessions, and linked subagent transcripts without
+adding frontend dependencies to the project or production agent bundle.
 `orcha init` also creates a comprehensive `AGENTS.md` describing Orcha's
 filesystem contract and APIs. The CLI does not provide a UI; applications can
 build one from the storage-neutral runtime session APIs.
@@ -347,6 +359,7 @@ Applications inspect a durable child through its owning parent agent:
 
 ```js
 const history = await orcha.coordinator.subagentHistory(childSessionId);
+const events = await orcha.coordinator.subagentEvents(childSessionId);
 ```
 
 The child session ID is included in the parent's projected history and

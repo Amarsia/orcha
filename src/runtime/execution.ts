@@ -104,6 +104,7 @@ export function createExecution<TOutput>(
   );
 
   return {
+    sessionId,
     stream,
     get snapshot() {
       return snapshot;

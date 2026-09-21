@@ -358,6 +358,7 @@ export type ExecutionSnapshot<TOutput = unknown> =
   | RunResult<TOutput>;
 
 export interface Execution<TOutput = unknown> {
+  readonly sessionId: string;
   readonly stream: ReadableStream<ExecutionSnapshot<TOutput>>;
   readonly snapshot: ExecutionSnapshot<TOutput> | undefined;
   readonly result: Promise<RunResult<TOutput>>;
@@ -425,6 +426,10 @@ export interface SessionStore {
   read(sessionId: string): Promise<SessionEvent[]>;
   append(sessionId: string, events: SessionEvent[]): Promise<void>;
   listSessionIds(): Promise<string[]>;
+  subscribe?(
+    sessionId: string,
+    listener: (events: SessionEvent[]) => void,
+  ): () => void;
 }
 
 export type SessionStatus = "active" | "paused" | "completed";
@@ -540,6 +545,10 @@ export interface AgentRuntime {
     childSessionId: string,
     options?: PaginationOptions,
   ): Promise<SessionHistory>;
+  subagentEvents(
+    childSessionId: string,
+    options?: SessionEventListOptions,
+  ): Promise<SessionEvents>;
   get(sessionId: string): Promise<SessionSnapshot>;
   history(
     sessionId: string,

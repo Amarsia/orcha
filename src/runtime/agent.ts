@@ -143,6 +143,23 @@ export class RuntimeAgent implements AgentRuntime {
     );
   }
 
+  /** @internal Used by the local playground for live trace delivery. */
+  _subscribeSessionEvents(
+    sessionId: string,
+    listener: (events: SessionEvent[]) => void,
+  ): () => void {
+    return this.#store.subscribe?.(sessionId, listener) ?? (() => undefined);
+  }
+
+  /** @internal Used by the local playground for live child traces. */
+  async _subscribeSubagentSessionEvents(
+    childSessionId: string,
+    listener: (events: SessionEvent[]) => void,
+  ): Promise<() => void> {
+    const child = await this.#ownedChild(undefined, childSessionId);
+    return child._subscribeSessionEvents(childSessionId, listener);
+  }
+
   run(input: AgentInput | string): Execution {
     return this.#run(input);
   }
@@ -414,6 +431,14 @@ export class RuntimeAgent implements AgentRuntime {
   ): Promise<SessionHistory> {
     const child = await this.#ownedChild(undefined, childSessionId);
     return child.history(childSessionId, options);
+  }
+
+  async subagentEvents(
+    childSessionId: string,
+    options: SessionEventListOptions = {},
+  ): Promise<SessionEvents> {
+    const child = await this.#ownedChild(undefined, childSessionId);
+    return child.events(childSessionId, options);
   }
 
   async pause(sessionId: string): Promise<SessionSnapshot> {

@@ -1,21 +1,15 @@
 #!/usr/bin/env node
 
 import { existsSync, watch } from "node:fs";
-import {
-  appendFile,
-  mkdir,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
-import { build as bundleEntry } from "esbuild";
 import { AGENTS_MD } from "./cli-agents-template.js";
 import { buildProject } from "./compiler/build-project.js";
 import { loadProjectEnvironment } from "./env.js";
 import { orcha } from "./orcha.js";
 import type { OrchaClient } from "./orcha.js";
+import { startPlayground } from "./playground/server.js";
+import { loadProject } from "./project-loader.js";
 import { getOrchaRuntimeContext } from "./runtime/context.js";
 import { sessionAgentDirectoryName } from "./storage/node-jsonl.js";
 import { runTests } from "./testing.js";
@@ -48,6 +42,9 @@ try {
       break;
     case "test":
       await testAgents(projectRoot, commandArguments);
+      break;
+    case "playground":
+      await runPlayground(projectRoot, commandArguments);
       break;
     case "build": {
       assertNoArguments(commandArguments, "build");
@@ -300,55 +297,31 @@ async function testAgents(
   }
 }
 
-async function loadProject(projectRoot: string): Promise<void> {
-  loadProjectEnvironment(projectRoot);
-  const registryPath = resolve(projectRoot, "orcha/index.ts");
-  if (!existsSync(registryPath)) {
-    throw new Error('Missing "orcha/index.ts". Run "orcha init" first.');
-  }
-  const temporaryDirectory = resolve(projectRoot, ".orcha/.cli");
-  const bundlePath = resolve(
-    temporaryDirectory,
-    `registry-${process.pid}-${Date.now()}.mjs`,
+async function runPlayground(
+  projectRoot: string,
+  arguments_: string[],
+): Promise<void> {
+  const parsed = parseArguments(
+    arguments_,
+    new Set(["--host", "--port"]),
+    new Set(["--no-open"]),
   );
-  await mkdir(temporaryDirectory, { recursive: true });
-  try {
-    const previousBundle = orcha.isInitialized()
-      ? orcha.getCompiledBundle()
-      : undefined;
-    await bundleEntry({
-      entryPoints: [registryPath],
-      outfile: bundlePath,
-      bundle: true,
-      format: "esm",
-      platform: "node",
-      target: "node20",
-      packages: "external",
-      logLevel: "silent",
-    });
-    const previousRoot = process.env.ORCHA_PROJECT_ROOT;
-    const previousCompiling = process.env.ORCHA_COMPILING;
-    process.env.ORCHA_PROJECT_ROOT = projectRoot;
-    process.env.ORCHA_COMPILING = "1";
-    try {
-      await import(
-        `${pathToFileURL(bundlePath).href}?time=${Date.now()}`
-      );
-    } finally {
-      restoreEnvironment("ORCHA_PROJECT_ROOT", previousRoot);
-      restoreEnvironment("ORCHA_COMPILING", previousCompiling);
-    }
-    if (
-      !orcha.isInitialized() ||
-      orcha.getCompiledBundle() === previousBundle
-    ) {
-      throw new Error(
-        '"orcha/index.ts" must call orcha.init({ providers, agents }).',
-      );
-    }
-  } finally {
-    await rm(bundlePath, { force: true });
+  if (parsed.positionals.length > 0) {
+    throw new Error(
+      "Usage: orcha playground [--host localhost] [--port 4310] [--no-open]",
+    );
   }
+  const portValue = parsed.values.get("--port");
+  const port = portValue ? Number.parseInt(portValue, 10) : 4310;
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("--port must be an integer between 1 and 65535.");
+  }
+  await startPlayground({
+    projectRoot,
+    host: parsed.values.get("--host") ?? "localhost",
+    port,
+    open: !parsed.flags.has("--no-open"),
+  });
 }
 
 interface ParsedArguments {
@@ -360,6 +333,7 @@ interface ParsedArguments {
 function parseArguments(
   arguments_: string[],
   valueOptions: Set<string>,
+  flagOptions: Set<string> = new Set(["--json"]),
 ): ParsedArguments {
   const parsed: ParsedArguments = {
     positionals: [],
@@ -372,7 +346,7 @@ function parseArguments(
       parsed.positionals.push(argument);
       continue;
     }
-    if (argument === "--json") {
+    if (flagOptions.has(argument)) {
       parsed.flags.add(argument);
       continue;
     }
@@ -669,17 +643,6 @@ function sessionLogPath(
   );
 }
 
-function restoreEnvironment(
-  name: string,
-  value: string | undefined,
-): void {
-  if (value === undefined) {
-    delete process.env[name];
-  } else {
-    process.env[name] = value;
-  }
-}
-
 function assertNoArguments(
   arguments_: string[],
   command: string,
@@ -714,6 +677,7 @@ function printUsage(): void {
       "  dev                          Validate and watch orcha/**",
       "  run <agent> [options]        Execute or resume an agent",
       "  test [agent | agent/test]    Run agent tests",
+      "  playground [options]         Open the local agent playground",
       "  build                        Build the production Orcha bundle",
       "",
       "Run and test support --json for machine-readable output.",
