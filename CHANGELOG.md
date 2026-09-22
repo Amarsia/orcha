@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.12.1
+
+### Patch Changes
+
+- [#59](https://github.com/Amarsia/orcha/pull/59) [`28c5c03`](https://github.com/Amarsia/orcha/commit/28c5c03f3e9976baafdd81e6c3923f3c12c27f04) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Preserve registered subagents when constructing isolated agent test runtimes. Tests that allow natural execution can now use `run_agent` normally and create linked durable child sessions instead of failing with an unavailable-action error. Playground session transcripts now show the underlying run error message directly beneath failed runs.
+
 ## 0.12.0
 
 ### Minor Changes
