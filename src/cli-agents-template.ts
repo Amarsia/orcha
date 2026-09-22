@@ -490,9 +490,12 @@ export default defineTests({
 });
 \`\`\`
 
-Each case's \`index.json\` defines \`input\`, mocked responses for every action,
-and \`expect\`. Tests run the real compiled agent and provider but never execute
-real actions. The mocked action set must exactly match the compiled action set.
+Each case's \`index.json\` defines \`input\`, optional mocked action responses,
+and \`expect\`. Tests run the real compiled agent and provider. Actions listed
+under \`actions\` are mocked; unlisted local actions execute live. Orcha reports
+live action use in the terminal, test report, and session trace.
+Client actions must always be mocked because no application client is attached
+to the test runner.
 
 \`\`\`json
 {
@@ -524,11 +527,16 @@ through action-argument assertions.
 Test \`index.json\` fields:
 
 - \`description\` (optional): human-readable purpose.
-- \`input.content\` (required): string or multimodal content array.
+- \`input\` (required): an inline agent input object or a path to a JSON file
+  containing that object. Relative paths resolve from the test case directory.
+- \`input.content\` (required for inline input): string or multimodal content
+  array.
 - \`input.variables\` (optional): string map available to the session.
 - \`input.metadata\` (optional): string, number, boolean, or null values.
-- \`actions\` (required): exactly one key for every compiled action, including
-  local actions. Every \`responses\` array is consumed in call order.
+- \`actions\` (optional): mocked actions keyed by compiled action name. Unlisted
+  local actions execute live and may cause side effects. Unknown action names
+  are rejected, and unlisted client actions are rejected. Every \`responses\`
+  array is consumed in call order.
 - \`responses[].output\` (required): mocked action result.
 - \`responses[].isError\` (optional): marks the mocked result as an error.
 - \`expect.status\` (optional): \`"completed"\` or \`"failed"\`; defaults to
@@ -917,8 +925,19 @@ type TestCompleted = SessionEvent<{
     durationMs: number;
     error?: { message: string };
   }>;
+  warnings?: Array<{
+    code: "live_actions";
+    message: string;
+    actions: string[];
+  }>;
   error?: ErrorData;
 }>; // type "test.completed", no run
+
+type TestWarning = SessionEvent<{
+  code: "live_actions";
+  message: string;
+  actions: string[];
+}>; // type "test.warning", no run
 \`\`\`
 
 Typical event order:
@@ -1039,7 +1058,8 @@ needed for faithful continuation but are omitted from evaluation transcripts.
 
 - Register every new agent, skill, test, and evaluation explicitly.
 - Keep runtime behavior provider-neutral.
-- Do not call real actions from tests.
+- Mock actions when tests must avoid side effects; document intentional live
+  action coverage.
 - Do not commit \`.orcha/\`; it contains generated output and session data.
 - Run \`orcha dev\` after filesystem changes and \`orcha test\` when behavior
   changes.

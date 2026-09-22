@@ -96,8 +96,9 @@ Agent-owned deterministic test cases live under each agent's `/tests` folder.
 Completion criteria:
 
 - Invalid test definitions fail during compilation with file-specific errors.
-- The test action set exactly matches the agent's `/actions` contract.
-- Local and client actions are simulated without external side effects.
+- Mock action names are validated against the agent's `/actions` contract.
+- Mocked actions are simulated; unmocked local actions execute live with
+  visible side-effect warnings, while client actions require mocks.
 - Client-action pauses and automatic resumes are visible in JSONL.
 - Test runs retain inspectable `ses_test_` JSONL logs alongside the
   application's normal sessions.

@@ -412,6 +412,7 @@ export type SessionEventType =
   | "run.failed"
   | "session.paused"
   | "session.resumed"
+  | "test.warning"
   | "test.completed";
 
 export interface SessionEvent<TData = Record<string, unknown>> {
@@ -603,13 +604,21 @@ export interface AgentTestExpectation {
 
 export interface AgentTestCaseConfiguration {
   description?: string;
-  input: {
-    content: AgentContentInput;
-    variables?: Record<string, string>;
-    metadata?: SessionMetadata;
-  };
-  actions: Record<string, AgentTestActionConfiguration>;
+  input:
+    | {
+        content: AgentContentInput;
+        variables?: Record<string, string>;
+        metadata?: SessionMetadata;
+      }
+    | string;
+  actions?: Record<string, AgentTestActionConfiguration>;
   expect: AgentTestExpectation;
+}
+
+export interface AgentTestWarning {
+  code: "live_actions";
+  message: string;
+  actions: string[];
 }
 
 export interface AgentTestAssertionResult {
@@ -630,6 +639,7 @@ export interface AgentTestCaseReport {
   durationMs: number;
   usage?: Usage;
   evaluations?: EvaluationResult[];
+  warnings?: AgentTestWarning[];
   assertions: AgentTestAssertionResult[];
   error?: RunError;
 }
@@ -648,10 +658,14 @@ export interface AgentTestCaseSummary {
   agent: string;
   name: string;
   description?: string;
+  warnings?: AgentTestWarning[];
   configuration: AgentTestCaseConfiguration;
 }
 
 export interface RunTestsOptions {
   agent?: string;
   test?: string;
+  onWarning?: (
+    warning: AgentTestWarning & { agent: string; test: string },
+  ) => void;
 }

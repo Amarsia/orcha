@@ -18,6 +18,7 @@ export type {
   AgentTestReport,
   AgentTestTextExpectation,
   AgentTestValueExpectation,
+  AgentTestWarning,
   ApiKeyProviderConfiguration,
   AwsCredentials,
   AgentContinueInput,

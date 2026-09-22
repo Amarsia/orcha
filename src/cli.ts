@@ -273,6 +273,15 @@ async function testAgents(
   const report = await runTests(orcha, {
     ...(agent ? { agent } : {}),
     ...(test ? { test } : {}),
+    ...(!parsed.flags.has("--json")
+      ? {
+          onWarning: (warning) => {
+            console.warn(
+              `WARN ${warning.agent}/${warning.test}: ${warning.message}`,
+            );
+          },
+        }
+      : {}),
   });
   if (parsed.flags.has("--json")) {
     console.log(JSON.stringify(report));

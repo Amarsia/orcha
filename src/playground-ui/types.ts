@@ -72,8 +72,15 @@ export interface AgentTest {
   agent: string;
   name: string;
   description?: string;
+  warnings?: TestWarning[];
   configuration: Record<string, unknown>;
   rawConfiguration: string;
+}
+
+export interface TestWarning {
+  code: "live_actions";
+  message: string;
+  actions: string[];
 }
 
 export interface TestCaseReport {
@@ -83,6 +90,7 @@ export interface TestCaseReport {
   sessionId?: string;
   sessionPath?: string;
   durationMs: number;
+  warnings?: TestWarning[];
   assertions: Array<{
     path: string;
     passed: boolean;

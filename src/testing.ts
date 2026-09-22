@@ -25,6 +25,7 @@ import type {
   AgentTestRegistrations,
   AgentTestReport,
   AgentTestValueExpectation,
+  AgentTestWarning,
   CompiledAgentManifest,
   EvaluationResult,
   RunResult,
@@ -35,8 +36,16 @@ import type {
 interface DiscoveredTestCase {
   agent: string;
   name: string;
-  configuration: AgentTestCaseConfiguration;
+  configuration: ResolvedTestCaseConfiguration;
+  sourceConfiguration: AgentTestCaseConfiguration;
 }
+
+type ResolvedTestCaseConfiguration = Omit<
+  AgentTestCaseConfiguration,
+  "input"
+> & {
+  input: Exclude<AgentTestCaseConfiguration["input"], string>;
+};
 
 interface ActualActionCall {
   name: string;
@@ -71,12 +80,19 @@ export async function listTests(
       options,
       registryBuildDirectory,
     );
-    return cases.map((testCase) => ({
-      agent: testCase.agent,
-      name: testCase.name,
-      description: testCase.configuration.description,
-      configuration: testCase.configuration,
-    }));
+    return cases.map((testCase) => {
+      const warnings = testWarnings(
+        context.bundle.agents[testCase.agent],
+        testCase.configuration,
+      );
+      return {
+        agent: testCase.agent,
+        name: testCase.name,
+        description: testCase.configuration.description,
+        ...(warnings.length > 0 ? { warnings } : {}),
+        configuration: testCase.sourceConfiguration,
+      };
+    });
   } finally {
     await rm(temporaryBuildDirectory, {
       recursive: true,
@@ -118,13 +134,28 @@ export async function runTests(
     context.configuration.storage?.directory ?? ".orcha/sessions";
   for (const testCase of cases) {
     const manifest = context.bundle.agents[testCase.agent];
+    const warnings = testWarnings(manifest, testCase.configuration);
+    for (const warning of warnings) {
+      try {
+        options.onWarning?.({
+          ...warning,
+          agent: testCase.agent,
+          test: testCase.name,
+        });
+      } catch {
+        // Warning observers cannot interrupt a test run.
+      }
+    }
     const store = new NodeJsonlSessionStore(
       storageDirectory,
       context.projectRoot,
       manifest.key ?? manifest.name,
     );
     const agent = new RuntimeAgent({
-      manifest: withSimulatedActions(manifest),
+      manifest: withTestActions(
+        manifest,
+        Object.keys(testCase.configuration.actions ?? {}),
+      ),
       configuration: context.configuration,
       store,
       activeSessions: new Set(),
@@ -140,6 +171,7 @@ export async function runTests(
         suiteId,
         context.projectRoot,
         storageDirectory,
+        warnings,
       ),
     );
   }
@@ -206,8 +238,14 @@ async function discoverTests(
         sourceDirectory,
         `Test "${agentName}/${testName}"`,
       );
-      const configuration = await loadTestConfiguration(
+      const sourceConfiguration = await loadTestConfiguration(
         resolve(sourceDirectory, "index.json"),
+        agentName,
+        testName,
+      );
+      const configuration = await resolveTestInput(
+        sourceConfiguration,
+        sourceDirectory,
         agentName,
         testName,
       );
@@ -221,6 +259,7 @@ async function discoverTests(
         agent: agentName,
         name: testName,
         configuration,
+        sourceConfiguration,
       });
     }
   }
@@ -310,10 +349,44 @@ async function loadTestConfiguration(
   }
 }
 
+async function resolveTestInput(
+  configuration: AgentTestCaseConfiguration,
+  testDirectory: string,
+  agentName: string,
+  testName: string,
+): Promise<ResolvedTestCaseConfiguration> {
+  if (typeof configuration.input !== "string") {
+    return configuration as ResolvedTestCaseConfiguration;
+  }
+  const label = `Test "${agentName}/${testName}"`;
+  if (!configuration.input.trim()) {
+    throw new Error(`${label} input path cannot be empty.`);
+  }
+  const inputPath = resolve(testDirectory, configuration.input);
+  let input: unknown;
+  try {
+    input = JSON.parse(await readFile(inputPath, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `${label} could not read valid input JSON from ${inputPath}.`,
+      { cause: error },
+    );
+  }
+  if (!isRecord(input) || !("content" in input)) {
+    throw new Error(
+      `${label} input JSON at ${inputPath} must contain content.`,
+    );
+  }
+  return {
+    ...configuration,
+    input: input as ResolvedTestCaseConfiguration["input"],
+  };
+}
+
 function validateTestCase(
   agentName: string,
   testName: string,
-  configuration: AgentTestCaseConfiguration,
+  configuration: ResolvedTestCaseConfiguration,
   manifest: CompiledAgentManifest,
 ): void {
   const label = `Test "${agentName}/${testName}"`;
@@ -326,37 +399,39 @@ function validateTestCase(
   ) {
     throw new Error(`${label} requires input.content.`);
   }
-  if (!isRecord(configuration.actions)) {
-    throw new Error(`${label} requires an actions object.`);
+  if (
+    configuration.actions !== undefined &&
+    !isRecord(configuration.actions)
+  ) {
+    throw new Error(`${label} actions must be an object when provided.`);
   }
   if (!isRecord(configuration.expect)) {
     throw new Error(`${label} requires an expect object.`);
   }
 
   const agentActions = Object.keys(manifest.actions).sort();
-  const testActions = Object.keys(configuration.actions).sort();
-  const missing = agentActions.filter(
-    (name) => !testActions.includes(name),
-  );
+  const testActions = Object.keys(configuration.actions ?? {}).sort();
   const unknown = testActions.filter(
     (name) => !agentActions.includes(name),
   );
-  if (missing.length > 0 || unknown.length > 0) {
-    const details = [
-      missing.length > 0
-        ? `missing actions: ${missing.join(", ")}`
-        : "",
-      unknown.length > 0
-        ? `unknown actions: ${unknown.join(", ")}`
-        : "",
-    ].filter(Boolean);
+  if (unknown.length > 0) {
     throw new Error(
-      `${label} actions must exactly match the agent actions (${details.join("; ")}).`,
+      `${label} mocks unknown actions: ${unknown.join(", ")}.`,
+    );
+  }
+  const unmockedClientActions = agentActions.filter(
+    (name) =>
+      !testActions.includes(name) &&
+      manifest.actions[name]?.execution === "client",
+  );
+  if (unmockedClientActions.length > 0) {
+    throw new Error(
+      `${label} must mock client actions because the test runner cannot execute them: ${unmockedClientActions.join(", ")}.`,
     );
   }
 
   for (const [name, action] of Object.entries(
-    configuration.actions,
+    configuration.actions ?? {},
   )) {
     validateTestAction(label, name, action);
   }
@@ -465,23 +540,47 @@ function validateValueExpectation(
   }
 }
 
-function withSimulatedActions(
+function withTestActions(
   manifest: CompiledAgentManifest,
+  mockedActions: string[],
 ): CompiledAgentManifest {
+  const mocked = new Set(mockedActions);
   return {
     ...manifest,
     actions: Object.fromEntries(
       Object.entries(manifest.actions).map(([name, action]) => [
         name,
-        {
-          ...action,
-          execution: "client" as const,
-          source: undefined,
-          sourceHash: undefined,
-        },
+        mocked.has(name)
+          ? {
+              ...action,
+              execution: "client" as const,
+              source: undefined,
+              sourceHash: undefined,
+            }
+          : action,
       ]),
     ),
   };
+}
+
+function testWarnings(
+  manifest: CompiledAgentManifest,
+  configuration: AgentTestCaseConfiguration,
+): AgentTestWarning[] {
+  const mocked = new Set(Object.keys(configuration.actions ?? {}));
+  const actions = Object.keys(manifest.actions)
+    .filter((name) => !mocked.has(name))
+    .sort();
+  if (actions.length === 0) {
+    return [];
+  }
+  return [
+    {
+      code: "live_actions",
+      actions,
+      message: `No mocks are configured for ${actions.join(", ")}. These actions will execute live if called and may cause side effects.`,
+    },
+  ];
 }
 
 async function runTestCase(
@@ -491,10 +590,11 @@ async function runTestCase(
   suiteId: string,
   projectRoot: string,
   storageDirectory: string,
+  warnings: AgentTestWarning[],
 ): Promise<AgentTestCaseReport> {
   const startedAt = performance.now();
   const actionIndexes = new Map<string, number>();
-  const actionNames = Object.keys(testCase.configuration.actions);
+  const actionNames = Object.keys(testCase.configuration.actions ?? {});
   let execution = agent.run({
     ...testCase.configuration.input,
     name: `${testCase.agent}/${testCase.name}`,
@@ -512,7 +612,7 @@ async function runTestCase(
   while (result.status === "waiting_for_client_action") {
     const toolResults = [];
     for (const call of result.clientToolCalls) {
-      const action = testCase.configuration.actions[call.name];
+      const action = testCase.configuration.actions?.[call.name];
       const index = actionIndexes.get(call.name) ?? 0;
       const response = action?.responses[index];
       if (!response) {
@@ -537,7 +637,20 @@ async function runTestCase(
   }
 
   const evaluations = await execution.evaluations;
-  const events = await store.read(result.sessionId);
+  let events = await store.read(result.sessionId);
+  if (warnings.length > 0) {
+    const warningWriter = new SessionEventWriter(
+      result.sessionId,
+      events,
+    );
+    await store.append(
+      result.sessionId,
+      warnings.map((warning) =>
+        warningWriter.create("test.warning", { ...warning }, "session"),
+      ),
+    );
+    events = await store.read(result.sessionId);
+  }
   const actualActions = actionCallsFromEvents(events);
   const assertions = evaluateAssertions(
     testCase.configuration,
@@ -576,6 +689,7 @@ async function runTestCase(
     ...(evaluations.length > 0
       ? { evaluations }
       : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
     assertions,
     ...(result.status === "failed"
       ? { error: result.error }
@@ -599,6 +713,7 @@ async function runTestCase(
         ...(report.evaluations
           ? { evaluations: report.evaluations }
           : {}),
+        ...(report.warnings ? { warnings: report.warnings } : {}),
         ...(report.error ? { error: report.error } : {}),
       },
       "session",
@@ -611,6 +726,18 @@ function actionCallsFromEvents(
   events: SessionEvent[],
 ): ActualActionCall[] {
   return events.flatMap((event) => {
+    if (
+      event.type === "action.requested" &&
+      typeof event.data.name === "string" &&
+      isRecord(event.data.arguments)
+    ) {
+      return [
+        {
+          name: event.data.name,
+          arguments: event.data.arguments,
+        },
+      ];
+    }
     if (
       event.type !== "client_action.requested" ||
       !Array.isArray(event.data.calls)
