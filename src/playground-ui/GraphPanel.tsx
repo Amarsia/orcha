@@ -11,8 +11,10 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { Button, KIND, SIZE } from "baseui/button";
+import { Spinner } from "baseui/spinner";
 import { useEffect, useState } from "react";
-import { listAgentTests } from "./api";
+import { listAgentTests, runAgentTests } from "./api";
 import type { AgentSource, AgentTest } from "./types";
 import {
   FlowNodeContent,
@@ -35,7 +37,13 @@ type GraphKind =
   | "action"
   | "evaluation";
 type OrchaGraphNode = Node<
-  { kind: GraphKind; label: string },
+  {
+    kind: GraphKind;
+    label: string;
+    onRun?: () => void;
+    running?: boolean;
+    testStatus?: "passed" | "failed" | "error";
+  },
   "orcha"
 >;
 
@@ -43,6 +51,10 @@ const nodeTypes = { orcha: OrchaNode };
 
 export function GraphPanel({ agent, revision }: Props) {
   const [tests, setTests] = useState<AgentTest[]>();
+  const [runningTest, setRunningTest] = useState<string>();
+  const [testStatuses, setTestStatuses] = useState<
+    Record<string, "passed" | "failed" | "error">
+  >({});
 
   useEffect(() => {
     setTests(undefined);
@@ -51,7 +63,32 @@ export function GraphPanel({ agent, revision }: Props) {
       .catch(() => setTests([]));
   }, [agent.key, revision]);
 
-  const graph = createGraph(agent, tests ?? []);
+  const runTest = async (test: string) => {
+    setRunningTest(test);
+    try {
+      const report = await runAgentTests(agent.key, test);
+      const result = report.cases.find((item) => item.name === test);
+      setTestStatuses((current) => ({
+        ...current,
+        [test]: result?.status ?? "error",
+      }));
+    } catch {
+      setTestStatuses((current) => ({
+        ...current,
+        [test]: "error",
+      }));
+    } finally {
+      setRunningTest(undefined);
+    }
+  };
+
+  const graph = createGraph(
+    agent,
+    tests ?? [],
+    runningTest,
+    testStatuses,
+    runTest,
+  );
 
   return (
     <GraphFlowFrame>
@@ -133,6 +170,41 @@ function OrchaNode({ data }: NodeProps<OrchaGraphNode>) {
             {data.kind === "test" ? "Test case" : data.kind}
           </FlowNodeType>
           <FlowNodeLabel>{data.label}</FlowNodeLabel>
+          {data.kind === "test" && data.onRun ? (
+            <Button
+              className="nodrag nopan"
+              size={SIZE.mini}
+              kind={KIND.tertiary}
+              disabled={data.running}
+              onClick={(event) => {
+                event.stopPropagation();
+                data.onRun?.();
+              }}
+              startEnhancer={() =>
+                data.running ? (
+                  <Spinner $size={10} />
+                ) : (
+                  <span aria-hidden>▶</span>
+                )
+              }
+              overrides={{
+                BaseButton: {
+                  style: {
+                    marginTop: "6px",
+                    paddingLeft: "4px",
+                    paddingRight: "4px",
+                  },
+                },
+              }}
+            >
+              Run
+            </Button>
+          ) : null}
+          {data.kind === "test" && data.testStatus ? (
+            <FlowNodeType style={{ marginTop: 3, marginBottom: 0 }}>
+              {data.testStatus}
+            </FlowNodeType>
+          ) : null}
         </FlowNodeContent>
       </FlowNodeShell>
     </>
@@ -142,6 +214,9 @@ function OrchaNode({ data }: NodeProps<OrchaGraphNode>) {
 function createGraph(
   agent: AgentSource,
   tests: AgentTest[],
+  runningTest: string | undefined,
+  testStatuses: Record<string, "passed" | "failed" | "error">,
+  onRunTest: (test: string) => void,
 ): { nodes: OrchaGraphNode[]; edges: Edge[] } {
   const rootId = `agent:${agent.key}`;
   const rootPosition = { x: 390, y: 260 };
@@ -149,7 +224,7 @@ function createGraph(
   const skillsStartX = rootPosition.x + 95 - skillsWidth / 2 - 95;
   const testsStartY =
     rootPosition.y -
-    (Math.max(0, tests.length - 1) * 86) / 2;
+    (Math.max(0, tests.length - 1) * 112) / 2;
   const subagentsStartY = 105;
   const actionsStartY =
     subagentsStartY + agent.subagents.length * 86 + 42;
@@ -170,8 +245,14 @@ function createGraph(
     ...tests.map((test, index) => ({
       id: `test:${test.name}`,
       type: "orcha" as const,
-      position: { x: 35, y: testsStartY + index * 86 },
-      data: { kind: "test" as const, label: test.name },
+      position: { x: 35, y: testsStartY + index * 112 },
+      data: {
+        kind: "test" as const,
+        label: test.name,
+        running: runningTest === test.name,
+        testStatus: testStatuses[test.name],
+        onRun: () => void onRunTest(test.name),
+      },
     })),
     ...agent.subagents.map((subagent, index) => ({
       id: `subagent:${subagent.key}`,

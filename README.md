@@ -627,9 +627,24 @@ expectations:
 }
 ```
 
-The test action keys must exactly match the agent's `/actions`. Tests never run
-the real local or client implementations; configured responses are submitted
-through the normal client-action pause/resume flow.
+For large or shared inputs, `input` may instead be a JSON file path relative to
+the test case directory:
+
+```json
+{
+  "input": "../../../../lakeview_input.json",
+  "expect": { "status": "completed" }
+}
+```
+
+The referenced file must contain the normal agent input object with `content`
+and optional `variables` and `metadata`.
+
+Actions included in the test's `actions` object use their configured mock
+responses. Unlisted local actions execute live and produce warnings in the
+terminal, report, session log, and Playground because they may cause side
+effects. Client actions must be mocked because the test runner has no attached
+application client. Unknown mock action names are rejected.
 
 Run every registered test programmatically:
 

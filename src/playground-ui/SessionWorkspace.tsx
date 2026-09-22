@@ -627,6 +627,17 @@ function EventTimeline({
             </Activity>
           );
         }
+        if (event.type === "test.warning") {
+          return (
+            <Activity
+              key={event.sequence}
+              title="Test warning"
+              status="live actions"
+            >
+              <Muted>{String(event.data.message ?? "")}</Muted>
+            </Activity>
+          );
+        }
         if (event.type === "run.started") {
           return (
             <Muted key={event.sequence} style={{ marginBottom: 12 }}>

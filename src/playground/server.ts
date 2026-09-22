@@ -225,6 +225,11 @@ async function routeRequest(context: RouteContext): Promise<void> {
         await runTests(orcha, {
           agent: segments[2],
           ...(test ? { test } : {}),
+          onWarning: (warning) => {
+            console.warn(
+              `[orcha playground] WARN ${warning.agent}/${warning.test}: ${warning.message}`,
+            );
+          },
         }),
       );
       return;

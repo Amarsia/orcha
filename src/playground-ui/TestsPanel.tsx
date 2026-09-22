@@ -119,6 +119,11 @@ export function TestsPanel({ agent, revision }: Props) {
                     </Muted>
                   ) : null}
                 </MetaRow>
+                {(report?.warnings ?? test.warnings)?.map((warning) => (
+                  <Muted key={`${warning.code}:${warning.actions.join(",")}`}>
+                    Warning: {warning.message}
+                  </Muted>
+                ))}
                 {report?.assertions
                   .filter((assertion) => !assertion.passed)
                   .map((assertion) => (

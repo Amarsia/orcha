@@ -2677,7 +2677,7 @@ test("runs registered agent tests with durable test-prefixed logs and simulated 
   }
 });
 
-test("rejects agent tests that do not define the complete action contract", async () => {
+test("requires client actions to be mocked in agent tests", async () => {
   const fixture = await createRuntimeFixture();
   try {
     const testsDirectory = resolve(
@@ -2704,7 +2704,85 @@ test("rejects agent tests that do not define the complete action contract", asyn
 
     await assert.rejects(
       () => runTests(fixture.client),
-      /missing actions: request_invoice_approval/,
+      /must mock client actions.*request_invoice_approval/,
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("runs unmocked local test actions live with durable warnings", async () => {
+  const fixture = await createRuntimeFixture(localActionResponse);
+  try {
+    const testsDirectory = resolve(
+      fixture.root,
+      "orcha/testAgent/tests/liveLocal",
+    );
+    await mkdir(testsDirectory, { recursive: true });
+    await writeFile(
+      resolve(testsDirectory, "../index.js"),
+      'export default { liveLocal: "./liveLocal" };\n',
+      "utf8",
+    );
+    await writeFile(
+      resolve(testsDirectory, "input.json"),
+      JSON.stringify({
+        content: "Calculate this invoice.",
+        metadata: { source: "json-fixture" },
+      }),
+      "utf8",
+    );
+    await writeFile(
+      resolve(testsDirectory, "index.json"),
+      JSON.stringify({
+        input: "./input.json",
+        actions: {
+          request_invoice_approval: { responses: [] },
+        },
+        expect: {
+          status: "completed",
+          text: { contains: ["$220"] },
+          actions: [
+            {
+              name: "calculate_invoice_total",
+              arguments: {
+                partial: { hours: 2, currency: "USD" },
+              },
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+    const observedWarnings = [];
+    const listed = await listTests(fixture.client);
+    assert.equal(listed[0].configuration.input, "./input.json");
+    const report = await runTests(fixture.client, {
+      onWarning: (warning) => observedWarnings.push(warning),
+    });
+
+    assert.equal(report.status, "passed");
+    assert.deepEqual(report.cases[0].warnings?.[0].actions, [
+      "calculate_invoice_total",
+    ]);
+    assert.deepEqual(observedWarnings[0].actions, [
+      "calculate_invoice_total",
+    ]);
+    const events = await readSessionEvents(
+      fixture.root,
+      report.cases[0].sessionId,
+    );
+    assert.equal(
+      events.some(
+        (event) =>
+          event.type === "action.completed" &&
+          event.data.name === "calculate_invoice_total",
+      ),
+      true,
+    );
+    assert.equal(
+      events.some((event) => event.type === "test.warning"),
+      true,
     );
   } finally {
     await fixture.dispose();
