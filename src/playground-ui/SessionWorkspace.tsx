@@ -651,11 +651,19 @@ function EventTimeline({
           event.type === "run.failed" ||
           event.type === "run.paused"
         ) {
+          const error = isRecord(event.data.error)
+            ? event.data.error.message
+            : undefined;
           return (
-            <Muted key={event.sequence} style={{ marginBottom: 12 }}>
-              {event.type.replace(".", " ")} ·{" "}
-              {String(event.data.status ?? "")}
-            </Muted>
+            <div key={event.sequence} style={{ marginBottom: 12 }}>
+              <Muted>
+                {event.type.replace(".", " ")} ·{" "}
+                {String(event.data.status ?? "")}
+              </Muted>
+              {typeof error === "string" ? (
+                <Muted style={{ marginTop: 4 }}>{error}</Muted>
+              ) : null}
+            </div>
           );
         }
         return null;
