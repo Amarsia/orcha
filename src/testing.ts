@@ -146,10 +146,38 @@ export async function runTests(
         // Warning observers cannot interrupt a test run.
       }
     }
-    const store = new NodeJsonlSessionStore(
-      storageDirectory,
-      context.projectRoot,
-      manifest.key ?? manifest.name,
+    const createStore = (agentManifest: CompiledAgentManifest) =>
+      new NodeJsonlSessionStore(
+        storageDirectory,
+        context.projectRoot,
+        agentManifest.key ?? agentManifest.name,
+      );
+    const store = createStore(manifest);
+    const activeSessions = new Set<string>();
+    const sessionControls = new Map<
+      string,
+      {
+        pauseRequested: boolean;
+        controller: AbortController;
+      }
+    >();
+    const subagents = Object.fromEntries(
+      Object.entries(manifest.subagents ?? {}).map(
+        ([name, subagentManifest]) => [
+          name,
+          new RuntimeAgent({
+            manifest: subagentManifest,
+            configuration: context.configuration,
+            store: createStore(subagentManifest),
+            activeSessions,
+            sessionControls,
+            generateProviderResponse: context.generateProviderResponse,
+            delegatedOnly: true,
+            sessionIdPrefix: "ses_test_",
+            projectRoot: context.projectRoot,
+          }),
+        ],
+      ),
     );
     const agent = new RuntimeAgent({
       manifest: withTestActions(
@@ -158,8 +186,10 @@ export async function runTests(
       ),
       configuration: context.configuration,
       store,
-      activeSessions: new Set(),
+      activeSessions,
+      sessionControls,
       generateProviderResponse: context.generateProviderResponse,
+      subagents,
       sessionIdPrefix: "ses_test_",
       projectRoot: context.projectRoot,
     });
