@@ -17,7 +17,7 @@ This directory is a small consumer project used to exercise the local
 The playground reads its API keys from the environment, and its generated
 `.orcha` runtime directory is ignored by git.
 
-Run `npm run test:agents:local` to load `.env` and execute the registered test
+Run `npm run test:agents:local` to load `.env` and execute every enabled test
 for every playground agent. In CI, provide credentials through environment
 secrets and run `npm run test:agents` before `npm run build`. Test reports
 include their session IDs, and each full log is written to

@@ -23,9 +23,6 @@ orcha.init({
       location: process.env.GOOGLE_CLOUD_LOCATION ?? "us-central1",
     },
   },
-  actions: {
-    runtime: "native",
-  },
   agents: {
     invoiceBot: "./invoiceBot",
     // complianceBot: "./complianceBot",

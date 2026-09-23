@@ -26,12 +26,13 @@ or types are available.
 
 ## Work in this order
 
-1. Inspect `orcha/index.ts` and the relevant registered agent folders.
+1. Inspect `orcha/index.ts` and the relevant agent folders.
 2. Identify whether the task changes configuration, instructions, actions,
    skills, tests, evaluations, subagents, or application integration.
 3. Make the smallest complete change while preserving provider-neutral runtime
    behavior.
-4. Update registrations whenever adding an agent, skill, test, or evaluation.
+4. Register agents and subagents explicitly. Actions, skills, tests, and
+   evaluations are auto-discovered from their direct child folders.
 5. Validate with the narrowest relevant offline command first.
 6. Explain before running commands that invoke providers, consume tokens, or
    execute live actions.
@@ -57,7 +58,8 @@ orcha/
 - `index.json` contains model-facing configuration.
 - `instructions.md` contains stable agent behavior and boundaries.
 - Actions have aligned metadata, schemas, and implementations.
-- Skills, tests, and evaluations are included through their local registries.
+- Actions, skills, tests, and evaluations are auto-discovered. Set
+  `"enabled": false` in an item's `index.json` to keep WIP inactive.
 - Credentials belong in environment variables, never committed configuration,
   prompts, metadata, fixtures, or session logs.
 
@@ -67,7 +69,8 @@ orcha/
 - `agent.resume(sessionId, ...)` continues an existing session.
 - Resolve every pending client-action call exactly once using its returned
   `callId`.
-- Local actions execute through the configured native or sandbox runtime.
+- Local actions use the native runtime by default; configure sandbox execution
+  explicitly when isolation is required.
   Client actions execute in the calling application.
 - Parent agents may invoke only explicitly registered subagents. Parent and
   child sessions remain separate and linked.
@@ -110,7 +113,8 @@ Use existing project scripts when they wrap these commands.
 
 ## Completion checklist
 
-- New filesystem entries are explicitly registered.
+- New agents and subagents are explicitly registered; agent-owned items are
+  auto-discovered and intentionally enabled or disabled.
 - Schemas, implementations, and instructions agree.
 - No credentials or generated session data were added.
 - Provider-consuming or side-effecting verification was not run silently.

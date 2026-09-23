@@ -71,7 +71,7 @@ An agent is a folder and the folder is the source of truth.
 
 Agent-owned deterministic test cases live under each agent's `/tests` folder.
 
-- Require `tests/index.js` to register every test case by name and folder path.
+- Auto-discover direct test-case folders and support `enabled: false` for WIP.
 - Define each case's input, variables, metadata, action responses, and expected
   behavior in the case folder's `index.json`.
 - Require every compiled agent action to have a test action definition in each
@@ -86,7 +86,7 @@ Agent-owned deterministic test cases live under each agent's `/tests` folder.
 - Store complete JSONL logs beside normal sessions as
   `.orcha/sessions/<agentName>/ses_test_<timestamp>_<uuid>.jsonl`, ending with a durable
   `test.completed` event containing the assertion results.
-- Export `runTests()` from `orchajs/testing` to run every registered test.
+- Export `runTests()` from `orchajs/testing` to run every enabled test.
 - Run registered suites explicitly through `runTests()` before production
   builds in CI; keep `orcha build` offline and credential-free.
 - Produce machine-readable reports with suite and case status, assertions,
@@ -111,8 +111,7 @@ Completion criteria:
 Agent-owned skills provide specialized instructions without placing every
 procedure in the base system prompt.
 
-- Require `skills/index.js` to register the skill folders compiled for an
-  agent.
+- Auto-discover direct skill folders and support `enabled: false` for WIP.
 - Define compact model-facing names, descriptions, and optional trigger
   guidance in each skill's `index.json`.
 - Keep detailed procedures in each skill's `instructions.md`.
@@ -123,13 +122,13 @@ procedure in the base system prompt.
 - Persist `skill.requested`, `skill.loaded`, and `skill.failed` lifecycle
   events, with successful loads remaining active across `resume()` calls and
   provider changes.
-- Ignore unregistered skill folders and reject invalid paths, metadata, empty
+- Ignore disabled skill folders and reject invalid metadata, empty
   instructions, duplicate names, and reserved action-name collisions.
 
 Completion criteria:
 
-- Production bundles contain exactly the skills registered for each compiled
-  agent.
+- Production bundles contain exactly the enabled skills discovered for each
+  compiled agent.
 - Full skill instructions are absent from model context until loaded.
 - Loading a skill continues the existing model loop without application
   intervention.
@@ -140,8 +139,7 @@ Completion criteria:
 
 Add repeatable quality measurement under each agent's `/evaluations` folder.
 
-- Require `evaluations/index.js` to register the evaluations compiled for an
-  agent.
+- Auto-discover direct evaluation folders and support `enabled: false` for WIP.
 - Define each LLM judge, model, predefined metrics, and per-metric thresholds
   in the registered folder's `index.json`.
 - Run every enabled evaluation against the cumulative durable session after
@@ -157,7 +155,7 @@ Add repeatable quality measurement under each agent's `/evaluations` folder.
 - Resolve `execution.result` as soon as agent work completes, run judges in
   the background, and expose `execution.evaluations` for callers that choose
   to await the outcomes.
-- Apply registered evaluations to agent tests and fail the test when a metric
+- Apply enabled evaluations to agent tests and fail the test when a metric
   threshold is missed or its judge fails.
 
 Completion criteria:

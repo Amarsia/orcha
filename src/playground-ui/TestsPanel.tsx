@@ -81,7 +81,7 @@ export function TestsPanel({ agent, revision }: Props) {
                 key={test.name}
                 title={
                   <MetaRow>
-                    <Title>{test.name}</Title>
+                    <Title>{test.displayName ?? test.name}</Title>
                     {report ? (
                       <Tag
                         closeable={false}

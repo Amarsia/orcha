@@ -1,7 +1,6 @@
 {
   "name": "lookup_service_health",
   "description": "Retrieve current health and latency telemetry for a service.",
-  "execution": "local",
   "parameters": {
     "type": "object",
     "properties": {

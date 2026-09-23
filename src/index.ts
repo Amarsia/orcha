@@ -4,8 +4,6 @@ export type { Orcha, OrchaClient } from "./orcha.js";
 export { NodeJsonlSessionStore } from "./storage/node-jsonl.js";
 export type {
   ActionConfiguration,
-  AgentEvaluationRegistrations,
-  AgentSkillRegistrations,
   AgentTestActionConfiguration,
   AgentTestActionExpectation,
   AgentTestActionResponse,
@@ -14,7 +12,6 @@ export type {
   AgentTestCaseReport,
   AgentTestCaseSummary,
   AgentTestExpectation,
-  AgentTestRegistrations,
   AgentTestReport,
   AgentTestTextExpectation,
   AgentTestValueExpectation,

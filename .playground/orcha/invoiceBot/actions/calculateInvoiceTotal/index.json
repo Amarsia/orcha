@@ -1,7 +1,6 @@
 {
   "name": "calculate_invoice_total",
   "description": "Calculate invoice subtotal, tax, and total.",
-  "execution": "local",
   "parameters": {
     "type": "object",
     "properties": {

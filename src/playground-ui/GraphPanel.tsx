@@ -218,9 +218,12 @@ function createGraph(
   testStatuses: Record<string, "passed" | "failed" | "error">,
   onRunTest: (test: string) => void,
 ): { nodes: OrchaGraphNode[]; edges: Edge[] } {
+  const skills = agent.skills.filter((item) => item.enabled);
+  const actions = agent.actions.filter((item) => item.enabled);
+  const evaluations = agent.evaluations.filter((item) => item.enabled);
   const rootId = `agent:${agent.key}`;
   const rootPosition = { x: 390, y: 260 };
-  const skillsWidth = Math.max(0, agent.skills.length - 1) * 215;
+  const skillsWidth = Math.max(0, skills.length - 1) * 215;
   const skillsStartX = rootPosition.x + 95 - skillsWidth / 2 - 95;
   const testsStartY =
     rootPosition.y -
@@ -229,10 +232,10 @@ function createGraph(
   const actionsStartY =
     subagentsStartY + agent.subagents.length * 86 + 42;
   const rightColumnBottom =
-    actionsStartY + Math.max(0, agent.actions.length - 1) * 86 + 68;
+    actionsStartY + Math.max(0, actions.length - 1) * 86 + 68;
   const evaluationsY = Math.max(500, rightColumnBottom + 70);
   const evaluationsWidth =
-    Math.max(0, agent.evaluations.length - 1) * 215;
+    Math.max(0, evaluations.length - 1) * 215;
   const evaluationsStartX =
     rootPosition.x + 95 - evaluationsWidth / 2 - 95;
   const nodes: OrchaGraphNode[] = [
@@ -248,7 +251,7 @@ function createGraph(
       position: { x: 35, y: testsStartY + index * 112 },
       data: {
         kind: "test" as const,
-        label: test.name,
+        label: test.displayName ?? test.name,
         running: runningTest === test.name,
         testStatus: testStatuses[test.name],
         onRun: () => void onRunTest(test.name),
@@ -260,19 +263,19 @@ function createGraph(
       position: { x: 760, y: subagentsStartY + index * 86 },
       data: { kind: "subagent" as const, label: subagent.name },
     })),
-    ...agent.skills.map((skill, index) => ({
+    ...skills.map((skill, index) => ({
       id: `skill:${skill.key}`,
       type: "orcha" as const,
       position: { x: skillsStartX + index * 215, y: 55 },
       data: { kind: "skill" as const, label: skill.name },
     })),
-    ...agent.actions.map((action, index) => ({
+    ...actions.map((action, index) => ({
       id: `action:${action.key}`,
       type: "orcha" as const,
       position: { x: 760, y: actionsStartY + index * 86 },
       data: { kind: "action" as const, label: action.name },
     })),
-    ...agent.evaluations.map((evaluation, index) => ({
+    ...evaluations.map((evaluation, index) => ({
       id: `evaluation:${evaluation.key}`,
       type: "orcha" as const,
       position: {
@@ -298,19 +301,19 @@ function createGraph(
       sourceHandle: "subagents",
       target: `subagent:${subagent.key}`,
     })),
-    ...agent.skills.map((skill) => ({
+    ...skills.map((skill) => ({
       id: `skill:${skill.key}->${rootId}`,
       source: `skill:${skill.key}`,
       target: rootId,
       targetHandle: "skills",
     })),
-    ...agent.actions.map((action) => ({
+    ...actions.map((action) => ({
       id: `${rootId}->action:${action.key}`,
       source: rootId,
       sourceHandle: "actions",
       target: `action:${action.key}`,
     })),
-    ...agent.evaluations.map((evaluation) => ({
+    ...evaluations.map((evaluation) => ({
       id: `${rootId}->evaluation:${evaluation.key}`,
       source: rootId,
       sourceHandle: "evaluations",

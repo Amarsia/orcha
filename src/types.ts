@@ -110,7 +110,8 @@ export interface AgentConfiguration {
 export interface ActionConfiguration {
   name: string;
   description: string;
-  execution: "client" | "local";
+  enabled?: boolean;
+  execution?: "client" | "local";
   parameters: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
   permissions?: {
@@ -121,17 +122,18 @@ export interface ActionConfiguration {
   sideEffect?: boolean;
 }
 
-export interface CompiledActionManifest extends ActionConfiguration {
+export interface CompiledActionManifest
+  extends Omit<ActionConfiguration, "execution"> {
+  execution: "client" | "local";
   directoryName: string;
   source?: string;
   sourceHash?: string;
 }
 
-export type AgentSkillRegistrations = Record<string, string>;
-
 export interface SkillConfiguration {
   name: string;
   description: string;
+  enabled?: boolean;
   triggers?: string[];
 }
 
@@ -139,8 +141,6 @@ export interface CompiledSkillManifest extends SkillConfiguration {
   directoryName: string;
   instructions: string;
 }
-
-export type AgentEvaluationRegistrations = Record<string, string>;
 
 export interface EvaluationMetricConfiguration {
   name: string;
@@ -569,8 +569,6 @@ export interface AgentRuntime {
   ): Promise<SessionSnapshot>;
 }
 
-export type AgentTestRegistrations = Record<string, string>;
-
 export interface AgentTestActionResponse {
   output: unknown;
   isError?: boolean;
@@ -603,7 +601,9 @@ export interface AgentTestExpectation {
 }
 
 export interface AgentTestCaseConfiguration {
+  name?: string;
   description?: string;
+  enabled?: boolean;
   input:
     | {
         content: AgentContentInput;
@@ -657,6 +657,7 @@ export interface AgentTestReport {
 export interface AgentTestCaseSummary {
   agent: string;
   name: string;
+  displayName?: string;
   description?: string;
   warnings?: AgentTestWarning[];
   configuration: AgentTestCaseConfiguration;

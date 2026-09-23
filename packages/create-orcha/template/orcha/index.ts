@@ -4,9 +4,6 @@ orcha.init({
   providers: {
     openai: process.env.OPENAI_API_KEY ?? "",
   },
-  actions: {
-    runtime: "native",
-  },
   agents: {
     approvalAgent: "./approvalAgent",
     assistant: {

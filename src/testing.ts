@@ -1,14 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { existsSync, readdirSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import {
   isAbsolute,
   relative,
   resolve,
   sep,
 } from "node:path";
-import { pathToFileURL } from "node:url";
-import { build as bundleEntry } from "esbuild";
 import { RuntimeAgent } from "./runtime/agent.js";
 import { getOrchaRuntimeContext } from "./runtime/context.js";
 import type { OrchaClient } from "./runtime/create-orcha.js";
@@ -22,7 +20,6 @@ import type {
   AgentTestCaseConfiguration,
   AgentTestCaseReport,
   AgentTestCaseSummary,
-  AgentTestRegistrations,
   AgentTestReport,
   AgentTestValueExpectation,
   AgentTestWarning,
@@ -52,53 +49,31 @@ interface ActualActionCall {
   arguments: Record<string, unknown>;
 }
 
-export function defineTests<
-  const Registrations extends AgentTestRegistrations,
->(registrations: Registrations): Registrations {
-  return registrations;
-}
-
 export async function listTests(
   orcha: OrchaClient,
   options: RunTestsOptions = {},
 ): Promise<AgentTestCaseSummary[]> {
   const context = getOrchaRuntimeContext(orcha);
-  const temporaryBuildDirectory = resolve(
+  const cases = await discoverTests(
     context.projectRoot,
-    ".orcha/.test-build",
-    `list_${randomUUID()}`,
+    context.registrations,
+    context.bundle.agents,
+    options,
   );
-  const registryBuildDirectory = resolve(
-    temporaryBuildDirectory,
-    "registries",
-  );
-  try {
-    const cases = await discoverTests(
-      context.projectRoot,
-      context.registrations,
-      context.bundle.agents,
-      options,
-      registryBuildDirectory,
+  return cases.map((testCase) => {
+    const warnings = testWarnings(
+      context.bundle.agents[testCase.agent],
+      testCase.configuration,
     );
-    return cases.map((testCase) => {
-      const warnings = testWarnings(
-        context.bundle.agents[testCase.agent],
-        testCase.configuration,
-      );
-      return {
-        agent: testCase.agent,
-        name: testCase.name,
-        description: testCase.configuration.description,
-        ...(warnings.length > 0 ? { warnings } : {}),
-        configuration: testCase.sourceConfiguration,
-      };
-    });
-  } finally {
-    await rm(temporaryBuildDirectory, {
-      recursive: true,
-      force: true,
-    });
-  }
+    return {
+      agent: testCase.agent,
+      name: testCase.name,
+      displayName: testCase.configuration.name?.trim(),
+      description: testCase.configuration.description,
+      ...(warnings.length > 0 ? { warnings } : {}),
+      configuration: testCase.sourceConfiguration,
+    };
+  });
 }
 
 export async function runTests(
@@ -108,27 +83,12 @@ export async function runTests(
   const context = getOrchaRuntimeContext(orcha);
   const suiteId = `tst_${Date.now()}_${randomUUID()}`;
   const startedAt = performance.now();
-  const registryBuildDirectory = resolve(
+  const cases = await discoverTests(
     context.projectRoot,
-    ".orcha/.test-build",
-    suiteId,
-    "registries",
+    context.registrations,
+    context.bundle.agents,
+    options,
   );
-  let cases: DiscoveredTestCase[];
-  try {
-    cases = await discoverTests(
-      context.projectRoot,
-      context.registrations,
-      context.bundle.agents,
-      options,
-      registryBuildDirectory,
-    );
-  } finally {
-    await rm(registryBuildDirectory, {
-      recursive: true,
-      force: true,
-    });
-  }
   const reports: AgentTestCaseReport[] = [];
   const storageDirectory =
     context.configuration.storage?.directory ?? ".orcha/sessions";
@@ -225,7 +185,6 @@ async function discoverTests(
   registrations: Record<string, AgentRegistration>,
   manifests: Record<string, CompiledAgentManifest>,
   options: RunTestsOptions,
-  registryBuildDirectory: string,
 ): Promise<DiscoveredTestCase[]> {
   if (options.agent && !manifests[options.agent]) {
     throw new Error(`Unknown agent "${options.agent}".`);
@@ -246,23 +205,24 @@ async function discoverTests(
         : registeredPath.path,
       "tests",
     );
-    const registryPath = resolve(testsDirectory, "index.js");
-    if (!existsSync(registryPath)) {
+    if (!existsSync(testsDirectory)) {
       continue;
     }
+    if (existsSync(resolve(testsDirectory, "index.js"))) {
+      throw new Error(
+        `Agent "${agentName}" tests/index.js is no longer supported. Remove the registry; test folders are discovered automatically and can be disabled with "enabled": false.`,
+      );
+    }
 
-    const registrations = await loadTestRegistrations(
-      registryPath,
-      agentName,
-      registryBuildDirectory,
-    );
-    for (const [testName, testPath] of Object.entries(
-      registrations,
-    )) {
+    const testNames = readdirSync(testsDirectory, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .map((entry) => entry.name)
+      .sort();
+    for (const testName of testNames) {
       if (options.test && options.test !== testName) {
         continue;
       }
-      const sourceDirectory = resolve(testsDirectory, testPath);
+      const sourceDirectory = resolve(testsDirectory, testName);
       assertInsideDirectory(
         testsDirectory,
         sourceDirectory,
@@ -273,6 +233,14 @@ async function discoverTests(
         agentName,
         testName,
       );
+      validateEnabledTestConfiguration(
+        agentName,
+        testName,
+        sourceConfiguration,
+      );
+      if (sourceConfiguration.enabled === false) {
+        continue;
+      }
       const configuration = await resolveTestInput(
         sourceConfiguration,
         sourceDirectory,
@@ -299,67 +267,10 @@ async function discoverTests(
       ? ` for agent "${options.agent}"`
       : "";
     throw new Error(
-      `Unknown registered test "${options.test}"${scope}.`,
+      `Unknown or disabled test "${options.test}"${scope}.`,
     );
   }
   return discovered;
-}
-
-async function loadTestRegistrations(
-  registryPath: string,
-  agentName: string,
-  registryBuildDirectory: string,
-): Promise<AgentTestRegistrations> {
-  let loaded: unknown;
-  const bundledRegistryPath = resolve(
-    registryBuildDirectory,
-    `${randomUUID()}.mjs`,
-  );
-  try {
-    await mkdir(registryBuildDirectory, { recursive: true });
-    await bundleEntry({
-      entryPoints: [registryPath],
-      outfile: bundledRegistryPath,
-      bundle: true,
-      format: "esm",
-      platform: "node",
-      target: "node20",
-      packages: "external",
-      logLevel: "silent",
-    });
-    const module = (await import(
-      `${pathToFileURL(bundledRegistryPath).href}?time=${Date.now()}`
-    )) as { default?: unknown };
-    loaded = module.default;
-  } catch (error) {
-    throw new Error(
-      `Agent "${agentName}" has an invalid tests/index.js.`,
-      { cause: error },
-    );
-  } finally {
-    await rm(bundledRegistryPath, { force: true });
-  }
-  if (!isRecord(loaded)) {
-    throw new Error(
-      `Agent "${agentName}" tests/index.js must default export an object.`,
-    );
-  }
-
-  const registrations: AgentTestRegistrations = {};
-  for (const [name, path] of Object.entries(loaded)) {
-    if (!name.trim()) {
-      throw new Error(
-        `Agent "${agentName}" has an empty registered test name.`,
-      );
-    }
-    if (typeof path !== "string" || !path.trim()) {
-      throw new Error(
-        `Test "${agentName}/${name}" must register a folder path.`,
-      );
-    }
-    registrations[name] = path;
-  }
-  return registrations;
 }
 
 async function loadTestConfiguration(
@@ -411,6 +322,30 @@ async function resolveTestInput(
     ...configuration,
     input: input as ResolvedTestCaseConfiguration["input"],
   };
+}
+
+function validateEnabledTestConfiguration(
+  agentName: string,
+  testName: string,
+  configuration: AgentTestCaseConfiguration,
+): void {
+  const label = `Test "${agentName}/${testName}"`;
+  if (!isRecord(configuration)) {
+    throw new Error(`${label} configuration must be an object.`);
+  }
+  if (
+    configuration.enabled !== undefined &&
+    typeof configuration.enabled !== "boolean"
+  ) {
+    throw new Error(`${label} enabled must be a boolean.`);
+  }
+  if (
+    configuration.name !== undefined &&
+    (typeof configuration.name !== "string" ||
+      !configuration.name.trim())
+  ) {
+    throw new Error(`${label} name must be a non-empty string.`);
+  }
 }
 
 function validateTestCase(
