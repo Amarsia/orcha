@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.12.2
+
+### Patch Changes
+
+- [#61](https://github.com/Amarsia/orcha/pull/61) [`f602cc5`](https://github.com/Amarsia/orcha/commit/f602cc52d7ec857df06f0c74bd361f1f67180d30) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Add an installable `orchajs` coding-agent skill with version-aware guidance for creating, configuring, testing, debugging, and operating Orcha agents. Include a self-contained framework reference for projects without a generated `orcha/AGENTS.md`, and document installation and updates through the open Skills CLI.
+
 ## 0.12.1
 
 ### Patch Changes
