@@ -210,6 +210,19 @@ npm install orchajs
 npx orcha init
 ```
 
+Install the OrchaJS skill to give supported coding agents version-aware Orcha
+workflows:
+
+```bash
+npx skills add Amarsia/orcha
+```
+
+Refresh an existing installation after Orcha documentation changes:
+
+```bash
+npx skills update orchajs
+```
+
 ```js
 // Import the consumer registry once from the application entrypoint.
 import './orcha/index.js';
