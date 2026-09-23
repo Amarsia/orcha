@@ -1,7 +1,6 @@
 {
   "name": "lookup_security_control",
   "description": "Retrieve the latest evidence recorded for a security control.",
-  "execution": "local",
   "parameters": {
     "type": "object",
     "properties": {

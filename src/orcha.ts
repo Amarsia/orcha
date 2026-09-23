@@ -24,7 +24,7 @@ export const orcha = createOrcha(
     return compileRegistry(
       configuration.agents,
       registryRoot,
-      configuration.actions?.runtime,
+      configuration.actions?.runtime ?? "native",
     );
   },
   generateProviderResponse,

@@ -1,7 +1,6 @@
 {
   "name": "send_invoice_email",
   "description": "Send an approved invoice by email.",
-  "execution": "local",
   "parameters": {
     "type": "object",
     "properties": {

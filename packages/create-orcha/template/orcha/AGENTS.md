@@ -7,14 +7,14 @@ files under `.orcha/`.
 ## Commands
 
 - `orcha init` creates the initial Orcha files without overwriting files.
-- `orcha dev` validates the registry and watches `orcha/**` for changes.
+- `orcha dev` validates agent source and watches `orcha/**` for changes.
 - `orcha playground` opens the built-in local UI and hot reloads agent source.
 - `orcha run <agent> --input "…"` executes one registered agent.
 - `orcha run <agent> --input-file request.json` accepts structured input.
 - `orcha run <agent> --session <id> --input "…"` continues a session.
 - `orcha run <agent> --session <id> --tool-results results.json` submits
   pending client-action results.
-- `orcha test` runs every registered agent test.
+- `orcha test` runs every enabled discovered agent test.
 - `orcha test <agent>` or `orcha test <agent>/<case>` narrows the run.
 - `orcha build` creates the production Orcha bundle without calling models.
 - Add `--json` to `run` and `test` for machine-readable output.
@@ -35,17 +35,16 @@ orcha.init({
     anthropic: process.env.ANTHROPIC_API_KEY ?? "",
     openai: process.env.OPENAI_API_KEY ?? "",
   },
-  actions: { runtime: "native" },
   agents: {
     supportBot: "./supportBot",
   },
 });
 ```
 
-Only registered folders are compiled. Agent keys become runtime properties
-such as `orcha.supportBot`. Use `actions.runtime: "sandbox"` for isolated
-local action execution or `"native"` when the application intentionally
-allows action modules to execute in its Node.js process.
+Only registered agents are compiled. Agent keys become runtime properties
+such as `orcha.supportBot`. Local actions use the native Node.js runtime by
+default. Set `actions.runtime: "sandbox"` only when isolated execution is
+required.
 
 `orcha.init()` fields:
 
@@ -53,8 +52,8 @@ allows action modules to execute in its Node.js process.
   name.
 - `agents` (required): runtime property names mapped to folders relative to
   `orcha/`. At least one agent is required.
-- `actions` (required only when a registered agent has local actions):
-  selects the local execution runtime and its environment/sandbox settings.
+- `actions` (optional): overrides the native local-action runtime or configures
+  its environment and sandbox settings.
 - `storage.strategy` (optional): currently only `"node-jsonl"`.
 - `storage.directory` (optional): session directory relative to project
   root; defaults to `.orcha/sessions`.
@@ -363,7 +362,6 @@ actions/
 {
   "name": "lookup_account",
   "description": "Look up one account.",
-  "execution": "local",
   "parameters": {
     "type": "object",
     "properties": {
@@ -402,8 +400,10 @@ Action `index.json` fields:
 - `name` (required): model-facing tool name, 1–64 letters, numbers,
   underscores, or hyphens. `load_skill` is reserved.
 - `description` (required): tells the model when and why to call the action.
-- `execution` (required): `"local"` executes `index.js`; `"client"`
-  pauses the run and delegates execution to the application.
+- `enabled` (optional): defaults to `true`. Set to `false` to keep a WIP
+  action inactive without deleting its folder.
+- `execution` (optional): defaults to `"local"`, which executes `index.js`.
+  Set to `"client"` to pause and delegate execution to the application.
 - `parameters` (required): JSON Schema for model-generated arguments.
 - `outputSchema` (optional): JSON Schema validated against local or submitted
   client output before the model receives it.
@@ -432,7 +432,7 @@ Global local-action configuration:
 
 ```ts
 actions: {
-  runtime: "sandbox", // required when any registered action is local
+  runtime: "sandbox", // optional; native is the default
   env: {
     BILLING_API_TOKEN: process.env.BILLING_API_TOKEN,
   },
@@ -450,18 +450,9 @@ allowlisted `env`, guarded `fetch`, and prefixed `log`.
 
 ## Skills
 
-Skills are lazy-loaded procedural instructions. Register only intended skills:
-
-```js
-// skills/index.js
-import { defineSkills } from "orchajs/skills";
-
-export default defineSkills({
-  incidentTriage: "./incidentTriage",
-});
-```
-
-Each skill folder contains `index.json` metadata and `instructions.md`.
+Skills are lazy-loaded procedural instructions. Direct child folders under
+`skills/` are discovered automatically. Each folder contains `index.json`
+metadata and `instructions.md`.
 The model receives a compact catalog and can call the internal `load_skill`
 tool. Loaded instructions remain active for the durable session. Lifecycle
 events are `skill.requested`, `skill.loaded`, and `skill.failed`.
@@ -471,27 +462,19 @@ Skill `index.json` fields:
 - `name` (required): model-facing name, 1–64 letters, numbers, underscores,
   or hyphens; unique within the agent.
 - `description` (required): compact catalog description shown before loading.
+- `enabled` (optional): defaults to `true`. Set to `false` to keep a WIP
+  skill inactive.
 - `triggers` (optional): non-empty array of non-empty situations describing
   when the model should load the skill.
 
-`instructions.md` is required and cannot be empty. The key in
-`skills/index.js` is only a registration label; `index.json.name` is the
-name used by the model and durable events. Unregistered folders are ignored.
+`instructions.md` is required and cannot be empty for enabled skills.
+`index.json.name` is the name used by the model and durable events.
 
 ## Tests
 
-Register tests in `tests/index.js`:
-
-```js
-import { defineTests } from "orchajs/testing";
-
-export default defineTests({
-  activeAccount: "./activeAccount",
-});
-```
-
-Each case's `index.json` defines `input`, optional mocked action responses,
-and `expect`. Tests run the real compiled agent and provider. Actions listed
+Direct child folders under `tests/` are discovered automatically. Each
+case's `index.json` defines `input`, optional mocked action responses, and
+`expect`. Tests run the real compiled agent and provider. Actions listed
 under `actions` are mocked; unlisted local actions execute live. Orcha reports
 live action use in the terminal, test report, and session trace.
 Client actions must always be mocked because no application client is attached
@@ -526,7 +509,11 @@ through action-argument assertions.
 
 Test `index.json` fields:
 
+- `name` (optional): friendly display name. The folder name remains the CLI
+  selector.
 - `description` (optional): human-readable purpose.
+- `enabled` (optional): defaults to `true`. Set to `false` to keep a WIP test
+  inactive.
 - `input` (required): an inline agent input object or a path to a JSON file
   containing that object. Relative paths resolve from the test case directory.
 - `input.content` (required for inline input): string or multimodal content
@@ -548,15 +535,13 @@ Test `index.json` fields:
 - `expect.actions` (optional): ordered expected calls. Each may assert
   `arguments.equals` or `arguments.partial`.
 
-The registration key in `tests/index.js` is the test selector used by
-`orcha test agent/testName`; its value resolves to the case folder.
+The test folder name is the selector used by `orcha test agent/testName`.
 
 ## Evaluations
 
-Evaluations are asynchronous LLM judges registered in
-`evaluations/index.js` with `defineEvaluations` from
-`orchajs/evaluations`. Each folder's `index.json` defines its provider,
-model, metrics, and thresholds:
+Evaluations are asynchronous LLM judges discovered from direct child folders
+under `evaluations/`. Each folder's `index.json` defines its provider, model,
+metrics, and thresholds:
 
 ```json
 {
@@ -589,8 +574,8 @@ Evaluation `index.json` fields:
 - `description` (optional): short human-facing summary of the evaluator.
 - `instructions` (optional): detailed prompt supplied to the judge. When
   omitted, `description` is used for backward compatibility.
-- `enabled` (optional): defaults to `true`. Disabled evaluations are
-  compiled but do not run.
+- `enabled` (optional): defaults to `true`. Disabled evaluations are ignored
+  by compilation and runtime.
 - `provider` and `model` (required): independently select the judge. The
   provider must also exist in `orcha.init().providers`.
 - `maxTokens` (optional): positive integer; defaults to 2000 for judges.
@@ -974,8 +959,9 @@ number. A conversational `resume(...content)` starts a new run number.
 1. `orcha/index.ts` calls `orcha.init()` with explicit agent paths.
 2. The compiler reads each registered agent's `index.json` and
    `instructions.md`.
-3. Every directory under `actions/` is compiled. Skills, tests, and
-   evaluations are included only through their local `index.js` registry.
+3. Direct child folders under `actions/`, `skills/`, `tests/`, and
+   `evaluations/` are discovered automatically. Items with `"enabled": false`
+   remain inactive.
 4. Local action source is bundled and SHA-256 hashed. Production bundles keep
    only provider adapters required by agents and enabled evaluations.
 5. Invalid paths, duplicate model-facing names, missing files, unsupported
@@ -1056,7 +1042,8 @@ needed for faithful continuation but are omitted from evaluation transcripts.
 
 ## Change rules
 
-- Register every new agent, skill, test, and evaluation explicitly.
+- Register every new agent and subagent explicitly. Agent-owned actions, skills,
+  tests, and evaluations are auto-discovered; use `"enabled": false` for WIP.
 - Keep runtime behavior provider-neutral.
 - Mock actions when tests must avoid side effects; document intentional live
   action coverage.

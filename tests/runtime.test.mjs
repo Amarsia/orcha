@@ -62,7 +62,7 @@ test("writes a useful JSONL timeline for a successful model run", async () => {
   }
 });
 
-test("loads registered skills lazily and keeps them active across runs", async () => {
+test("loads discovered skills lazily and keeps them active across runs", async () => {
   const fixture = await createRuntimeFixture(
     (_requests, index) =>
       index <= 2
@@ -353,7 +353,7 @@ test("evaluates every completed run against registered model-graded metrics", as
   }
 });
 
-test("fails agent tests when registered evaluation thresholds are missed", async () => {
+test("fails agent tests when evaluation thresholds are missed", async () => {
   const fixture = await createRuntimeFixture(
     (_requests, index) =>
       index === 1
@@ -407,7 +407,6 @@ test("fails agent tests when registered evaluation thresholds are missed", async
       "orcha/testAgent/tests",
     );
     await writeProjectFiles(testsDirectory, {
-      "index.js": 'export default { quality: "./quality" };\n',
       "quality/index.json": JSON.stringify({
         input: { content: "Assess the available evidence." },
         actions: {
@@ -435,7 +434,7 @@ test("fails agent tests when registered evaluation thresholds are missed", async
   }
 });
 
-test("compiles only explicitly registered skills and evaluations", async () => {
+test("auto-discovers enabled skills and evaluations", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-skills-"));
   try {
     await writeProjectFiles(root, {
@@ -446,12 +445,9 @@ test("compiles only explicitly registered skills and evaluations", async () => {
         model: "claude-test",
       }),
       "agent/instructions.md": "You are a test agent.",
-      "agent/skills/index.js": [
-        'import { defineSkills } from "orchajs/skills";',
-        "export default defineSkills({",
-        '  incidentTriage: "./incidentTriage",',
-        "});",
-      ].join("\n"),
+      "agent/actions/draft/index.json": JSON.stringify({
+        enabled: false,
+      }),
       "agent/skills/incidentTriage/index.json": JSON.stringify({
         name: "incident_triage",
         description: "Triage degraded production services.",
@@ -459,13 +455,9 @@ test("compiles only explicitly registered skills and evaluations", async () => {
       }),
       "agent/skills/incidentTriage/instructions.md":
         "Inspect confirmed telemetry first.",
-      "agent/skills/unregistered/index.json": "{ invalid json",
-      "agent/evaluations/index.js": [
-        'import { defineEvaluations } from "orchajs/evaluations";',
-        "export default defineEvaluations({",
-        '  responseQuality: "./responseQuality",',
-        "});",
-      ].join("\n"),
+      "agent/skills/draft/index.json": JSON.stringify({
+        enabled: false,
+      }),
       "agent/evaluations/responseQuality/index.json": JSON.stringify({
         name: "response_quality",
         description: "Response correctness.",
@@ -480,7 +472,9 @@ test("compiles only explicitly registered skills and evaluations", async () => {
           },
         ],
       }),
-      "agent/evaluations/unregistered/index.json": "{ invalid json",
+      "agent/evaluations/draft/index.json": JSON.stringify({
+        enabled: false,
+      }),
     });
 
     const bundle = compileRegistry({ testAgent: "./agent" }, root);
@@ -2556,9 +2550,12 @@ test("runs registered agent tests with durable test-prefixed logs and simulated 
     await mkdir(resolve(testsDirectory, "invoiceTotal"), {
       recursive: true,
     });
+    await mkdir(resolve(testsDirectory, "draft"), {
+      recursive: true,
+    });
     await writeFile(
-      resolve(testsDirectory, "index.js"),
-      'export default { invoiceTotal: "./invoiceTotal" };\n',
+      resolve(testsDirectory, "draft/index.json"),
+      JSON.stringify({ enabled: false }),
       "utf8",
     );
     await writeFile(
@@ -2686,11 +2683,6 @@ test("requires client actions to be mocked in agent tests", async () => {
     );
     await mkdir(testsDirectory, { recursive: true });
     await writeFile(
-      resolve(testsDirectory, "../index.js"),
-      'export default { incomplete: "./incomplete" };\n',
-      "utf8",
-    );
-    await writeFile(
       resolve(testsDirectory, "index.json"),
       JSON.stringify({
         input: { content: "Test an incomplete action fixture." },
@@ -2719,11 +2711,6 @@ test("runs unmocked local test actions live with durable warnings", async () => 
       "orcha/testAgent/tests/liveLocal",
     );
     await mkdir(testsDirectory, { recursive: true });
-    await writeFile(
-      resolve(testsDirectory, "../index.js"),
-      'export default { liveLocal: "./liveLocal" };\n',
-      "utf8",
-    );
     await writeFile(
       resolve(testsDirectory, "input.json"),
       JSON.stringify({
@@ -3344,9 +3331,9 @@ async function createRuntimeFixture(responseFactory, options = {}) {
         baseUrl: mock.baseUrl,
       },
     },
-    actions: {
-      runtime: options.actionRuntime ?? "native",
-    },
+    ...(options.actionRuntime
+      ? { actions: { runtime: options.actionRuntime } }
+      : {}),
     agents: {
       testAgent: "./testAgent",
     },
@@ -3714,11 +3701,6 @@ async function writeVertexFixtureProject(root) {
       outputType: "text",
     }),
     "orcha/vertexAgent/instructions.md": "You are a test agent.\n",
-    "orcha/vertexAgent/evaluations/index.js": [
-      'import { defineEvaluations } from "orchajs/evaluations";',
-      'export default defineEvaluations({ quality: "./quality" });',
-      "",
-    ].join("\n"),
     "orcha/vertexAgent/evaluations/quality/index.json": JSON.stringify({
       name: "quality",
       provider: "openai",
@@ -3838,7 +3820,6 @@ async function writeFixtureProject(root, baseUrl, actionRuntime = "native") {
     "orcha/testAgent/actions/mockLocal/index.json": JSON.stringify({
       name: "mock_local",
       description: "Return a mocked local result.",
-      execution: "local",
       parameters: {
         type: "object",
         properties: {},
@@ -3853,8 +3834,6 @@ async function writeFixtureProject(root, baseUrl, actionRuntime = "native") {
     }),
     "orcha/testAgent/actions/mockLocal/index.js":
       "export default async function mockLocal() { return { ok: true }; }\n",
-    "orcha/testAgent/tests/index.js":
-      'export default { production: "./production" };\n',
     "orcha/testAgent/tests/production/index.json": JSON.stringify({
       input: {
         content: "Run the production build test.",
@@ -3892,7 +3871,9 @@ async function writeFixtureProject(root, baseUrl, actionRuntime = "native") {
       'import { orcha } from "orchajs";',
       "orcha.init({",
       `  providers: { anthropic: { apiKey: "test-key", baseUrl: ${JSON.stringify(baseUrl)} } },`,
-      `  actions: { runtime: ${JSON.stringify(actionRuntime)} },`,
+      ...(actionRuntime === "sandbox"
+        ? ['  actions: { runtime: "sandbox" },']
+        : []),
       '  agents: { testAgent: "./testAgent" },',
       "});",
       "",

@@ -56,26 +56,16 @@ or hosted dependency.
   /evaluations                    → metrics each run is judged against
 ```
 
-Placement determines behavior. Agent skills and test cases use local index
-files to explicitly register which folders belong to the compiled agent.
+Placement determines behavior. Direct child folders under `actions`, `skills`,
+`tests`, and `evaluations` are discovered automatically. Set
+`"enabled": false` in an item's `index.json` to keep WIP source inactive.
 
 ---
 
 ## Skills
 
 Skills keep specialized procedures out of the base prompt until the model
-needs them. Register the skill folders available to an agent:
-
-```js
-// skills/index.js
-import { defineSkills } from "orchajs/skills";
-
-export default defineSkills({
-  incompleteEvidenceReview: "./incompleteEvidenceReview",
-});
-```
-
-Each registered folder contains compact discovery metadata and the full
+needs them. Each skill folder contains compact discovery metadata and the full
 instructions:
 
 ```json
@@ -92,13 +82,13 @@ skills/incompleteEvidenceReview/
   instructions.md
 ```
 
-Orcha initially gives the model only each registered skill's name,
+Orcha initially gives the model only each enabled skill's name,
 description, and trigger guidance. When the model calls the internal
 `load_skill` tool, Orcha activates the full instructions without running an
 application action or pausing for the client. Durable `skill.requested`,
 `skill.loaded`, and `skill.failed` events expose the loading lifecycle. Loaded
 skills remain active across `resume()` calls and provider changes.
-Unregistered skill folders are not compiled or exposed.
+Skill folders with `"enabled": false` are not compiled or exposed.
 
 ---
 
@@ -114,8 +104,9 @@ actions/
     index.js      // the code
 ```
 
-`index.json` tells the model what the action is, where it executes, and its
-input/output contracts:
+`index.json` tells the model what the action is and its input/output contracts.
+Actions are local by default; set `"execution": "client"` only when the
+application must execute one:
 
 ```json
 {
@@ -181,12 +172,14 @@ Action entrypoints and their imported JavaScript or TypeScript modules are
 bundled together. Relative project imports, package imports, transitive
 dependencies, and standard exports work normally.
 
-Projects with local actions must explicitly choose their runtime:
+Local actions use the native Node.js runtime by default, so ordinary projects
+do not need global action configuration. Select the sandbox explicitly when
+isolation is required:
 
 ```js
 orcha.init({
   actions: {
-    runtime: "native",
+    runtime: "sandbox",
   },
   // providers and agents...
 });
@@ -589,16 +582,6 @@ Agent tests live beside the agent and use the same compiled instructions,
 provider, output contract, action schemas, `run()`, and `resume()` behavior as
 the application.
 
-Register test folders in `tests/index.js`:
-
-```js
-import { defineTests } from "orchajs/testing";
-
-export default defineTests({
-  delayedOrder: "./delayedOrder",
-});
-```
-
 Each test folder contains an `index.json` with its input, one simulated
 response sequence for every action declared by the agent, and deterministic
 expectations:
@@ -659,7 +642,7 @@ terminal, report, session log, and Playground because they may cause side
 effects. Client actions must be mocked because the test runner has no attached
 application client. Unknown mock action names are rejected.
 
-Run every registered test programmatically:
+Run every enabled test programmatically:
 
 ```js
 import { orcha } from "orchajs";
@@ -678,17 +661,8 @@ build` itself remains offline and does not require those credentials.
 
 ## Evaluations
 
-Evaluations are registered LLM judges that score the cumulative session after
-every completed run:
-
-```js
-// evaluations/index.js
-import { defineEvaluations } from "orchajs/evaluations";
-
-export default defineEvaluations({
-  responseQuality: "./responseQuality",
-});
-```
+Evaluations are automatically discovered LLM judges that score the cumulative
+session after every completed run:
 
 ```json
 {

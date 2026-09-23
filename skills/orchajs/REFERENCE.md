@@ -50,9 +50,6 @@ orcha.init({
     anthropic: process.env.ANTHROPIC_API_KEY ?? "",
     openai: process.env.OPENAI_API_KEY ?? "",
   },
-  actions: {
-    runtime: "sandbox",
-  },
   agents: {
     supportBot: "./supportBot",
   },
@@ -65,11 +62,13 @@ project and location with optional service-account credentials. Bedrock uses a
 region with optional AWS credentials. Verify exact provider shapes against the
 installed package.
 
-`actions.runtime` is required when any registered action is local:
+Local actions use the native runtime by default:
 
-- `"sandbox"` runs bundled code in an isolated QuickJS runtime with declared
+- `"sandbox"` can be selected explicitly to run bundled code in an isolated
+  QuickJS runtime with declared
   environment and network permissions.
-- `"native"` runs trusted action code in Node.js with host privileges.
+- `"native"` runs trusted action code in Node.js with host privileges and is
+  the default.
 
 ## Agent configuration
 
@@ -155,7 +154,6 @@ Action metadata lives in `actions/<directory>/index.json`:
 {
   "name": "lookup_account",
   "description": "Look up one account.",
-  "execution": "local",
   "parameters": {
     "type": "object",
     "properties": {
@@ -185,10 +183,11 @@ export default async function lookupAccount({ accountId }, context) {
 
 Action rules:
 
-- `execution: "local"` runs the implementation through the configured action
-  runtime.
+- Missing `execution` defaults to `"local"` and runs the implementation through
+  the configured action runtime.
 - `execution: "client"` has no implementation; Orcha pauses and delegates it
   to the application.
+- `enabled` defaults to `true`; set it to `false` to keep WIP source inactive.
 - Keep descriptions, parameter schemas, output schemas, and implementations
   aligned.
 - Use `permissions.env` and `permissions.network` for sandbox access.
@@ -198,17 +197,8 @@ Action rules:
 
 ## Agent skills
 
-Register lazy-loaded procedural instructions in `skills/index.js`:
-
-```js
-import { defineSkills } from "orchajs/skills";
-
-export default defineSkills({
-  incidentTriage: "./incidentTriage",
-});
-```
-
-Each skill folder contains:
+Direct child folders under `skills/` are discovered automatically. Each skill
+folder contains:
 
 ```json
 {
@@ -221,6 +211,8 @@ Each skill folder contains:
 and a non-empty `instructions.md`. The model sees a compact catalog and loads
 skills through the internal `load_skill` tool. Loaded skill instructions
 remain active for the durable session.
+
+`enabled` defaults to `true`; set it to `false` to keep a WIP skill inactive.
 
 These runtime agent skills are separate from the installable `orchajs` coding
 skill containing this reference.
@@ -251,17 +243,8 @@ sessions.
 
 ## Tests
 
-Register cases in `tests/index.js`:
-
-```js
-import { defineTests } from "orchajs/testing";
-
-export default defineTests({
-  activeAccount: "./activeAccount",
-});
-```
-
-A case can provide inline input:
+Direct child folders under `tests/` are discovered automatically. The folder
+name is the CLI selector. A case can provide inline input:
 
 ```json
 {
@@ -302,6 +285,7 @@ For reusable input, `input` may be a JSON path relative to the case directory:
 Test behavior:
 
 - Tests call the real provider and consume tokens.
+- `enabled` defaults to `true`; set it to `false` to keep a WIP test inactive.
 - Configured action entries are mocked and consumed in call order.
 - Unmocked local actions run live and may cause side effects.
 - Client actions require mocks because no application client is attached.
@@ -313,16 +297,7 @@ Test behavior:
 
 ## Evaluations
 
-Register model-graded judges in `evaluations/index.js`:
-
-```js
-import { defineEvaluations } from "orchajs/evaluations";
-
-export default defineEvaluations({
-  responseQuality: "./responseQuality",
-});
-```
-
+Direct child folders under `evaluations/` are discovered automatically.
 Evaluation configuration:
 
 ```json

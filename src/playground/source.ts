@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { getOrchaRuntimeContext } from "../runtime/context.js";
 import type { OrchaClient } from "../runtime/create-orcha.js";
@@ -11,6 +11,7 @@ export interface PlaygroundSourceItem {
   key: string;
   name: string;
   description?: string;
+  enabled: boolean;
   configuration: Record<string, unknown>;
   rawConfiguration: string;
   instructions?: string;
@@ -75,20 +76,23 @@ export async function readPlaygroundAgentSource(
     configuration,
     rawConfiguration,
     instructions,
-    actions: await Promise.all(
-      Object.entries(manifest.actions).map(([key, item]) =>
-        readSourceItem(directory, "actions", key, item, true),
-      ),
+    actions: await readCollectionItems(
+      directory,
+      "actions",
+      manifest.actions,
+      true,
     ),
-    skills: await Promise.all(
-      Object.entries(manifest.skills).map(([key, item]) =>
-        readSourceItem(directory, "skills", key, item, false),
-      ),
+    skills: await readCollectionItems(
+      directory,
+      "skills",
+      manifest.skills,
+      false,
     ),
-    evaluations: await Promise.all(
-      Object.entries(manifest.evaluations).map(([key, item]) =>
-        readSourceItem(directory, "evaluations", key, item, false),
-      ),
+    evaluations: await readCollectionItems(
+      directory,
+      "evaluations",
+      manifest.evaluations,
+      false,
     ),
     subagents: Object.entries(manifest.subagents).map(([key, child]) => ({
       key,
@@ -107,47 +111,73 @@ function registeredAgentDirectory(
   return resolve(projectRoot, "orcha", registeredPath);
 }
 
-async function readSourceItem(
+async function readCollectionItems(
   agentDirectory: string,
   collection: "actions" | "skills" | "evaluations",
-  key: string,
-  manifest:
-    | CompiledAgentManifest["actions"][string]
-    | CompiledAgentManifest["skills"][string]
-    | CompiledAgentManifest["evaluations"][string],
+  manifests:
+    | CompiledAgentManifest["actions"]
+    | CompiledAgentManifest["skills"]
+    | CompiledAgentManifest["evaluations"],
   includeSource: boolean,
-): Promise<PlaygroundSourceItem> {
-  const directory = resolve(
-    agentDirectory,
-    collection,
-    manifest.directoryName,
+): Promise<PlaygroundSourceItem[]> {
+  const root = resolve(agentDirectory, collection);
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      return [];
+    }
+    throw error;
+  }
+  const byDirectory = new Map(
+    Object.entries(manifests).map(([key, manifest]) => [
+      manifest.directoryName,
+      { key, manifest },
+    ]),
   );
-  const rawConfiguration = await readRequired(resolve(directory, "index.json"));
-  const configuration = parseObject(
-    rawConfiguration,
-    `${collection}/${manifest.directoryName}/index.json`,
+  return Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map(async (entry) => {
+        const directory = resolve(root, entry.name);
+        const rawConfiguration = await readRequired(
+          resolve(directory, "index.json"),
+        );
+        const configuration = parseObject(
+          rawConfiguration,
+          `${collection}/${entry.name}/index.json`,
+        );
+        const compiled = byDirectory.get(entry.name);
+        const instructions = includeSource
+          ? undefined
+          : await readOptional(resolve(directory, "instructions.md"));
+        const source = includeSource
+          ? await readOptional(resolve(directory, "index.js"))
+          : undefined;
+        return {
+          key: compiled?.key ?? entry.name,
+          name:
+            typeof configuration.name === "string"
+              ? configuration.name
+              : entry.name,
+          description:
+            typeof configuration.description === "string"
+              ? configuration.description
+              : undefined,
+          enabled: configuration.enabled !== false,
+          configuration,
+          rawConfiguration,
+          ...(instructions !== undefined ? { instructions } : {}),
+          ...(source !== undefined ? { source } : {}),
+        };
+      }),
   );
-  const instructionsFile = includeSource
-    ? undefined
-    : await readOptional(resolve(directory, "instructions.md"));
-  const instructions =
-    instructionsFile ??
-    ("instructions" in manifest &&
-    typeof manifest.instructions === "string"
-      ? manifest.instructions
-      : undefined);
-  const source = includeSource
-    ? await readOptional(resolve(directory, "index.js"))
-    : undefined;
-  return {
-    key,
-    name: manifest.name,
-    description: manifest.description,
-    configuration,
-    rawConfiguration,
-    ...(instructions !== undefined ? { instructions } : {}),
-    ...(source !== undefined ? { source } : {}),
-  };
 }
 
 async function readRequired(path: string): Promise<string> {

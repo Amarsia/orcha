@@ -1,7 +1,6 @@
 {
   "name": "lookup_order",
   "description": "Look up the latest confirmed state of an order.",
-  "execution": "local",
   "parameters": {
     "type": "object",
     "properties": {

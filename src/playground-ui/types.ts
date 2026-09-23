@@ -14,6 +14,7 @@ export interface SourceItem {
   key: string;
   name: string;
   description?: string;
+  enabled: boolean;
   configuration: Record<string, unknown>;
   rawConfiguration: string;
   instructions?: string;
@@ -71,6 +72,7 @@ export interface SessionEvent {
 export interface AgentTest {
   agent: string;
   name: string;
+  displayName?: string;
   description?: string;
   warnings?: TestWarning[];
   configuration: Record<string, unknown>;

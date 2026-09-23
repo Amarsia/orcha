@@ -65,20 +65,15 @@ class OrchaRuntimeCore implements Orcha {
           typeof provider === "string" ? { apiKey: provider } : provider,
         ]),
       ) as ResolvedProviderConfigurations,
-      actions: configuration.actions,
+      actions: {
+        ...configuration.actions,
+        runtime: configuration.actions?.runtime ?? "native",
+      },
       storage: configuration.storage,
     };
-    const hasLocalActions = allCompiledAgents(bundle.agents).some((agent) =>
-      Object.values(agent.actions).some((action) => action.execution === "local"),
-    );
-    if (hasLocalActions && !configuration.actions?.runtime) {
-      throw new Error(
-        'Local actions require orcha.init({ actions: { runtime: "native" | "sandbox" } }).',
-      );
-    }
     if (
       bundle.actionRuntime &&
-      configuration.actions?.runtime !== bundle.actionRuntime
+      runtimeConfiguration.actions?.runtime !== bundle.actionRuntime
     ) {
       throw new Error(
         `Production bundle expects local action runtime "${bundle.actionRuntime}".`,
@@ -158,15 +153,6 @@ class OrchaRuntimeCore implements Orcha {
   agent(name: string): AgentRuntime | undefined {
     return this.#agents.get(name);
   }
-}
-
-function allCompiledAgents(
-  agents: CompiledBundle["agents"],
-): CompiledAgentManifest[] {
-  return Object.values(agents).flatMap((agent) => [
-    agent,
-    ...Object.values(agent.subagents ?? {}),
-  ]);
 }
 
 export function createOrcha(

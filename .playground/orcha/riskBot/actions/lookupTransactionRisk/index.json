@@ -1,7 +1,6 @@
 {
   "name": "lookup_transaction_risk",
   "description": "Retrieve fraud-risk signals recorded for a transaction.",
-  "execution": "local",
   "parameters": {
     "type": "object",
     "properties": {

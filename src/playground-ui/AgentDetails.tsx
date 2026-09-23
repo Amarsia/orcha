@@ -173,7 +173,12 @@ function SourceCollection({
             key={item.key}
             title={
               <div>
-                <Title>{item.name}</Title>
+                <MetaRow>
+                  <Title>{item.name}</Title>
+                  {!item.enabled ? (
+                    <Tag closeable={false}>disabled</Tag>
+                  ) : null}
+                </MetaRow>
                 {item.description ? <Muted>{item.description}</Muted> : null}
               </div>
             }

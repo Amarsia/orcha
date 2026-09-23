@@ -1,15 +1,11 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { buildSync } from "esbuild";
 import { isBuiltInProvider } from "../providers/catalog.js";
 import type {
   AgentConfiguration,
-  AgentEvaluationRegistrations,
   AgentRegistration,
-  AgentSkillRegistrations,
   ActionConfiguration,
   CompiledActionManifest,
   CompiledAgentManifest,
@@ -23,7 +19,7 @@ import type {
 export function compileRegistry(
   registrations: Record<string, AgentRegistration>,
   registryRoot: string,
-  actionRuntime?: "native" | "sandbox",
+  actionRuntime: "native" | "sandbox" = "native",
 ): CompiledBundle {
   if (
     !registrations ||
@@ -129,7 +125,7 @@ function compileAgent(
   key: string,
   registeredPath: string,
   registryRoot: string,
-  actionRuntime?: "native" | "sandbox",
+  actionRuntime: "native" | "sandbox",
 ): CompiledAgentManifest {
     const name = key;
 
@@ -253,7 +249,7 @@ function compileAgent(
 function compileActions(
   agentName: string,
   sourceDirectory: string,
-  actionRuntime?: "native" | "sandbox",
+  actionRuntime: "native" | "sandbox",
 ): Record<string, CompiledActionManifest> {
   const actionsDirectory = resolve(sourceDirectory, "actions");
   if (!existsSync(actionsDirectory)) {
@@ -282,6 +278,13 @@ function compileActions(
         { cause: error },
       );
     }
+    validateEnabled(
+      `Action "${agentName}/${entry.name}"`,
+      configuration?.enabled,
+    );
+    if (configuration?.enabled === false) {
+      continue;
+    }
 
     if (!configuration.name?.trim() || !configuration.description?.trim()) {
       throw new Error(
@@ -305,7 +308,8 @@ function compileActions(
         `Action "${agentName}/${entry.name}" uses reserved name "${configuration.name}".`,
       );
     }
-    if (!["client", "local"].includes(configuration.execution)) {
+    const execution = configuration.execution ?? "local";
+    if (!["client", "local"].includes(execution)) {
       throw new Error(
         `Action "${agentName}/${entry.name}" has invalid execution "${configuration.execution}".`,
       );
@@ -368,7 +372,7 @@ function compileActions(
     }
 
     const compiledSource =
-      configuration.execution === "local"
+      execution === "local"
         ? compileLocalAction(
             agentName,
             entry.name,
@@ -378,6 +382,7 @@ function compileActions(
         : undefined;
     actions[configuration.name] = Object.freeze({
       ...configuration,
+      execution,
       directoryName: entry.name,
       ...compiledSource,
     });
@@ -394,42 +399,12 @@ function compileSkills(
   if (!existsSync(skillsDirectory)) {
     return {};
   }
+  rejectLegacyRegistry(agentName, skillsDirectory, "skills");
 
-  const registryPath = resolve(skillsDirectory, "index.js");
-  if (!existsSync(registryPath)) {
-    throw new Error(
-      `Agent "${agentName}" has a skills directory but is missing skills/index.js.`,
-    );
-  }
-  const registrations = loadSkillRegistrations(agentName, registryPath);
   const skills: Record<string, CompiledSkillManifest> = {};
 
-  for (const [registrationName, registeredPath] of Object.entries(
-    registrations,
-  )) {
-    if (!registrationName.trim()) {
-      throw new Error(
-        `Agent "${agentName}" has an empty registered skill name.`,
-      );
-    }
-    if (typeof registeredPath !== "string" || !registeredPath.trim()) {
-      throw new Error(
-        `Skill "${agentName}/${registrationName}" must register a folder path.`,
-      );
-    }
-
-    const skillDirectory = resolve(skillsDirectory, registeredPath);
-    const relativePath = relative(skillsDirectory, skillDirectory);
-    if (
-      !relativePath ||
-      relativePath === ".." ||
-      relativePath.startsWith(`..${sep}`)
-    ) {
-      throw new Error(
-        `Skill "${agentName}/${registrationName}" must resolve inside the agent's skills directory.`,
-      );
-    }
-
+  for (const entry of discoverDirectories(skillsDirectory)) {
+    const skillDirectory = resolve(skillsDirectory, entry);
     const configurationPath = resolve(skillDirectory, "index.json");
     let configuration: SkillConfiguration;
     try {
@@ -438,15 +413,15 @@ function compileSkills(
       ) as SkillConfiguration;
     } catch (error) {
       throw new Error(
-        `Skill "${agentName}/${registrationName}" is missing a valid index.json at ${configurationPath}.`,
+        `Skill "${agentName}/${entry}" is missing a valid index.json at ${configurationPath}.`,
         { cause: error },
       );
     }
-    validateSkillConfiguration(
-      agentName,
-      registrationName,
-      configuration,
-    );
+    validateEnabled(`Skill "${agentName}/${entry}"`, configuration?.enabled);
+    if (configuration?.enabled === false) {
+      continue;
+    }
+    validateSkillConfiguration(agentName, entry, configuration);
 
     const instructionsPath = resolve(skillDirectory, "instructions.md");
     let instructions: string;
@@ -454,13 +429,13 @@ function compileSkills(
       instructions = readFileSync(instructionsPath, "utf8").trim();
     } catch (error) {
       throw new Error(
-        `Skill "${agentName}/${registrationName}" is missing instructions.md at ${instructionsPath}.`,
+        `Skill "${agentName}/${entry}" is missing instructions.md at ${instructionsPath}.`,
         { cause: error },
       );
     }
     if (!instructions) {
       throw new Error(
-        `Skill "${agentName}/${registrationName}" instructions.md cannot be empty.`,
+        `Skill "${agentName}/${entry}" instructions.md cannot be empty.`,
       );
     }
     if (skills[configuration.name]) {
@@ -471,7 +446,7 @@ function compileSkills(
 
     skills[configuration.name] = Object.freeze({
       ...configuration,
-      directoryName: relativePath.split(sep).join("/"),
+      directoryName: entry,
       instructions,
     });
   }
@@ -487,51 +462,12 @@ function compileEvaluations(
   if (!existsSync(evaluationsDirectory)) {
     return {};
   }
+  rejectLegacyRegistry(agentName, evaluationsDirectory, "evaluations");
 
-  const registryPath = resolve(evaluationsDirectory, "index.js");
-  if (!existsSync(registryPath)) {
-    throw new Error(
-      `Agent "${agentName}" has an evaluations directory but is missing evaluations/index.js.`,
-    );
-  }
-  const registrations = loadEvaluationRegistrations(
-    agentName,
-    registryPath,
-  );
   const evaluations: Record<string, CompiledEvaluationManifest> = {};
 
-  for (const [registrationName, registeredPath] of Object.entries(
-    registrations,
-  )) {
-    if (!registrationName.trim()) {
-      throw new Error(
-        `Agent "${agentName}" has an empty registered evaluation name.`,
-      );
-    }
-    if (typeof registeredPath !== "string" || !registeredPath.trim()) {
-      throw new Error(
-        `Evaluation "${agentName}/${registrationName}" must register a folder path.`,
-      );
-    }
-
-    const evaluationDirectory = resolve(
-      evaluationsDirectory,
-      registeredPath,
-    );
-    const relativePath = relative(
-      evaluationsDirectory,
-      evaluationDirectory,
-    );
-    if (
-      !relativePath ||
-      relativePath === ".." ||
-      relativePath.startsWith(`..${sep}`)
-    ) {
-      throw new Error(
-        `Evaluation "${agentName}/${registrationName}" must resolve inside the agent's evaluations directory.`,
-      );
-    }
-
+  for (const entry of discoverDirectories(evaluationsDirectory)) {
+    const evaluationDirectory = resolve(evaluationsDirectory, entry);
     const configurationPath = resolve(evaluationDirectory, "index.json");
     let configuration: EvaluationConfiguration;
     try {
@@ -540,15 +476,18 @@ function compileEvaluations(
       ) as EvaluationConfiguration;
     } catch (error) {
       throw new Error(
-        `Evaluation "${agentName}/${registrationName}" is missing a valid index.json at ${configurationPath}.`,
+        `Evaluation "${agentName}/${entry}" is missing a valid index.json at ${configurationPath}.`,
         { cause: error },
       );
     }
-    validateEvaluationConfiguration(
-      agentName,
-      registrationName,
-      configuration,
+    validateEnabled(
+      `Evaluation "${agentName}/${entry}"`,
+      configuration?.enabled,
     );
+    if (configuration?.enabled === false) {
+      continue;
+    }
+    validateEvaluationConfiguration(agentName, entry, configuration);
     if (evaluations[configuration.name]) {
       throw new Error(
         `Agent "${agentName}" has duplicate evaluation name "${configuration.name}".`,
@@ -557,9 +496,9 @@ function compileEvaluations(
 
     evaluations[configuration.name] = Object.freeze({
       ...configuration,
-      enabled: configuration.enabled ?? true,
+      enabled: true,
       provider: configuration.provider as CompiledEvaluationManifest["provider"],
-      directoryName: relativePath.split(sep).join("/"),
+      directoryName: entry,
       metrics: Object.freeze(
         configuration.metrics.map((metric) => Object.freeze({ ...metric })),
       ),
@@ -569,95 +508,28 @@ function compileEvaluations(
   return Object.freeze(evaluations);
 }
 
-function loadSkillRegistrations(
-  agentName: string,
-  registryPath: string,
-): AgentSkillRegistrations {
-  return loadFolderRegistrations(
-    agentName,
-    registryPath,
-    "skills",
-    "skill",
-    "orchajs/skills",
-    "../skills.js",
-  ) as AgentSkillRegistrations;
+function discoverDirectories(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .map((entry) => entry.name)
+    .sort();
 }
 
-function loadEvaluationRegistrations(
+function rejectLegacyRegistry(
   agentName: string,
-  registryPath: string,
-): AgentEvaluationRegistrations {
-  return loadFolderRegistrations(
-    agentName,
-    registryPath,
-    "evaluations",
-    "evaluation",
-    "orchajs/evaluations",
-    "../evaluations.js",
-  ) as AgentEvaluationRegistrations;
-}
-
-function loadFolderRegistrations(
-  agentName: string,
-  registryPath: string,
-  collectionName: string,
-  itemName: string,
-  moduleSpecifier: string,
-  helperPath: string,
-): Record<string, string> {
-  let output: string;
-  try {
-    const result = buildSync({
-      entryPoints: [registryPath],
-      alias: {
-        [moduleSpecifier]: resolve(
-          dirname(fileURLToPath(import.meta.url)),
-          helperPath,
-        ),
-      },
-      bundle: true,
-      write: false,
-      format: "cjs",
-      platform: "node",
-      target: "node20",
-      logLevel: "silent",
-    });
-    output = result.outputFiles[0]?.text ?? "";
-  } catch (error) {
+  directory: string,
+  collection: "skills" | "evaluations",
+): void {
+  if (existsSync(resolve(directory, "index.js"))) {
     throw new Error(
-      `Agent "${agentName}" ${collectionName}/index.js could not be bundled.`,
-      { cause: error },
+      `Agent "${agentName}" ${collection}/index.js is no longer supported. Remove the registry; folders are discovered automatically and can be disabled with "enabled": false.`,
     );
   }
+}
 
-  try {
-    const module: { exports: unknown } = { exports: {} };
-    const execute = new Function(
-      "module",
-      "exports",
-      "require",
-      output,
-    ) as (
-      module: { exports: unknown },
-      exports: unknown,
-      require: NodeJS.Require,
-    ) => void;
-    execute(module, module.exports, createRequire(registryPath));
-    const exported = module.exports as { default?: unknown };
-    const registrations = exported.default ?? module.exports;
-    if (
-      !registrations ||
-      typeof registrations !== "object" ||
-      Array.isArray(registrations)
-    ) {
-      throw new TypeError("default export must be a registrations object");
-    }
-    return registrations as Record<string, string>;
-  } catch (error) {
-    throw new Error(
-      `Agent "${agentName}" ${collectionName}/index.js must default-export ${itemName} registrations.`,
-      { cause: error },
-    );
+function validateEnabled(label: string, enabled: unknown): void {
+  if (enabled !== undefined && typeof enabled !== "boolean") {
+    throw new Error(`${label} enabled must be a boolean.`);
   }
 }
 
@@ -738,12 +610,6 @@ function validateEvaluationConfiguration(
   if (typeof configuration.model !== "string" || !configuration.model.trim()) {
     throw new Error(`${label} requires a model.`);
   }
-  if (
-    configuration.enabled !== undefined &&
-    typeof configuration.enabled !== "boolean"
-  ) {
-    throw new Error(`${label} enabled must be a boolean.`);
-  }
   validateNumber(
     `${agentName}/${registrationName}`,
     "maxTokens",
@@ -792,7 +658,7 @@ function compileLocalAction(
   agentName: string,
   directoryName: string,
   actionsDirectory: string,
-  actionRuntime?: "native" | "sandbox",
+  actionRuntime: "native" | "sandbox",
 ): { source: string; sourceHash: string } {
   const entryPath = resolve(actionsDirectory, directoryName, "index.js");
   if (!existsSync(entryPath)) {

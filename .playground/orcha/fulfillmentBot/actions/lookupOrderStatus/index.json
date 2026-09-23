@@ -1,7 +1,6 @@
 {
   "name": "lookup_order_status",
   "description": "Look up the current fulfillment and shipment state of an order.",
-  "execution": "local",
   "parameters": {
     "type": "object",
     "properties": {
