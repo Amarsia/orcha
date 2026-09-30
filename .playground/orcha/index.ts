@@ -1,6 +1,9 @@
 import { orcha } from "orchajs";
 
 orcha.init({
+  storage: {
+    strategy: "sqlite",
+  },
   providers: {
     anthropic: process.env.ANTHROPIC_API_KEY ?? "",
     // Uses the standard AWS credential chain. Locally, configure an AWS

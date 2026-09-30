@@ -70,7 +70,7 @@ export interface ProjectConfiguration {
   providers: ResolvedProviderConfigurations;
   actions?: LocalActionRuntimeConfiguration;
   storage?: {
-    strategy?: "node-jsonl";
+    strategy?: "node-jsonl" | "sqlite";
     directory?: string;
   };
 }
@@ -434,6 +434,7 @@ export interface SessionStore {
   subscribeAll?(
     listener: (sessionId: string, events: SessionEvent[]) => void,
   ): () => void;
+  describeLocation?(sessionId: string): Promise<string>;
 }
 
 export type SessionStatus = "active" | "paused" | "completed";

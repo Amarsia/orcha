@@ -14,10 +14,106 @@ import { orchaPlugin } from "../dist/integrations/esbuild.js";
 import { generateBedrockContent } from "../dist/providers/bedrock.js";
 import { generateProviderResponse } from "../dist/providers/index.js";
 import { createOrcha } from "../dist/runtime/create-orcha.js";
+import {
+  migrateSessionStore,
+  NodeJsonlSessionStore,
+  NodeSqliteSessionStore,
+} from "../dist/index.js";
 import { listTests, runTests } from "../dist/testing.js";
 
 const executeFile = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const sqliteAvailable = await import("better-sqlite3").then(
+  () => true,
+  () => false,
+);
+
+test("SQLite session storage scopes events by agent", {
+  skip: sqliteAvailable ? false : "better-sqlite3 is not installed",
+}, async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orcha-sqlite-"));
+  try {
+    const alpha = new NodeSqliteSessionStore(
+      ".orcha/sessions",
+      root,
+      "alpha",
+    );
+    const beta = new NodeSqliteSessionStore(
+      ".orcha/sessions",
+      root,
+      "beta",
+    );
+    const event = {
+      sequence: 1,
+      type: "session.created",
+      timestamp: "2026-09-30T00:00:00.000Z",
+      data: { agent: "alpha" },
+    };
+
+    await alpha.append("ses_shared", [event]);
+
+    assert.deepEqual(await alpha.read("ses_shared"), [event]);
+    assert.deepEqual(await alpha.listSessionIds(), ["ses_shared"]);
+    assert.deepEqual(await beta.read("ses_shared"), []);
+    assert.deepEqual(await beta.listSessionIds(), []);
+    assert.equal(
+      await alpha.describeLocation("ses_shared"),
+      resolve(root, ".orcha/sessions/orcha-sqlite.db"),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("session storage migration is idempotent in both directions", {
+  skip: sqliteAvailable ? false : "better-sqlite3 is not installed",
+}, async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orcha-storage-migration-"));
+  try {
+    const jsonl = new NodeJsonlSessionStore(
+      ".orcha/sessions",
+      root,
+      "testAgent",
+    );
+    const sqlite = new NodeSqliteSessionStore(
+      ".orcha/sessions",
+      root,
+      "testAgent",
+    );
+    const events = [
+      {
+        sequence: 1,
+        type: "session.created",
+        timestamp: "2026-09-30T00:00:00.000Z",
+        data: { agent: "testAgent" },
+      },
+      {
+        sequence: 2,
+        type: "run.started",
+        timestamp: "2026-09-30T00:00:01.000Z",
+        run: 1,
+        data: { status: "running" },
+      },
+    ];
+    await jsonl.append("ses_migrate", events);
+
+    assert.deepEqual(
+      await migrateSessionStore(jsonl, sqlite),
+      { sessions: 1, events: 2 },
+    );
+    assert.deepEqual(await sqlite.read("ses_migrate"), events);
+    assert.deepEqual(
+      await migrateSessionStore(jsonl, sqlite),
+      { sessions: 1, events: 0 },
+    );
+    assert.deepEqual(
+      await migrateSessionStore(sqlite, jsonl),
+      { sessions: 1, events: 0 },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("writes a useful JSONL timeline for a successful model run", async () => {
   const fixture = await createRuntimeFixture();

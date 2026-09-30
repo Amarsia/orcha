@@ -106,6 +106,13 @@ export class NodeJsonlSessionStore implements SessionStore {
     return [...sessionIds].sort();
   }
 
+  async describeLocation(sessionId: string): Promise<string> {
+    return (
+      (await this.#readSessionPath(sessionId)) ??
+      this.#sessionPath(this.directory, sessionId)
+    );
+  }
+
   subscribe(
     sessionId: string,
     listener: (events: SessionEvent[]) => void,
