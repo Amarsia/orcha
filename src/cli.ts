@@ -11,11 +11,20 @@ import type { OrchaClient } from "./orcha.js";
 import { startPlayground } from "./playground/server.js";
 import { loadProject } from "./project-loader.js";
 import { getOrchaRuntimeContext } from "./runtime/context.js";
+import {
+  createSessionStore,
+  type SessionStorageStrategy,
+} from "./storage/create-store.js";
+import {
+  exportSessionJsonl,
+  migrateSessionStore,
+} from "./storage/migrate.js";
 import { sessionAgentDirectoryName } from "./storage/node-jsonl.js";
 import { runTests } from "./testing.js";
 import type {
   AgentInput,
   AgentRuntime,
+  CompiledAgentManifest,
   EvaluationResult,
   RunResult,
   SessionEvent,
@@ -45,6 +54,12 @@ try {
       break;
     case "playground":
       await runPlayground(projectRoot, commandArguments);
+      break;
+    case "migrate-storage":
+      await migrateStorage(projectRoot, commandArguments);
+      break;
+    case "export-session":
+      await exportSession(projectRoot, commandArguments);
       break;
     case "build": {
       assertNoArguments(commandArguments, "build");
@@ -245,7 +260,7 @@ async function runAgent(
       result.sessionId,
       previousSequence,
     );
-    printRunResult(projectRoot, agentName, result, evaluations);
+    await printRunResult(projectRoot, agentName, result, evaluations);
   }
   if (result.status === "failed") {
     process.exitCode = 1;
@@ -289,7 +304,7 @@ async function testAgents(
     console.log(`Agent tests: ${report.passed}/${report.total} passed`);
     for (const testCase of report.cases) {
       const sessionLink = testCase.sessionPath
-        ? `${testCase.sessionPath}:1`
+        ? formatStorageLink(testCase.sessionPath)
         : testCase.sessionId;
       console.log(
         `${testCase.status === "passed" ? "PASS" : "FAIL"} ${testCase.agent}/${testCase.name} (${testCase.durationMs}ms) ${sessionLink}`,
@@ -331,6 +346,120 @@ async function runPlayground(
     port,
     open: !parsed.flags.has("--no-open"),
   });
+}
+
+async function migrateStorage(
+  projectRoot: string,
+  arguments_: string[],
+): Promise<void> {
+  const parsed = parseArguments(
+    arguments_,
+    new Set(["--to", "--agent"]),
+    new Set(),
+  );
+  if (parsed.positionals.length > 0) {
+    throw new Error(
+      "Usage: orcha migrate-storage --to <sqlite | node-jsonl> [--agent <name>]",
+    );
+  }
+  const destinationStrategy = storageStrategy(parsed.values.get("--to"));
+  const sourceStrategy: SessionStorageStrategy =
+    destinationStrategy === "sqlite" ? "node-jsonl" : "sqlite";
+
+  await loadProject(projectRoot);
+  const context = getOrchaRuntimeContext(orcha);
+  const manifests = allAgentManifests(context.bundle.agents);
+  const requestedAgent = parsed.values.get("--agent");
+  const selected = requestedAgent
+    ? manifests.filter((manifest) => manifest.key === requestedAgent)
+    : manifests;
+  if (selected.length === 0) {
+    throw new Error(`Unknown agent "${requestedAgent}".`);
+  }
+
+  let sessions = 0;
+  let events = 0;
+  for (const manifest of selected) {
+    const options = {
+      directory: context.configuration.storage?.directory,
+      projectRoot,
+      agentName: manifest.key,
+    };
+    const result = await migrateSessionStore(
+      createSessionStore({ ...options, strategy: sourceStrategy }),
+      createSessionStore({ ...options, strategy: destinationStrategy }),
+    );
+    sessions += result.sessions;
+    events += result.events;
+  }
+  console.log(
+    `Migrated ${events} event${events === 1 ? "" : "s"} across ${sessions} session${sessions === 1 ? "" : "s"} from ${sourceStrategy} to ${destinationStrategy}.`,
+  );
+}
+
+async function exportSession(
+  projectRoot: string,
+  arguments_: string[],
+): Promise<void> {
+  const parsed = parseArguments(
+    arguments_,
+    new Set(["--output"]),
+    new Set(),
+  );
+  const [agentName, sessionId] = parsed.positionals;
+  if (!agentName || !sessionId || parsed.positionals.length !== 2) {
+    throw new Error(
+      "Usage: orcha export-session <agent> <sessionId> [--output <path>]",
+    );
+  }
+
+  await loadProject(projectRoot);
+  const context = getOrchaRuntimeContext(orcha);
+  const manifest = allAgentManifests(context.bundle.agents)
+    .find((item) => item.key === agentName);
+  if (!manifest) {
+    throw new Error(`Unknown agent "${agentName}".`);
+  }
+  const store = createSessionStore({
+    strategy: context.configuration.storage?.strategy,
+    directory: context.configuration.storage?.directory,
+    projectRoot,
+    agentName: manifest.key,
+  });
+  const outputPath = resolve(
+    projectRoot,
+    parsed.values.get("--output") ?? `${sessionId}.jsonl`,
+  );
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(
+    outputPath,
+    await exportSessionJsonl(store, sessionId),
+    "utf8",
+  );
+  console.log(`Exported ${relative(projectRoot, outputPath)}`);
+}
+
+function storageStrategy(value: string | undefined): SessionStorageStrategy {
+  if (value === "sqlite" || value === "node-jsonl") {
+    return value;
+  }
+  throw new Error('--to must be either "sqlite" or "node-jsonl".');
+}
+
+function allAgentManifests(
+  agents: Record<string, CompiledAgentManifest>,
+): CompiledAgentManifest[] {
+  const manifests = new Map<string, CompiledAgentManifest>();
+  const visit = (manifest: CompiledAgentManifest): void => {
+    manifests.set(manifest.key, manifest);
+    for (const child of Object.values(manifest.subagents ?? {})) {
+      visit(child);
+    }
+  };
+  for (const manifest of Object.values(agents)) {
+    visit(manifest);
+  }
+  return [...manifests.values()];
 }
 
 interface ParsedArguments {
@@ -447,19 +576,19 @@ async function readToolResults(path: string): Promise<ToolResult[]> {
   return results as ToolResult[];
 }
 
-function printRunResult(
+async function printRunResult(
   projectRoot: string,
   agentName: string,
   result: RunResult,
   evaluations: EvaluationResult[],
-): void {
+): Promise<void> {
   console.log(JSON.stringify(result, null, 2));
   if (evaluations.length > 0) {
     console.log("Evaluations:");
     console.log(JSON.stringify(evaluations, null, 2));
   }
   console.log(
-    `Session log: ${sessionLogPath(projectRoot, agentName, result.sessionId)}:1`,
+    `Session log: ${formatStorageLink(await sessionLogPath(projectRoot, agentName, result.sessionId))}`,
   );
 }
 
@@ -512,7 +641,7 @@ async function printExecutionTrace(
       }
     }
     console.log(
-      `    Log: ${sessionLogPath(projectRoot, childAgent, childSessionId)}:1`,
+      `    Log: ${formatStorageLink(await sessionLogPath(projectRoot, childAgent, childSessionId))}`,
     );
   }
 
@@ -635,17 +764,31 @@ function formatDuration(value: unknown): string {
   return typeof value === "number" ? ` (${value}ms)` : "";
 }
 
-function sessionLogPath(
+function formatStorageLink(path: string): string {
+  return path.endsWith(".jsonl") ? `${path}:1` : path;
+}
+
+async function sessionLogPath(
   projectRoot: string,
   agentName: string,
   sessionId: string,
-): string {
+): Promise<string> {
+  const configuration = getOrchaRuntimeContext(orcha).configuration.storage;
+  if (configuration?.strategy === "sqlite") {
+    return relative(
+      projectRoot,
+      resolve(
+        projectRoot,
+        configuration.directory ?? ".orcha/sessions",
+        "orcha-sqlite.db",
+      ),
+    );
+  }
   return relative(
     projectRoot,
     resolve(
       projectRoot,
-      getOrchaRuntimeContext(orcha).configuration.storage?.directory ??
-        ".orcha/sessions",
+      configuration?.directory ?? ".orcha/sessions",
       sessionAgentDirectoryName(agentName),
       `${sessionId}.jsonl`,
     ),
@@ -687,6 +830,8 @@ function printUsage(): void {
       "  run <agent> [options]        Execute or resume an agent",
       "  test [agent | agent/test]    Run agent tests",
       "  playground [options]         Open the local agent playground",
+      "  migrate-storage --to <type>  Copy sessions between JSONL and SQLite",
+      "  export-session <agent> <id>  Export one session as JSONL",
       "  build                        Build the production Orcha bundle",
       "",
       "Run and test support --json for machine-readable output.",

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { RuntimeAgent } from "./agent.js";
-import { NodeJsonlSessionStore } from "../storage/node-jsonl.js";
+import { createSessionStore } from "../storage/create-store.js";
 import type { ProviderResponseGenerator } from "../providers/types.js";
 import { setOrchaRuntimeContext } from "./context.js";
 import type {
@@ -79,19 +79,15 @@ class OrchaRuntimeCore implements Orcha {
         `Production bundle expects local action runtime "${bundle.actionRuntime}".`,
       );
     }
-    const strategy = configuration.storage?.strategy ?? "node-jsonl";
-    if (strategy !== "node-jsonl") {
-      throw new Error(`Storage strategy "${strategy}" is not implemented yet.`);
-    }
-
     const storageDirectory =
       configuration.storage?.directory ?? ".orcha/sessions";
     const createStore = (manifest: CompiledAgentManifest) =>
-      new NodeJsonlSessionStore(
-        storageDirectory,
+      createSessionStore({
+        strategy: configuration.storage?.strategy,
+        directory: storageDirectory,
         projectRoot,
-        manifest.key ?? manifest.name,
-      );
+        agentName: manifest.key ?? manifest.name,
+      });
     const agents = new Map<string, AgentRuntime>();
 
     for (const [name, manifest] of Object.entries(bundle.agents)) {

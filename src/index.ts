@@ -2,6 +2,14 @@ export { orcha } from "./orcha.js";
 export { OrchaError } from "./errors.js";
 export type { Orcha, OrchaClient } from "./orcha.js";
 export { NodeJsonlSessionStore } from "./storage/node-jsonl.js";
+export { NodeSqliteSessionStore } from "./storage/node-sqlite.js";
+export {
+  exportSessionJsonl,
+  migrateSessionStore,
+} from "./storage/migrate.js";
+export type {
+  SessionStoreMigrationResult,
+} from "./storage/migrate.js";
 export type {
   ActionConfiguration,
   AgentTestActionConfiguration,

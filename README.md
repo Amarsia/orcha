@@ -241,9 +241,12 @@ const followUp = await orcha.exampleAgent.resume(result.sessionId, {
 }).result;
 ```
 
-Registered agents are exposed as `orcha.<agentName>`. The first implementation
-supports durable Node.js runs backed by
-`.orcha/sessions/<agentName>/ses_<timestamp>_<uuid>.jsonl`.
+Registered agents are exposed as `orcha.<agentName>`. Durable Node.js runs use
+JSONL by default at
+`.orcha/sessions/<agentName>/ses_<timestamp>_<uuid>.jsonl`. To opt into the
+shared `.orcha/sessions/orcha-sqlite.db` store, set
+`storage: { strategy: "sqlite" }` in `orcha.init()`. Orcha ships its native
+SQLite driver as an internal optional dependency.
 Client-action pause/resume, compiled local actions, and cumulative output
 streaming are supported.
 `run()` always starts a new session; `resume()` continues one with either a new
@@ -270,6 +273,13 @@ npx orcha run exampleAgent --session ses_123 --tool-results results.json
 npx orcha test
 npx orcha test exampleAgent
 npx orcha test exampleAgent/exampleCase
+
+# Copy all session histories to SQLite or back to JSONL.
+npx orcha migrate-storage --to sqlite
+npx orcha migrate-storage --to node-jsonl
+
+# Export one session from the active store as portable JSONL.
+npx orcha export-session exampleAgent ses_123 --output session.jsonl
 
 # Offline production compilation.
 npx orcha build
@@ -652,12 +662,12 @@ import "./orcha/index.js";
 const report = await runTests(orcha);
 ```
 
-Test sessions retain complete JSONL logs beside normal sessions under
-`.orcha/sessions/<agentName>/ses_test_<timestamp>_<uuid>.jsonl`. The final `test.completed` event
-records the suite, case, status, duration, and every assertion. Run tests
-explicitly before building in CI. Tests use the configured providers, so the
-test step requires provider credentials and consumes model tokens; `orcha
-build` itself remains offline and does not require those credentials.
+Test sessions use the configured session store beside normal sessions. The
+final `test.completed` event records the suite, case, status, duration, and
+every assertion. Run tests explicitly before building in CI. Tests use the
+configured providers, so the test step requires provider credentials and
+consumes model tokens; `orcha build` itself remains offline and does not
+require those credentials.
 
 ## Evaluations
 
@@ -720,7 +730,7 @@ application continues to use its normal `npm run build` command.
 - [x] Registry compiler + `orcha build`
 - [x] Model Action Protocol — client actions and opt-in native/sandboxed local actions
 - [x] Provider-neutral Anthropic, Bedrock, DeepSeek, OpenAI, Google GenAI, and Vertex AI adapters
-- [x] Stateful sessions — Node JSONL replay and client-action pause/resume
+- [x] Stateful sessions — Node JSONL/SQLite replay and client-action pause/resume
 - [x] Registered `/skills` with lazy, durable instruction loading
 - [x] Agent `/tests` with durable test-prefixed logs and explicit CI gating
 - [x] Registered LLM-judged `/evaluations`

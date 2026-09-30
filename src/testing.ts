@@ -11,7 +11,7 @@ import { RuntimeAgent } from "./runtime/agent.js";
 import { getOrchaRuntimeContext } from "./runtime/context.js";
 import type { OrchaClient } from "./runtime/create-orcha.js";
 import { SessionEventWriter } from "./runtime/session-events.js";
-import { NodeJsonlSessionStore } from "./storage/node-jsonl.js";
+import { createSessionStore } from "./storage/create-store.js";
 import type {
   AgentRegistration,
   AgentRuntime,
@@ -28,6 +28,7 @@ import type {
   RunResult,
   RunTestsOptions,
   SessionEvent,
+  SessionStore,
 } from "./types.js";
 
 interface DiscoveredTestCase {
@@ -107,11 +108,12 @@ export async function runTests(
       }
     }
     const createStore = (agentManifest: CompiledAgentManifest) =>
-      new NodeJsonlSessionStore(
-        storageDirectory,
-        context.projectRoot,
-        agentManifest.key ?? agentManifest.name,
-      );
+      createSessionStore({
+        strategy: context.configuration.storage?.strategy,
+        directory: storageDirectory,
+        projectRoot: context.projectRoot,
+        agentName: agentManifest.key ?? agentManifest.name,
+      });
     const store = createStore(manifest);
     const activeSessions = new Set<string>();
     const sessionControls = new Map<
@@ -160,7 +162,6 @@ export async function runTests(
         testCase,
         suiteId,
         context.projectRoot,
-        storageDirectory,
         warnings,
       ),
     );
@@ -550,11 +551,10 @@ function testWarnings(
 
 async function runTestCase(
   agent: AgentRuntime,
-  store: NodeJsonlSessionStore,
+  store: SessionStore,
   testCase: DiscoveredTestCase,
   suiteId: string,
   projectRoot: string,
-  storageDirectory: string,
   warnings: AgentTestWarning[],
 ): Promise<AgentTestCaseReport> {
   const startedAt = performance.now();
@@ -638,15 +638,12 @@ async function runTestCase(
     description: testCase.configuration.description,
     status: passed ? "passed" : "failed",
     sessionId: result.sessionId,
-    sessionPath: relative(
-      projectRoot,
-      resolve(
-        projectRoot,
-        storageDirectory,
-        testCase.agent,
-        `${result.sessionId}.jsonl`,
-      ),
-    ),
+    sessionPath: store.describeLocation
+      ? relative(
+          projectRoot,
+          await store.describeLocation(result.sessionId),
+        )
+      : undefined,
     durationMs: Math.round(performance.now() - startedAt),
     ...("usage" in result && result.usage
       ? { usage: result.usage }

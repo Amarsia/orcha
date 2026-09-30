@@ -16,12 +16,17 @@ files under \`.orcha/\`.
   pending client-action results.
 - \`orcha test\` runs every enabled discovered agent test.
 - \`orcha test <agent>\` or \`orcha test <agent>/<case>\` narrows the run.
+- \`orcha migrate-storage --to sqlite|node-jsonl\` copies all session histories
+  between local stores without deleting the source.
+- \`orcha export-session <agent> <sessionId> [--output <path>]\` exports one
+  session from the active store as JSONL.
 - \`orcha build\` creates the production Orcha bundle without calling models.
 - Add \`--json\` to \`run\` and \`test\` for machine-readable output.
 
 \`run\`, \`test\`, and playground executions use real providers and require
-credentials. \`dev\` and \`build\` are offline. Session logs are JSONL files under
-\`.orcha/sessions/<agentName>/ses_<timestamp>_<uuid>.jsonl\`.
+credentials. \`dev\` and \`build\` are offline. Sessions use JSONL by default
+under \`.orcha/sessions/<agentName>/\`; opt-in SQLite stores all agents in
+\`.orcha/sessions/orcha-sqlite.db\`.
 
 ## Registry
 
@@ -54,7 +59,8 @@ required.
   \`orcha/\`. At least one agent is required.
 - \`actions\` (optional): overrides the native local-action runtime or configures
   its environment and sandbox settings.
-- \`storage.strategy\` (optional): currently only \`"node-jsonl"\`.
+- \`storage.strategy\` (optional): \`"node-jsonl"\` (default) or \`"sqlite"\`.
+  The SQLite driver ships as an internal optional Orcha dependency.
 - \`storage.directory\` (optional): session directory relative to project
   root; defaults to \`.orcha/sessions\`.
 - \`root\` (optional): absolute or working-directory-relative project root;
@@ -595,9 +601,9 @@ string, and non-empty evidence array for every configured metric.
 
 ## Sessions and logs
 
-JSONL is the durable source of truth. Each line is one complete JSON object;
-never treat the file as one JSON array. Events are append-only and ordered by
-\`sequence\`.
+The configured session store is the durable source of truth. JSONL stores one
+complete event object per line; SQLite stores one event per row. Events are
+append-only and ordered by \`sequence\`.
 
 All events use this envelope:
 
@@ -1007,7 +1013,7 @@ cause \`resume()\` to fail spuriously or reuse sequence numbers.
 
 ### Replay and context
 
-Orcha does not send raw JSONL back to the model. It projects durable events
+Orcha does not send raw stored events back to the model. It projects them
 into provider-neutral conversation messages. Completed and explicitly paused
 conversational runs become user, assistant, and tool messages, so a new run
 sees incomplete assistant text preserved by \`pause()\`. Lifecycle bookkeeping
