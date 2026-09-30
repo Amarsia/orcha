@@ -1,5 +1,12 @@
 # orchajs
 
+## 0.14.0
+
+### Minor Changes
+
+- [#65](https://github.com/Amarsia/orcha/pull/65) [`a599cee`](https://github.com/Amarsia/orcha/commit/a599cee96c9887cb1c7a9c8383ecf1fc4f5e7ab1) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Add an opt-in SQLite session store with JSONL migration and export commands.
+  JSONL remains the default storage strategy.
+
 ## 0.13.0
 
 ### Minor Changes
