@@ -1,5 +1,13 @@
 # orchajs
 
+## 0.15.0
+
+### Minor Changes
+
+- [#67](https://github.com/Amarsia/orcha/pull/67) [`4ec4218`](https://github.com/Amarsia/orcha/commit/4ec4218625c842655270dc1c4b2e09f15dbfe8d0) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Publish a parallel CommonJS build and add `require` conditions for the main
+  package, `orchajs/testing`, and `orchajs/esbuild` exports. TypeScript projects
+  that compile to CommonJS can now import Orcha without package export errors.
+
 ## 0.14.0
 
 ### Minor Changes
