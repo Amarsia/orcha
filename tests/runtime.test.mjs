@@ -29,13 +29,20 @@ const sqliteAvailable = await import("better-sqlite3").then(
   () => false,
 );
 
-test("exposes every public entry point to CommonJS consumers", () => {
+test("exposes every public entry point to CommonJS consumers", async () => {
   const require = createRequire(import.meta.url);
+  const packageMetadata = JSON.parse(
+    await readFile(resolve(repositoryRoot, "package.json"), "utf8"),
+  );
   const main = require("orchajs");
+  const legacyMain = require(resolve(repositoryRoot, packageMetadata.main));
   const testing = require("orchajs/testing");
   const esbuild = require("orchajs/esbuild");
 
+  assert.equal(packageMetadata.main, "./dist-cjs/index.js");
+  assert.equal(packageMetadata.module, "./dist/index.js");
   assert.equal(typeof main.orcha.init, "function");
+  assert.equal(typeof legacyMain.orcha.init, "function");
   assert.equal(typeof main.NodeJsonlSessionStore, "function");
   assert.equal(typeof testing.listTests, "function");
   assert.equal(typeof testing.runTests, "function");
