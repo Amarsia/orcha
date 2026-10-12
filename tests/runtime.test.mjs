@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +28,19 @@ const sqliteAvailable = await import("better-sqlite3").then(
   () => true,
   () => false,
 );
+
+test("exposes every public entry point to CommonJS consumers", () => {
+  const require = createRequire(import.meta.url);
+  const main = require("orchajs");
+  const testing = require("orchajs/testing");
+  const esbuild = require("orchajs/esbuild");
+
+  assert.equal(typeof main.orcha.init, "function");
+  assert.equal(typeof main.NodeJsonlSessionStore, "function");
+  assert.equal(typeof testing.listTests, "function");
+  assert.equal(typeof testing.runTests, "function");
+  assert.equal(typeof esbuild.orchaPlugin, "function");
+});
 
 test("SQLite session storage scopes events by agent", {
   skip: sqliteAvailable ? false : "better-sqlite3 is not installed",

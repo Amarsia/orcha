@@ -35,6 +35,15 @@ The starter demonstrates durable sessions, actions, client-action pauses,
 skills, tests, evaluations, and multimodal input without a frontend framework
 or hosted dependency.
 
+Orcha supports both ECMAScript modules and CommonJS on Node.js 20.12 or newer.
+TypeScript projects may use either `module: "NodeNext"` or
+`module: "commonjs"`. CommonJS applications can load the public API normally:
+
+```js
+const { orcha } = require("orchajs");
+require("./orcha");
+```
+
 ---
 
 ## The convention
