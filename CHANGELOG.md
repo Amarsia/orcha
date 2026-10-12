@@ -1,5 +1,13 @@
 # orchajs
 
+## 0.15.1
+
+### Patch Changes
+
+- [#69](https://github.com/Amarsia/orcha/pull/69) [`3e8b2a0`](https://github.com/Amarsia/orcha/commit/3e8b2a0567e3df579aef1a67ff4b71f7d4febf51) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Point the legacy `main` package entry at the CommonJS build and advertise the
+  ESM build through `module`. Older Jest and CommonJS resolvers that do not honor
+  conditional exports now load Orcha without parsing ESM as CommonJS.
+
 ## 0.15.0
 
 ### Minor Changes
