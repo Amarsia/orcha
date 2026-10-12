@@ -21,15 +21,28 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist-cjs/index.js"
     },
     "./esbuild": {
       "types": "./dist/integrations/esbuild.d.ts",
-      "import": "./dist/integrations/esbuild.js"
+      "import": "./dist/integrations/esbuild.js",
+      "require": "./dist-cjs/integrations/esbuild.js"
     },
     "./testing": {
       "types": "./dist/testing.d.ts",
-      "import": "./dist/testing.js"
+      "import": "./dist/testing.js",
+      "require": "./dist-cjs/testing.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "esbuild": [
+        "dist/integrations/esbuild.d.ts"
+      ],
+      "testing": [
+        "dist/testing.d.ts"
+      ]
     }
   },
   "bin": {
@@ -37,11 +50,12 @@
   },
   "files": [
     "dist",
+    "dist-cjs",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.playground.json && node scripts/build-playground.mjs",
+    "build": "tsc -p tsconfig.json && node scripts/build-cjs.mjs && tsc -p tsconfig.playground.json && node scripts/build-playground.mjs",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "npm run build && npm run test:runtime && npm run test:create-orcha",
     "test:runtime": "node --test tests/*.test.mjs",
