@@ -208,7 +208,7 @@ function readPackageInfo(projectRoot: string): {
 } {
   const packagePath = join(projectRoot, "package.json");
   if (!existsSync(packagePath)) {
-    return { repositoryUrl: readGitRemoteUrl(projectRoot) };
+    return { repositoryUrl: normalizeRepositoryUrl(readGitRemoteUrl(projectRoot)) };
   }
   try {
     const parsed = JSON.parse(readFileSync(packagePath, "utf8")) as {
@@ -222,11 +222,13 @@ function readPackageInfo(projectRoot: string): {
       description:
         typeof parsed.description === "string" ? parsed.description : undefined,
       version: typeof parsed.version === "string" ? parsed.version : undefined,
-      repositoryUrl:
-        readPackageRepositoryUrl(parsed.repository) ?? readGitRemoteUrl(projectRoot),
+      repositoryUrl: normalizeRepositoryUrl(
+        readPackageRepositoryUrl(parsed.repository) ??
+          readGitRemoteUrl(projectRoot),
+      ),
     };
   } catch {
-    return { repositoryUrl: readGitRemoteUrl(projectRoot) };
+    return { repositoryUrl: normalizeRepositoryUrl(readGitRemoteUrl(projectRoot)) };
   }
 }
 
@@ -255,20 +257,34 @@ function readGitRemoteUrl(projectRoot: string): string | undefined {
 }
 
 function resolveGitConfigPath(projectRoot: string): string | undefined {
-  const gitPath = join(projectRoot, ".git");
-  if (!existsSync(gitPath)) {
-    return undefined;
-  }
-  try {
-    const gitFile = readFileSync(gitPath, "utf8");
-    const gitDir = gitFile.match(/^gitdir: (.+)$/m)?.[1]?.trim();
-    if (gitDir) {
-      return join(resolve(projectRoot, gitDir), "config");
+  let directory = resolve(projectRoot);
+  while (true) {
+    const gitPath = join(directory, ".git");
+    if (existsSync(gitPath)) {
+      try {
+        const gitFile = readFileSync(gitPath, "utf8");
+        const gitDir = gitFile.match(/^gitdir: (.+)$/m)?.[1]?.trim();
+        if (gitDir) {
+          return join(resolve(directory, gitDir), "config");
+        }
+      } catch {
+        return join(gitPath, "config");
+      }
+      return join(dirname(gitPath), ".git", "config");
     }
-  } catch {
-    return join(gitPath, "config");
+    const parent = dirname(directory);
+    if (parent === directory) {
+      return undefined;
+    }
+    directory = parent;
   }
-  return join(dirname(gitPath), ".git", "config");
+}
+
+function normalizeRepositoryUrl(url: string | undefined): string | undefined {
+  return url
+    ?.replace(/^git\+/, "")
+    .replace(/^git@github\.com:/, "https://github.com/")
+    .replace(/\.git$/, "");
 }
 
 function hashStable(value: unknown): string {

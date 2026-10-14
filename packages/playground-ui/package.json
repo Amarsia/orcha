@@ -1,0 +1,32 @@
+{
+  "name": "@orchajs/playground-ui",
+  "version": "0.1.0",
+  "description": "Shared Orcha playground React UI.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./mount": {
+      "types": "./src/index.tsx",
+      "import": "./src/index.tsx"
+    },
+    "./orcha-logo.svg": "./src/orcha-logo.svg"
+  },
+  "files": [
+    "src"
+  ],
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.11.6",
+    "baseui": "^16.1.1",
+    "react-markdown": "^10.1.0",
+    "styletron-engine-atomic": "^1.6.2",
+    "styletron-react": "^6.1.1"
+  }
+}

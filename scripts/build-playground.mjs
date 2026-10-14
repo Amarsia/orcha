@@ -3,15 +3,16 @@ import { resolve } from "node:path";
 import { build } from "esbuild";
 
 const root = resolve(import.meta.dirname, "..");
+const playgroundUiDirectory = resolve(root, "packages/playground-ui/src");
 const outputDirectory = resolve(root, "dist/playground/public");
 
 await mkdir(outputDirectory, { recursive: true });
 await copyFile(
-  resolve(root, "src/playground-ui/orcha-logo.svg"),
+  resolve(playgroundUiDirectory, "orcha-logo.svg"),
   resolve(outputDirectory, "orcha-logo.svg"),
 );
 await build({
-  entryPoints: [resolve(root, "src/playground-ui/index.tsx")],
+  entryPoints: [resolve(playgroundUiDirectory, "index.tsx")],
   outfile: resolve(outputDirectory, "app.js"),
   bundle: true,
   format: "esm",

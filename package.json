@@ -13,7 +13,8 @@
   },
   "workspaces": [
     ".",
-    "packages/create-orcha"
+    "packages/create-orcha",
+    "packages/playground-ui"
   ],
   "type": "module",
   "main": "./dist-cjs/index.js",

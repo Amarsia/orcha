@@ -40,9 +40,7 @@ async function collectTypeScriptFiles(directory) {
     entries.map(async (entry) => {
       const path = resolve(directory, entry.name);
       if (entry.isDirectory()) {
-        return entry.name === "playground-ui"
-          ? []
-          : collectTypeScriptFiles(path);
+        return collectTypeScriptFiles(path);
       }
       if (directory === sourceDirectory && entry.name === "cli.ts") {
         return [];
