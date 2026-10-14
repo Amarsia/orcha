@@ -85,6 +85,10 @@ export type AgentRegistration =
 export interface OrchaInitConfiguration {
   providers: ProviderInitConfigurations;
   agents: Record<string, AgentRegistration>;
+  amarsia?: {
+    key: string;
+    endpoint?: string;
+  };
   actions?: LocalActionRuntimeConfiguration;
   storage?: ProjectConfiguration["storage"];
   root?: string;
