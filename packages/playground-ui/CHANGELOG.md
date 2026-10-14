@@ -1,5 +1,11 @@
 # @orchajs/playground-ui
 
+## 0.2.1
+
+### Patch Changes
+
+- [#76](https://github.com/Amarsia/orcha/pull/76) [`135a5fe`](https://github.com/Amarsia/orcha/commit/135a5fe4e1f3f45ba5a52df1dbbecd6c77720a4c) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Publish compiled JavaScript and TypeScript declarations instead of raw TSX source.
+
 ## 0.2.0
 
 ### Minor Changes
