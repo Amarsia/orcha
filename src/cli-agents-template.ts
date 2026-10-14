@@ -57,6 +57,12 @@ required.
   name.
 - \`agents\` (required): runtime property names mapped to folders relative to
   \`orcha/\`. At least one agent is required.
+- \`amarsia.key\` (optional): project connection key generated in Amarsia.
+  When set, Orcha syncs structural project and agent metadata only. It never
+  uploads provider credentials, environment values, prompts, instructions,
+  test inputs, or action source.
+- \`amarsia.endpoint\` (optional): Amarsia API URL for project sync. Defaults to
+  \`AMARSIA_API_URL\` and then \`https://api.amarsia.com\`.
 - \`actions\` (optional): overrides the native local-action runtime or configures
   its environment and sandbox settings.
 - \`storage.strategy\` (optional): \`"node-jsonl"\` (default) or \`"sqlite"\`.

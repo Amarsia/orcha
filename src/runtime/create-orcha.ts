@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { RuntimeAgent } from "./agent.js";
 import { createSessionStore } from "../storage/create-store.js";
+import { syncAmarsiaProject } from "../amarsia/sync.js";
 import type { ProviderResponseGenerator } from "../providers/types.js";
 import { setOrchaRuntimeContext } from "./context.js";
 import type {
@@ -58,6 +59,14 @@ class OrchaRuntimeCore implements Orcha {
         process.cwd(),
     );
     const bundle = this.#resolveBundle(configuration);
+    if (configuration.amarsia?.key) {
+      syncAmarsiaProject({
+        key: configuration.amarsia.key,
+        endpoint: configuration.amarsia.endpoint,
+        bundle,
+        projectRoot,
+      });
+    }
     const runtimeConfiguration: ProjectConfiguration = {
       providers: Object.fromEntries(
         Object.entries(configuration.providers).map(([name, provider]) => [

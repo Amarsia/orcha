@@ -1,6 +1,7 @@
 import { orcha } from "orchajs";
 
 orcha.init({
+  amarsia: { key: process.env.AMARSIA_PROJECT_KEY ?? "", endpoint: "http://0.0.0.0:8000" },
   storage: {
     strategy: "sqlite",
   },

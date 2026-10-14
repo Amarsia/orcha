@@ -1,5 +1,6 @@
 {
   "name": "orchajs-playground",
+  "description": "Playground environment for manual or automated experimentation and testing of orchajs agents and orchestrations.",
   "private": true,
   "version": "0.0.0",
   "type": "module",
