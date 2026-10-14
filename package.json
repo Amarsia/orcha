@@ -69,22 +69,24 @@
     "prepublishOnly": "npm run build"
   },
   "engines": {
-    "node": ">=20.12"
+    "node": ">=18.20.8"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.1131.0",
-    "@google/genai": "^2.22.0",
+    "@aws-sdk/client-bedrock-runtime": "3.967.0",
     "@jitl/quickjs-singlefile-cjs-release-sync": "^0.32.0",
+    "chokidar": "4.0.3",
+    "dotenv": "16.6.1",
     "esbuild": "^0.25.9",
     "quickjs-emscripten-core": "^0.32.0"
   },
   "optionalDependencies": {
-    "better-sqlite3": "^12.0.0"
+    "@google/genai": "2.22.0",
+    "better-sqlite3": "11.10.0"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.31.1",
-    "@types/node": "^24.3.1",
+    "@types/node": "18.19.130",
     "@types/react": "^18.3.24",
     "@types/react-dom": "^18.3.7",
     "@xyflow/react": "^12.11.6",
@@ -99,6 +101,8 @@
   "overrides": {
     "@types/react": "$@types/react",
     "@types/react-dom": "$@types/react-dom",
+    "@aws-sdk/util-locate-window": "3.965.0",
+    "fast-xml-parser": "5.11.2",
     "@changesets/write": {
       "human-id": "4.1.1"
     }

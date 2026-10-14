@@ -1,6 +1,9 @@
 import { GoogleGenAI } from "@google/genai/web";
 import type { ProviderConfiguration } from "../types.js";
-import { generateGoogleContent } from "./google-gemini.js";
+import {
+  generateGoogleContent,
+  toGoogleContentClient,
+} from "./google-gemini.js";
 import type {
   ProviderAdapter,
   ProviderRequest,
@@ -29,7 +32,7 @@ async function generateGoogleGenAI(
       : {}),
   });
   return generateGoogleContent(
-    client,
+    toGoogleContentClient(client),
     request,
     "googlegenai",
   );

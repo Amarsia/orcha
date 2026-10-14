@@ -56,7 +56,7 @@ export function createLocalActionContext(options: {
         ...init,
         redirect: "manual",
         signal: init?.signal
-          ? AbortSignal.any([init.signal, timeoutSignal])
+          ? combineAbortSignals(init.signal, timeoutSignal)
           : timeoutSignal,
       });
       if (response.status >= 300 && response.status < 400) {
@@ -70,6 +70,38 @@ export function createLocalActionContext(options: {
       console.log(`[orcha:${options.action.name}]`, ...values);
     },
   });
+}
+
+function combineAbortSignals(
+  first: AbortSignal,
+  second: AbortSignal,
+): AbortSignal {
+  const controller = new AbortController();
+  const registrations: Array<{
+    signal: AbortSignal;
+    listener: () => void;
+  }> = [];
+  const cleanup = () => {
+    for (const { signal, listener } of registrations) {
+      signal.removeEventListener("abort", listener);
+    }
+  };
+  const register = (signal: AbortSignal) => {
+    const abort = () => controller.abort(signal.reason);
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+    registrations.push({ signal, listener: abort });
+  };
+
+  controller.signal.addEventListener("abort", cleanup, { once: true });
+  register(first);
+  if (!controller.signal.aborted) {
+    register(second);
+  }
+  return controller.signal;
 }
 
 function isAllowedHost(hostname: string, allowedHosts: string[]): boolean {

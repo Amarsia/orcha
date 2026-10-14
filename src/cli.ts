@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-import { existsSync, watch } from "node:fs";
+import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
+import { watch } from "chokidar";
 import { AGENTS_MD } from "./cli-agents-template.js";
 import { buildProject } from "./compiler/build-project.js";
 import { loadProjectEnvironment } from "./env.js";
@@ -176,9 +177,8 @@ async function watchProject(projectRoot: string): Promise<void> {
 
   await validate();
   console.log("[orcha] watching orcha/**");
-  const watcher = watch(
-    registryDirectory,
-    { recursive: true },
+  const watcher = watch(registryDirectory, { ignoreInitial: true }).on(
+    "all",
     () => {
       clearTimeout(timer);
       timer = setTimeout(() => void validate(), 75);
@@ -187,8 +187,7 @@ async function watchProject(projectRoot: string): Promise<void> {
   await new Promise<void>((resolveStop) => {
     const stop = (): void => {
       clearTimeout(timer);
-      watcher.close();
-      resolveStop();
+      void watcher.close().then(() => resolveStop());
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);

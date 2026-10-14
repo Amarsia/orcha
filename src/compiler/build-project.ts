@@ -43,7 +43,7 @@ export async function buildProject(
       bundle: true,
       format: "esm",
       platform: "node",
-      target: "node20",
+      target: "node18",
       packages: "external",
       logLevel: "silent",
     });
@@ -116,7 +116,7 @@ export async function buildProject(
       bundle: true,
       format: "esm",
       platform: "node",
-      target: "node20",
+      target: "node18",
       minify: true,
       legalComments: "none",
       define: {

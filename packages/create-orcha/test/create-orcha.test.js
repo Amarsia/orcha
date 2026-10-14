@@ -36,7 +36,7 @@ test("creates a complete standalone project without installing dependencies", as
     assert.equal(packageJson.scripts.dev, "orcha playground");
     assert.equal(packageJson.scripts.build, "orcha build");
     assert.equal(packageJson.scripts.test, "orcha test");
-    assert.equal(packageJson.engines.node, ">=20.12");
+    assert.equal(packageJson.engines.node, ">=18.20.8");
     await assert.rejects(access(join(targetDirectory, "node_modules")));
 
     await Promise.all([

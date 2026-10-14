@@ -5,18 +5,19 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node --env-file=.env --watch --import tsx src/index.ts",
-    "start": "node --env-file=.env --import tsx src/index.ts",
+    "dev": "node --require dotenv/config --watch --import tsx src/index.ts",
+    "start": "node --require dotenv/config --import tsx src/index.ts",
     "test:agents": "node --import tsx src/tests.ts",
-    "test:agents:local": "node --env-file=.env --import tsx src/tests.ts",
+    "test:agents:local": "node --require dotenv/config --import tsx src/tests.ts",
     "build": "node scripts/build.mjs",
     "start:production": "NODE_ENV=production node dist/index.js",
-    "start:production:local": "NODE_ENV=production node --env-file=.env dist/index.js"
+    "start:production:local": "NODE_ENV=production node --require dotenv/config dist/index.js"
   },
   "dependencies": {
     "orchajs": "file:.."
   },
   "devDependencies": {
+    "dotenv": "16.6.1",
     "esbuild": "^0.25.9",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"

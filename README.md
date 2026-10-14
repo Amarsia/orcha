@@ -35,14 +35,20 @@ The starter demonstrates durable sessions, actions, client-action pauses,
 skills, tests, evaluations, and multimodal input without a frontend framework
 or hosted dependency.
 
-Orcha supports both ECMAScript modules and CommonJS on Node.js 20.12 or newer.
-TypeScript projects may use either `module: "NodeNext"` or
-`module: "commonjs"`. CommonJS applications can load the public API normally:
+Orcha supports both ECMAScript modules and CommonJS on Node.js 18.20.8 or
+newer. Current LTS Node.js releases are recommended; Node.js 18 compatibility
+is maintained for existing deployments. TypeScript projects may use either
+`module: "NodeNext"` or `module: "commonjs"`. CommonJS applications can load
+the public API normally:
 
 ```js
 const { orcha } = require("orchajs");
 require("./orcha");
 ```
+
+The Google GenAI and Vertex AI adapters use Google's current SDK and require
+Node.js 20 or newer. On Node.js 18, the optional Google SDK is skipped while
+the rest of Orcha—including Amazon Bedrock—remains available.
 
 ---
 

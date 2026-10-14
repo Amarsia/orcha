@@ -15,6 +15,6 @@
     "orchajs": "__ORCHA_VERSION__"
   },
   "engines": {
-    "node": ">=20.12"
+    "node": ">=18.20.8"
   }
 }

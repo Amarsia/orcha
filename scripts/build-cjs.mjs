@@ -1,8 +1,9 @@
-import { readdir, rm, writeFile } from "node:fs/promises";
-import { extname, resolve } from "node:path";
+import { readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { dirname, extname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
-const root = resolve(import.meta.dirname, "..");
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceDirectory = resolve(root, "src");
 const outputDirectory = resolve(root, "dist-cjs");
 
@@ -16,15 +17,16 @@ await build({
   bundle: false,
   format: "cjs",
   platform: "node",
-  target: "node20",
+  target: "node18",
   packages: "external",
   sourcemap: true,
   legalComments: "none",
+  plugins: [commonJsCompatibilityPlugin()],
   define: {
     "import.meta.url": "__orchaImportMetaUrl",
   },
   banner: {
-    js: '"use strict"; const __orchaImportMetaUrl = require("node:url").pathToFileURL(__filename).href;',
+    js: '"use strict"; const __orchaImportMetaUrl = require("url").pathToFileURL(__filename).href;',
   },
 });
 
@@ -49,4 +51,19 @@ async function collectTypeScriptFiles(directory) {
     }),
   );
   return files.flat();
+}
+
+function commonJsCompatibilityPlugin() {
+  return {
+    name: "commonjs-compatibility",
+    setup(builder) {
+      builder.onLoad({ filter: /\.ts$/ }, async ({ path }) => ({
+        contents: (await readFile(path, "utf8")).replace(
+          /(["'])node:([^"'\\]+)\1/g,
+          "$1$2$1",
+        ),
+        loader: "ts",
+      }));
+    },
+  };
 }

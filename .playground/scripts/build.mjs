@@ -11,7 +11,7 @@ await build({
   bundle: true,
   format: "esm",
   platform: "node",
-  target: "node20",
+  target: "node18",
   minify: true,
   legalComments: "none",
   plugins: [orchaPlugin({ projectRoot })],

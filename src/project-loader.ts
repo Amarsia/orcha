@@ -28,7 +28,7 @@ export async function loadProject(projectRoot: string): Promise<void> {
       bundle: true,
       format: "esm",
       platform: "node",
-      target: "node20",
+      target: "node18",
       packages: "external",
       logLevel: "silent",
     });

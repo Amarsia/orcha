@@ -35,15 +35,31 @@ function loadProvider(name: ProviderName): Promise<ProviderAdapter> {
   }
 
   const descriptor = builtInProviderCatalog[name];
-  const loading = import(`./${descriptor.moduleFile}`).then((module) => {
-    const provider: unknown = module[descriptor.exportName];
-    if (!isProviderAdapter(provider) || provider.name !== name) {
-      throw new Error(
-        `Provider module "${descriptor.moduleFile}" does not export "${descriptor.exportName}".`,
-      );
-    }
-    return provider;
-  });
+  const loading = import(`./${descriptor.moduleFile}`)
+    .then((module) => {
+      const provider: unknown = module[descriptor.exportName];
+      if (!isProviderAdapter(provider) || provider.name !== name) {
+        throw new Error(
+          `Provider module "${descriptor.moduleFile}" does not export "${descriptor.exportName}".`,
+        );
+      }
+      return provider;
+    })
+    .catch((error: unknown) => {
+      loadedProviders.delete(name);
+      if (
+        (name === "googlegenai" || name === "vertexai") &&
+        error instanceof Error &&
+        error.message.includes("@google/genai")
+      ) {
+        throw new OrchaError(
+          "provider_error",
+          `Provider "${name}" requires Node.js 20 or newer and the optional "@google/genai" package.`,
+          { cause: error },
+        );
+      }
+      throw error;
+    });
   loadedProviders.set(name, loading);
   return loading;
 }

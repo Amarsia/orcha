@@ -1,11 +1,3 @@
-import type {
-  Content,
-  FinishReason,
-  GenerateContentConfig,
-  GenerateContentResponse,
-  Part,
-  ThinkingLevel,
-} from "@google/genai/web";
 import { OrchaError } from "../errors.js";
 import { readLocalFileContent } from "../file-content.js";
 import { parseStructuredOutput } from "../runtime/structured-output.js";
@@ -24,22 +16,105 @@ import type {
   ProviderToolCall,
 } from "./types.js";
 
+interface GooglePart {
+  text?: string;
+  thought?: boolean;
+  thoughtSignature?: string;
+  inlineData?: {
+    mimeType: string;
+    data: string;
+  };
+  fileData?: {
+    mimeType: string;
+    fileUri: string;
+  };
+  functionCall?: {
+    id?: string;
+    name?: string;
+    args?: Record<string, unknown>;
+  };
+  functionResponse?: {
+    id?: string;
+    name: string;
+    response: Record<string, unknown>;
+  };
+}
+
+interface GoogleContent {
+  role: string;
+  parts: GooglePart[];
+}
+
+interface GoogleGenerateContentConfig {
+  systemInstruction: string;
+  maxOutputTokens?: number;
+  tools?: Array<{
+    functionDeclarations: Array<{
+      name: string;
+      description: string;
+      parametersJsonSchema: Record<string, unknown>;
+    }>;
+  }>;
+  responseMimeType?: string;
+  responseJsonSchema?: Record<string, unknown>;
+  thinkingConfig?: {
+    includeThoughts: boolean;
+    thinkingLevel?: string;
+  };
+}
+
+interface GoogleGenerateContentResponse {
+  responseId?: string;
+  candidates?: Array<{
+    finishReason?: string;
+    content?: {
+      parts?: GooglePart[];
+    };
+  }>;
+  promptFeedback?: {
+    blockReason?: string;
+  };
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    thoughtsTokenCount?: number;
+    cachedContentTokenCount?: number;
+  };
+}
+
 export interface GoogleContentClient {
   models: {
     generateContentStream(parameters: {
       model: string;
-      contents: Content[];
-      config: GenerateContentConfig;
-    }): Promise<AsyncGenerator<GenerateContentResponse>>;
+      contents: GoogleContent[];
+      config: GoogleGenerateContentConfig;
+    }): Promise<AsyncGenerator<GoogleGenerateContentResponse>>;
   };
+}
+
+export function toGoogleContentClient(client: unknown): GoogleContentClient {
+  if (
+    typeof client !== "object" ||
+    client === null ||
+    !("models" in client) ||
+    typeof client.models !== "object" ||
+    client.models === null ||
+    !("generateContentStream" in client.models) ||
+    typeof client.models.generateContentStream !== "function"
+  ) {
+    throw new Error(
+      "The installed @google/genai package does not expose a compatible client.",
+    );
+  }
+  return client as GoogleContentClient;
 }
 
 interface CollectedGoogleResponse {
   responseId?: string;
-  finishReason?: FinishReason;
+  finishReason?: string;
   promptBlockReason?: string;
-  parts: Part[];
-  usage?: GenerateContentResponse["usageMetadata"];
+  parts: GooglePart[];
+  usage?: GoogleGenerateContentResponse["usageMetadata"];
 }
 
 export async function generateGoogleContent(
@@ -55,7 +130,7 @@ export async function generateGoogleContent(
     );
   }
 
-  const config: GenerateContentConfig = {
+  const config: GoogleGenerateContentConfig = {
     systemInstruction: request.systemPrompt,
     ...(request.maxTokens
       ? { maxOutputTokens: request.maxTokens }
@@ -80,8 +155,7 @@ export async function generateGoogleContent(
     includeThoughts: true,
   };
   if (request.reasoningLevel) {
-    config.thinkingConfig.thinkingLevel =
-      request.reasoningLevel as ThinkingLevel;
+    config.thinkingConfig.thinkingLevel = request.reasoningLevel;
   }
 
   const stream = await client.models.generateContentStream({
@@ -107,7 +181,7 @@ export async function generateGoogleContent(
 }
 
 async function collectGoogleStream(
-  stream: AsyncGenerator<GenerateContentResponse>,
+  stream: AsyncGenerator<GoogleGenerateContentResponse>,
   publishOutput?: (output: string) => void,
   signal?: AbortSignal,
 ): Promise<CollectedGoogleResponse> {
@@ -216,7 +290,7 @@ function toProviderResponse(
 
 function appendGoogleTextPart(
   content: ProviderAssistantBlock[],
-  part: Part,
+  part: GooglePart,
 ): void {
   const text = part.text ?? "";
   if (part.thought === true) {
@@ -252,8 +326,8 @@ function appendGoogleTextPart(
 async function toGoogleContents(
   messages: ProviderMessage[],
   provider: "googlegenai" | "vertexai",
-): Promise<Content[]> {
-  const contents: Content[] = [];
+): Promise<GoogleContent[]> {
+  const contents: GoogleContent[] = [];
   const previousCalls = new Map<
     string,
     {
@@ -325,7 +399,7 @@ async function toGoogleContents(
 
 async function toGoogleUserPart(
   content: MessageContent,
-): Promise<Part> {
+): Promise<GooglePart> {
   if (content.type === "text") {
     return { text: content.text };
   }
@@ -384,7 +458,7 @@ function toGoogleAssistantPart(
   block: ProviderAssistantBlock,
   messageProvider: ProviderName | undefined,
   currentProvider: "googlegenai" | "vertexai",
-): Part {
+): GooglePart {
   if (block.type === "text") {
     return { text: block.text };
   }
@@ -427,7 +501,7 @@ function normalizeFunctionResponse(
 }
 
 function normalizeStopReason(
-  reason: FinishReason | undefined,
+  reason: string | undefined,
   hasToolCalls: boolean,
   promptBlocked: boolean,
 ): ProviderStopReason | undefined {
@@ -458,7 +532,7 @@ function normalizeStopReason(
 }
 
 function normalizeUsage(
-  usage: GenerateContentResponse["usageMetadata"],
+  usage: GoogleGenerateContentResponse["usageMetadata"],
 ): Usage {
   return {
     inputTokens: usage?.promptTokenCount ?? 0,

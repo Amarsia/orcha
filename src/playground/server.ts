@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, watch } from "node:fs";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { watch } from "chokidar";
 import { orcha } from "../orcha.js";
 import type { OrchaClient } from "../orcha.js";
 import { loadProject } from "../project-loader.js";
@@ -110,21 +111,24 @@ export async function startPlayground(
   };
   const watcher = watch(
     resolve(projectRoot, "orcha"),
-    { recursive: true },
-    () => {
-      clearTimeout(reloadTimer);
-      reloadTimer = setTimeout(() => void reload(), 100);
-    },
-  );
+    { ignoreInitial: true },
+  ).on("all", () => {
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => void reload(), 100);
+  });
 
   await new Promise<void>((resolveStop) => {
     const stop = (): void => {
       clearTimeout(reloadTimer);
-      watcher.close();
       for (const client of projectClients) {
         client.end();
       }
-      server.close(() => resolveStop());
+      void Promise.all([
+        watcher.close(),
+        new Promise<void>((resolveClosed) => {
+          server.close(() => resolveClosed());
+        }),
+      ]).then(() => resolveStop());
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
