@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.16.0
+
+### Minor Changes
+
+- [#71](https://github.com/Amarsia/orcha/pull/71) [`acdf268`](https://github.com/Amarsia/orcha/commit/acdf2685489e07d95cfbc19ed159a937ec3e5cf8) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Add Amarsia project sync support through `orcha.init({ amarsia: { key, endpoint } })`, sending sanitized structural project and agent metadata without credentials, prompts, instructions, test inputs, or action source.
+
 ## 0.15.1
 
 ### Patch Changes
