@@ -1,5 +1,16 @@
 # create-orcha
 
+## 0.4.1
+
+### Patch Changes
+
+- [#78](https://github.com/Amarsia/orcha/pull/78) [`1a97509`](https://github.com/Amarsia/orcha/commit/1a97509dcd8a5d7ed4656da64b5d74721c4f571c) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Support Node.js 18.20.8 as a compatibility runtime while continuing to
+  recommend current LTS releases. Replace Node 20-only environment loading,
+  abort-signal composition, and recursive file watching; emit Node 18-compatible
+  ESM and CommonJS builds; and use Bedrock and SQLite dependency versions that
+  install and run on Node 18. Keep the current Google SDK optional because its
+  Google GenAI and Vertex AI adapters require Node 20 or newer.
+
 ## 0.4.0
 
 ### Minor Changes
