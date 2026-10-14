@@ -12,7 +12,7 @@ await copyFile(
   resolve(outputDirectory, "orcha-logo.svg"),
 );
 await build({
-  entryPoints: [resolve(playgroundUiDirectory, "index.tsx")],
+  entryPoints: [resolve(playgroundUiDirectory, "mount.tsx")],
   outfile: resolve(outputDirectory, "app.js"),
   bundle: true,
   format: "esm",

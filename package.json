@@ -57,7 +57,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/build-cjs.mjs && tsc -p tsconfig.playground.json && node scripts/build-playground.mjs",
+    "build": "npm run build --workspace=@orchajs/playground-ui && tsc -p tsconfig.json && node scripts/build-cjs.mjs && tsc -p tsconfig.playground.json && node scripts/build-playground.mjs",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "npm run build && npm run test:runtime && npm run test:create-orcha",
     "test:runtime": "node --test tests/*.test.mjs",
@@ -65,7 +65,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",
-    "pack:check": "npm pack --dry-run",
+    "pack:check": "npm pack --dry-run && npm pack --dry-run --workspace=@orchajs/playground-ui",
     "prepublishOnly": "npm run build"
   },
   "engines": {

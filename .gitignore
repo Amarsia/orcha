@@ -1,5 +1,6 @@
 node_modules/
 /dist/
 /dist-cjs/
+/packages/playground-ui/dist/
 
 examples
