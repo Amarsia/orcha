@@ -1,8 +1,9 @@
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
 import { BaseProvider, LightTheme } from "baseui";
 import { Client as Styletron } from "styletron-engine-atomic";
 import { Provider as StyletronProvider } from "styletron-react";
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
+
 import { App } from "./App";
 
 const container = document.getElementById("root");

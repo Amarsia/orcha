@@ -11,18 +11,22 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./mount": {
-      "types": "./src/index.tsx",
-      "import": "./src/index.tsx"
+      "types": "./dist/mount.d.ts",
+      "import": "./dist/mount.js"
     },
-    "./orcha-logo.svg": "./src/orcha-logo.svg"
+    "./orcha-logo.svg": "./dist/orcha-logo.svg"
   },
   "files": [
-    "src"
+    "dist"
   ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').copyFileSync('src/orcha-logo.svg', 'dist/orcha-logo.svg')\"",
+    "prepack": "npm run build"
+  },
   "peerDependencies": {
     "react": ">=18",
     "react-dom": ">=18"
