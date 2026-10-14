@@ -1,6 +1,9 @@
 import { GoogleGenAI } from "@google/genai/node";
 import type { ProviderConfiguration } from "../types.js";
-import { generateGoogleContent } from "./google-gemini.js";
+import {
+  generateGoogleContent,
+  toGoogleContentClient,
+} from "./google-gemini.js";
 import type {
   ProviderAdapter,
   ProviderRequest,
@@ -55,5 +58,9 @@ async function generateVertexAI(
       ? { httpOptions: { baseUrl: configuration.baseUrl } }
       : {}),
   });
-  return generateGoogleContent(client, request, "vertexai");
+  return generateGoogleContent(
+    toGoogleContentClient(client),
+    request,
+    "vertexai",
+  );
 }

@@ -14,6 +14,7 @@ import { loadProjectEnvironment } from "../dist/env.js";
 import { orchaPlugin } from "../dist/integrations/esbuild.js";
 import { generateBedrockContent } from "../dist/providers/bedrock.js";
 import { generateProviderResponse } from "../dist/providers/index.js";
+import { createLocalActionContext } from "../dist/runtime/actions/context.js";
 import { createOrcha } from "../dist/runtime/create-orcha.js";
 import {
   migrateSessionStore,
@@ -25,6 +26,10 @@ import { listTests, runTests } from "../dist/testing.js";
 const executeFile = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sqliteAvailable = await import("better-sqlite3").then(
+  () => true,
+  () => false,
+);
+const googleProvidersAvailable = await import("@google/genai/web").then(
   () => true,
   () => false,
 );
@@ -47,6 +52,42 @@ test("exposes every public entry point to CommonJS consumers", async () => {
   assert.equal(typeof testing.listTests, "function");
   assert.equal(typeof testing.runTests, "function");
   assert.equal(typeof esbuild.orchaPlugin, "function");
+
+  const commonJsFiles = await collectFiles(
+    resolve(repositoryRoot, "dist-cjs"),
+    (name) => name.endsWith(".js"),
+  );
+  for (const path of commonJsFiles) {
+    assert.doesNotMatch(
+      await readFile(path, "utf8"),
+      /require\((["'])node:/,
+      `${path} must use CommonJS-compatible built-in module specifiers`,
+    );
+  }
+});
+
+test("combines caller and timeout signals without Node 20 APIs", async () => {
+  const caller = new AbortController();
+  const context = createLocalActionContext({
+    action: {
+      name: "fetch_record",
+      description: "Fetch a record.",
+      execution: "local",
+      parameters: {},
+      directoryName: "fetchRecord",
+      permissions: { network: ["127.0.0.1"] },
+    },
+    configuration: { runtime: "native" },
+    sessionId: "ses_node18",
+    metadata: {},
+    idempotencyKey: "node18",
+  });
+
+  caller.abort();
+  await assert.rejects(
+    context.fetch("http://127.0.0.1", { signal: caller.signal }),
+    (error) => error instanceof Error && error.name === "AbortError",
+  );
 });
 
 test("SQLite session storage scopes events by agent", {
@@ -1690,7 +1731,10 @@ test("maps OpenAI multimodal input, structured output, reasoning, and usage", as
   }
 });
 
-test("runs Google GenAI streaming with normalized local tools", async () => {
+test(
+  "runs Google GenAI streaming with normalized local tools",
+  { skip: !googleProvidersAvailable },
+  async () => {
   const fixture = await createRuntimeFixture(
     (_requests, index) =>
       index === 1
@@ -1832,9 +1876,13 @@ test("runs Google GenAI streaming with normalized local tools", async () => {
   } finally {
     await fixture.dispose();
   }
-});
+  },
+);
 
-test("maps Google GenAI multimodal, JSON, reasoning, and usage", async () => {
+test(
+  "maps Google GenAI multimodal, JSON, reasoning, and usage",
+  { skip: !googleProvidersAvailable },
+  async () => {
   const outputSchema = {
     type: "object",
     properties: {
@@ -1952,7 +2000,8 @@ test("maps Google GenAI multimodal, JSON, reasoning, and usage", async () => {
   } finally {
     await fixture.dispose();
   }
-});
+  },
+);
 
 test("runs DeepSeek reasoning, streaming, and normalized local tools", async () => {
   const fixture = await createRuntimeFixture(
@@ -2396,7 +2445,10 @@ test("fails safely when a provider exhausts its output-token budget", async () =
   }
 });
 
-test("continues a durable session after switching providers", async () => {
+test(
+  "continues a durable session after switching providers",
+  { skip: !googleProvidersAvailable },
+  async () => {
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-provider-switch-"));
   const anthropic = await createMockAnthropic(() => ({
     content: [{ type: "text", text: "First provider response." }],
@@ -2542,7 +2594,8 @@ test("continues a durable session after switching providers", async () => {
     await google.close();
     await rm(root, { recursive: true, force: true });
   }
-});
+  },
+);
 
 test("reconstructs completed history when continuing a session", async () => {
   const fixture = await createRuntimeFixture();
@@ -3170,7 +3223,7 @@ test("executes the production application without a runtime orchajs import", asy
       bundle: true,
       format: "esm",
       platform: "node",
-      target: "node20",
+      target: "node18",
       plugins: [orchaPlugin({ projectRoot: root })],
     });
     assert.equal(mock.requests.length, 0);
@@ -3203,7 +3256,10 @@ test("executes the production application without a runtime orchajs import", asy
   }
 });
 
-test("bundles providers required by a Vertex agent and its evaluations", async () => {
+test(
+  "bundles providers required by a Vertex agent and its evaluations",
+  { skip: !googleProvidersAvailable },
+  async () => {
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-vertex-production-"));
   try {
     await writeVertexFixtureProject(root);
@@ -3217,7 +3273,7 @@ test("bundles providers required by a Vertex agent and its evaluations", async (
       bundle: true,
       format: "esm",
       platform: "node",
-      target: "node20",
+      target: "node18",
       plugins: [orchaPlugin({ projectRoot: root })],
     });
 
@@ -3233,7 +3289,8 @@ test("bundles providers required by a Vertex agent and its evaluations", async (
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-});
+  },
+);
 
 test("bundles AWS authentication only for Bedrock agents", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-bedrock-production-"));
@@ -3249,7 +3306,7 @@ test("bundles AWS authentication only for Bedrock agents", async () => {
       bundle: true,
       format: "esm",
       platform: "node",
-      target: "node20",
+      target: "node18",
       plugins: [orchaPlugin({ projectRoot: root })],
     });
 
@@ -3309,7 +3366,7 @@ test("executes a sandboxed local action from the production ESM bundle", async (
       bundle: true,
       format: "esm",
       platform: "node",
-      target: "node20",
+      target: "node18",
       plugins: [orchaPlugin({ projectRoot: root })],
     });
     assert.equal(mock.requests.length, 0);
@@ -3790,17 +3847,32 @@ async function collectStream(stream) {
 
 async function readSessionEvents(root, sessionId) {
   const sessionsDirectory = resolve(root, ".orcha/sessions");
-  const relativePaths = await readdir(sessionsDirectory, { recursive: true });
-  const relativePath = relativePaths.find(
-    (path) => path === `${sessionId}.jsonl` ||
-      path.endsWith(`/${sessionId}.jsonl`),
-  );
-  assert.ok(relativePath, `Session log for "${sessionId}" was not found.`);
-  const source = await readFile(resolve(sessionsDirectory, relativePath), "utf8");
+  const path = (
+    await collectFiles(
+      sessionsDirectory,
+      (name) => name === `${sessionId}.jsonl`,
+    )
+  )[0];
+  assert.ok(path, `Session log for "${sessionId}" was not found.`);
+  const source = await readFile(path, "utf8");
   return source
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+}
+
+async function collectFiles(directory, matches) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(
+    entries.map((entry) => {
+      const path = resolve(directory, entry.name);
+      if (entry.isDirectory()) {
+        return collectFiles(path, matches);
+      }
+      return matches(entry.name) ? [path] : [];
+    }),
+  );
+  return nested.flat();
 }
 
 async function writeVertexFixtureProject(root) {
