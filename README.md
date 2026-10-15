@@ -763,10 +763,41 @@ they need every judge result to finish and persist.
 
 ### Production and Serverless builds
 
-For esbuild production applications, add `orchaPlugin()` from
-`orchajs/esbuild` to the build that bundles the application handlers. It
-compiles the registry and replaces exact `orchajs` imports with the
-self-contained generated runtime:
+For Serverless Framework projects, install `serverless-esbuild` and register
+the Orcha integration after it:
+
+```bash
+npm install --save-dev serverless-esbuild
+```
+
+```yaml
+plugins:
+  - serverless-esbuild
+  - orchajs/serverless
+```
+
+Serverless Framework v4 users must opt out of its built-in builder before
+loading `serverless-esbuild`:
+
+```yaml
+build:
+  esbuild: false
+```
+
+No separate `orcha build` command or deployment script is required. During
+`serverless package` and `serverless deploy`, the integration adds Orcha to the
+existing esbuild pipeline. It preserves other esbuild plugins, compiles the
+registry, and replaces exact `orchajs` imports with the generated production
+runtime. It rejects configurations that externalize `orchajs`, because those
+would copy the full development package into the Lambda artifact.
+
+`serverless-plugin-typescript` and plain `tsc` do not bundle dependencies.
+Remove that build plugin when switching the service to `serverless-esbuild`.
+Keep `serverless-esbuild` before `orchajs/serverless` and before
+`serverless-offline`.
+
+For non-Serverless esbuild applications, add `orchaPlugin()` from
+`orchajs/esbuild` to the build that bundles the application:
 
 ```js
 const { orchaPlugin } = require("orchajs/esbuild");
@@ -777,11 +808,9 @@ module.exports = {
 };
 ```
 
-For Serverless Framework, use `serverless-esbuild` and point
-`custom.esbuild.config` at that configuration file. Plain TypeScript,
-`serverless-plugin-typescript`, or running `orcha build` separately is not
-enough: `orcha build` creates `.orcha/dist/bundle.js`, but it does not rewrite
-imports in already-built handlers.
+Running `orcha build` separately is not enough: it creates
+`.orcha/dist/bundle.js`, but does not rewrite imports in already-built
+handlers.
 
 Production CI should package the same way as deployment and verify that:
 

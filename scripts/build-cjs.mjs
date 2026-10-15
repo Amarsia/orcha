@@ -35,6 +35,11 @@ await writeFile(
   `${JSON.stringify({ type: "commonjs" }, null, 2)}\n`,
   "utf8",
 );
+await writeFile(
+  resolve(outputDirectory, "integrations/serverless.cjs"),
+  '"use strict";\nmodule.exports = require("./serverless.js").OrchaServerlessPlugin;\n',
+  "utf8",
+);
 
 async function collectTypeScriptFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
