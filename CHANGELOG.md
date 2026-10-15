@@ -1,5 +1,13 @@
 # orchajs
 
+## 0.20.1
+
+### Patch Changes
+
+- [#84](https://github.com/Amarsia/orcha/pull/84) [`15cc11d`](https://github.com/Amarsia/orcha/commit/15cc11dd55194abe654b8cfc1f973908b25e0b6c) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Prevent application bundlers from resolving optional QuickJS packages when a
+  project uses the default native action runtime. Production sandbox builds still
+  bundle QuickJS explicitly when the sandbox runtime is selected.
+
 ## 0.20.0
 
 ### Minor Changes
