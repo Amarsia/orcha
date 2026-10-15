@@ -1,5 +1,14 @@
 # orchajs
 
+## 0.19.0
+
+### Minor Changes
+
+- [#80](https://github.com/Amarsia/orcha/pull/80) [`6927ee4`](https://github.com/Amarsia/orcha/commit/6927ee45289c0ec364efa9073f8af09a768539f6) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Reduce default install and deployment weight by moving Bedrock, Google, SQLite,
+  and QuickJS runtimes behind optional peer dependencies. Remove source maps from
+  published builds, add package and provider bundle size budgets, and document
+  production Serverless integration requirements.
+
 ## 0.18.0
 
 ### Minor Changes
