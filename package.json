@@ -31,6 +31,11 @@
       "import": "./dist/integrations/esbuild.js",
       "require": "./dist-cjs/integrations/esbuild.js"
     },
+    "./serverless": {
+      "types": "./dist/integrations/serverless.d.ts",
+      "import": "./dist/integrations/serverless.js",
+      "require": "./dist-cjs/integrations/serverless.cjs"
+    },
     "./testing": {
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js",
@@ -41,6 +46,9 @@
     "*": {
       "esbuild": [
         "dist/integrations/esbuild.d.ts"
+      ],
+      "serverless": [
+        "dist/integrations/serverless.d.ts"
       ],
       "testing": [
         "dist/testing.d.ts"

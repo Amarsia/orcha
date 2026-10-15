@@ -43,6 +43,7 @@ test("exposes every public entry point to CommonJS consumers", async () => {
   const legacyMain = require(resolve(repositoryRoot, packageMetadata.main));
   const testing = require("orchajs/testing");
   const esbuild = require("orchajs/esbuild");
+  const serverless = require("orchajs/serverless");
 
   assert.equal(packageMetadata.main, "./dist-cjs/index.js");
   assert.equal(packageMetadata.module, "./dist/index.js");
@@ -52,6 +53,7 @@ test("exposes every public entry point to CommonJS consumers", async () => {
   assert.equal(typeof testing.listTests, "function");
   assert.equal(typeof testing.runTests, "function");
   assert.equal(typeof esbuild.orchaPlugin, "function");
+  assert.equal(typeof serverless, "function");
 
   const commonJsFiles = await collectFiles(
     resolve(repositoryRoot, "dist-cjs"),
