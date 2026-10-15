@@ -19,7 +19,7 @@ await build({
   platform: "node",
   target: "node18",
   packages: "external",
-  sourcemap: true,
+  sourcemap: false,
   legalComments: "none",
   plugins: [commonJsCompatibilityPlugin()],
   define: {

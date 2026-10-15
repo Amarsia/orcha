@@ -57,7 +57,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@orchajs/playground-ui && tsc -p tsconfig.json && node scripts/build-cjs.mjs && tsc -p tsconfig.playground.json && node scripts/build-playground.mjs",
+    "build": "node scripts/clean-dist.mjs && npm run build --workspace=@orchajs/playground-ui && tsc -p tsconfig.json && node scripts/build-cjs.mjs && tsc -p tsconfig.playground.json && node scripts/build-playground.mjs",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "npm run build && npm run test:runtime && npm run test:create-orcha",
     "test:runtime": "node --test tests/*.test.mjs",
@@ -66,26 +66,48 @@
     "version-packages": "changeset version",
     "release": "changeset publish",
     "pack:check": "npm pack --dry-run && npm pack --dry-run --workspace=@orchajs/playground-ui",
+    "size:check": "node scripts/check-package-size.mjs",
+    "verify:production": "node scripts/verify-production-integration.mjs .playground .playground/dist/index.js",
     "prepublishOnly": "npm run build"
   },
   "engines": {
     "node": ">=18.20.8"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "3.967.0",
-    "@jitl/quickjs-singlefile-cjs-release-sync": "^0.32.0",
     "chokidar": "4.0.3",
     "dotenv": "16.6.1",
-    "esbuild": "^0.25.9",
-    "quickjs-emscripten-core": "^0.32.0"
+    "esbuild": "^0.25.9"
   },
-  "optionalDependencies": {
-    "@google/genai": "2.22.0",
-    "better-sqlite3": "11.10.0"
+  "peerDependencies": {
+    "@aws-sdk/client-bedrock-runtime": ">=3.864.0 <4",
+    "@google/genai": ">=2.22.0 <3",
+    "@jitl/quickjs-singlefile-cjs-release-sync": ">=0.32.0 <0.33",
+    "better-sqlite3": ">=11.10.0 <12",
+    "quickjs-emscripten-core": ">=0.32.0 <0.33"
+  },
+  "peerDependenciesMeta": {
+    "@aws-sdk/client-bedrock-runtime": {
+      "optional": true
+    },
+    "@google/genai": {
+      "optional": true
+    },
+    "@jitl/quickjs-singlefile-cjs-release-sync": {
+      "optional": true
+    },
+    "better-sqlite3": {
+      "optional": true
+    },
+    "quickjs-emscripten-core": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "@aws-sdk/client-bedrock-runtime": "3.967.0",
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.31.1",
+    "@google/genai": "2.22.0",
+    "@jitl/quickjs-singlefile-cjs-release-sync": "0.32.0",
     "@types/node": "18.19.130",
     "@types/react": "^18.3.24",
     "@types/react-dom": "^18.3.7",
@@ -94,6 +116,8 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
+    "better-sqlite3": "11.10.0",
+    "quickjs-emscripten-core": "0.32.0",
     "styletron-engine-atomic": "^1.6.2",
     "styletron-react": "^6.1.1",
     "typescript": "^5.9.2"

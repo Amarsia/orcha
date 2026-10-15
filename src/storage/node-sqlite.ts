@@ -209,7 +209,7 @@ function loadDatabaseConstructor(): SqliteDatabaseConstructor {
     return "default" in loaded ? loaded.default : loaded;
   } catch (error) {
     throw new Error(
-      'Orcha\'s optional SQLite dependency is unavailable. Reinstall "orchajs" with optional dependencies enabled or use the "node-jsonl" strategy.',
+      'SQLite storage requires the optional "better-sqlite3" package. Install it in the application or use the default "node-jsonl" strategy.',
       { cause: error },
     );
   }

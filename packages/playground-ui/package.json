@@ -24,7 +24,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').copyFileSync('src/orcha-logo.svg', 'dist/orcha-logo.svg')\"",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json && node -e \"require('node:fs').copyFileSync('src/orcha-logo.svg', 'dist/orcha-logo.svg')\"",
     "prepack": "npm run build"
   },
   "peerDependencies": {

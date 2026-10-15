@@ -42,10 +42,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - run: npm run size:check
       - run: npm ci
         working-directory: .playground
       - run: npm run build
         working-directory: .playground
+      - run: npm run verify:production
 
   changeset:
     name: Changeset

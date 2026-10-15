@@ -20,7 +20,7 @@ export async function executeLocalAction(options: {
   }
 
   if (process.env.ORCHA_INCLUDE_SANDBOX !== "0") {
-    const { executeSandboxedAction } = await import("./sandbox.js");
+    const { executeSandboxedAction } = await loadSandboxRuntime();
     return executeSandboxedAction(
       options.action,
       options.parameters,
@@ -32,4 +32,26 @@ export async function executeLocalAction(options: {
   throw new Error(
     "The production bundle was built without the QuickJS sandbox.",
   );
+}
+
+async function loadSandboxRuntime(): Promise<
+  typeof import("./sandbox.js")
+> {
+  try {
+    return await import("./sandbox.js");
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.includes("quickjs-emscripten-core") ||
+        error.message.includes(
+          "@jitl/quickjs-singlefile-cjs-release-sync",
+        ))
+    ) {
+      throw new Error(
+        'Sandboxed actions require the optional "quickjs-emscripten-core" and "@jitl/quickjs-singlefile-cjs-release-sync" packages. Install both in the application that selects the sandbox runtime.',
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
