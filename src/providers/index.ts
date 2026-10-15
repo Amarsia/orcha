@@ -47,14 +47,15 @@ function loadProvider(name: ProviderName): Promise<ProviderAdapter> {
     })
     .catch((error: unknown) => {
       loadedProviders.delete(name);
-      if (
-        (name === "googlegenai" || name === "vertexai") &&
-        error instanceof Error &&
-        error.message.includes("@google/genai")
-      ) {
+      const dependency = missingProviderDependency(name, error);
+      if (dependency) {
+        const nodeRequirement =
+          dependency === "@google/genai"
+            ? " Node.js 20 or newer is also required."
+            : "";
         throw new OrchaError(
           "provider_error",
-          `Provider "${name}" requires Node.js 20 or newer and the optional "@google/genai" package.`,
+          `Provider "${name}" requires the optional "${dependency}" package.${nodeRequirement} Install it in the application that uses this provider.`,
           { cause: error },
         );
       }
@@ -62,6 +63,28 @@ function loadProvider(name: ProviderName): Promise<ProviderAdapter> {
     });
   loadedProviders.set(name, loading);
   return loading;
+}
+
+function missingProviderDependency(
+  name: ProviderName,
+  error: unknown,
+): string | undefined {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+  if (
+    name === "bedrock" &&
+    error.message.includes("@aws-sdk/client-bedrock-runtime")
+  ) {
+    return "@aws-sdk/client-bedrock-runtime";
+  }
+  if (
+    (name === "googlegenai" || name === "vertexai") &&
+    error.message.includes("@google/genai")
+  ) {
+    return "@google/genai";
+  }
+  return undefined;
 }
 
 function isProviderAdapter(value: unknown): value is ProviderAdapter {

@@ -47,8 +47,8 @@ require("./orcha");
 ```
 
 The Google GenAI and Vertex AI adapters use Google's current SDK and require
-Node.js 20 or newer. On Node.js 18, the optional Google SDK is skipped while
-the rest of Orcha—including Amazon Bedrock—remains available.
+Node.js 20 or newer. On Node.js 18, the rest of Orcha—including Amazon
+Bedrock—remains available.
 
 ---
 
@@ -207,7 +207,12 @@ privileges, including Node.js built-ins such as `node:fs`, the network, and
 interrupt a synchronous infinite loop.
 
 Use `"sandbox"` for isolated QuickJS execution. Declared environment and
-network permissions are only securely enforced by the sandbox runtime.
+network permissions are only securely enforced by the sandbox runtime. Install
+its runtime only when this mode is selected:
+
+```bash
+npm install quickjs-emscripten-core @jitl/quickjs-singlefile-cjs-release-sync
+```
 
 ---
 
@@ -217,6 +222,24 @@ network permissions are only securely enforced by the sandbox runtime.
 npm install orchajs
 npx orcha init
 ```
+
+The default installation includes the compiler, CLI, native actions, JSONL
+storage, and fetch-based Anthropic, DeepSeek, and OpenAI adapters. Install an
+optional integration only in applications that use it:
+
+```bash
+# Amazon Bedrock
+npm install @aws-sdk/client-bedrock-runtime
+
+# Google GenAI or Vertex AI (Node.js 20+)
+npm install @google/genai
+
+# SQLite session storage
+npm install better-sqlite3
+```
+
+Selecting an integration without its package produces an error that names the
+dependency to install.
 
 Install the OrchaJS skill to give supported coding agents version-aware Orcha
 workflows:
@@ -260,8 +283,8 @@ Registered agents are exposed as `orcha.<agentName>`. Durable Node.js runs use
 JSONL by default at
 `.orcha/sessions/<agentName>/ses_<timestamp>_<uuid>.jsonl`. To opt into the
 shared `.orcha/sessions/orcha-sqlite.db` store, set
-`storage: { strategy: "sqlite" }` in `orcha.init()`. Orcha ships its native
-SQLite driver as an internal optional dependency.
+`storage: { strategy: "sqlite" }` in `orcha.init()` and install
+`better-sqlite3`.
 Client-action pause/resume, compiled local actions, and cumulative output
 streaming are supported.
 `run()` always starts a new session; `resume()` continues one with either a new
@@ -445,6 +468,11 @@ orcha.init({
   },
 });
 ```
+
+Bedrock applications must install `@aws-sdk/client-bedrock-runtime`. Google
+GenAI and Vertex AI applications must install `@google/genai` and use Node.js
+20 or newer. These SDKs are not installed for applications that do not select
+those providers.
 
 Amazon Bedrock uses the standard AWS credential chain by default. Local AWS
 profiles, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, ECS/EKS credentials,
@@ -733,10 +761,37 @@ const evaluations = await execution.evaluations;
 Short-lived processes should await `execution.evaluations` before exiting if
 they need every judge result to finish and persist.
 
+### Production and Serverless builds
+
 For esbuild production applications, add `orchaPlugin()` from
-`orchajs/esbuild` to the existing build. It compiles the registry and replaces
-unchanged `orchajs` imports with the self-contained generated runtime. The
-application continues to use its normal `npm run build` command.
+`orchajs/esbuild` to the build that bundles the application handlers. It
+compiles the registry and replaces exact `orchajs` imports with the
+self-contained generated runtime:
+
+```js
+const { orchaPlugin } = require("orchajs/esbuild");
+
+module.exports = {
+  bundle: true,
+  plugins: [orchaPlugin()],
+};
+```
+
+For Serverless Framework, use `serverless-esbuild` and point
+`custom.esbuild.config` at that configuration file. Plain TypeScript,
+`serverless-plugin-typescript`, or running `orcha build` separately is not
+enough: `orcha build` creates `.orcha/dist/bundle.js`, but it does not rewrite
+imports in already-built handlers.
+
+Production CI should package the same way as deployment and verify that:
+
+- the build generated `.orcha/dist/bundle.js`;
+- bundled handlers contain no unresolved bare `orchajs` import or require;
+- the deployment archive does not contain `node_modules/orchajs`.
+
+Do not exclude `.orcha/**` when using a deployment path that copies the
+generated runtime instead of inlining it. This integration keeps compiler,
+playground, unused providers, and optional runtimes out of deployed handlers.
 
 ---
 

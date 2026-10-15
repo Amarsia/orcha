@@ -22,7 +22,7 @@ await build({
   jsx: "automatic",
   jsxImportSource: "react",
   minify: true,
-  sourcemap: true,
+  sourcemap: false,
   legalComments: "none",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
