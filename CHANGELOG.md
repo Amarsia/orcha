@@ -1,5 +1,13 @@
 # orchajs
 
+## 0.20.0
+
+### Minor Changes
+
+- [#82](https://github.com/Amarsia/orcha/pull/82) [`c3f5412`](https://github.com/Amarsia/orcha/commit/c3f541225c28772b15e86389ada094fb6b083e82) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Add `orchajs/serverless`, which automatically composes Orcha into
+  `serverless-esbuild` packaging and deployment builds while rejecting
+  configurations that would ship the full development package.
+
 ## 0.19.0
 
 ### Minor Changes
