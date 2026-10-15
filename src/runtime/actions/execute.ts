@@ -9,11 +9,11 @@ import { executeNativeAction } from "./native.js";
 type SandboxRuntime = typeof import("./sandbox.js");
 type SandboxRuntimeLoader = () => Promise<SandboxRuntime>;
 
-let loadConfiguredSandboxRuntime: SandboxRuntimeLoader =
-  async () => {
-    const modulePath = "./sandbox.js";
-    return import(modulePath) as Promise<SandboxRuntime>;
-  };
+let loadConfiguredSandboxRuntime: SandboxRuntimeLoader = async () => {
+  throw new Error(
+    "The QuickJS sandbox runtime was not included in this Orcha build.",
+  );
+};
 
 /** @internal Supplies the statically bundled sandbox in production builds. */
 export function setSandboxRuntimeLoader(

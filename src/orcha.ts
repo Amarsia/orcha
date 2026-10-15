@@ -1,9 +1,17 @@
 import { resolve } from "node:path";
 import { compileRegistry } from "./compiler/compile.js";
 import { generateProviderResponse } from "./providers/index.js";
+import { setSandboxRuntimeLoader } from "./runtime/actions/execute.js";
 import { createOrcha } from "./runtime/create-orcha.js";
 
 export type { Orcha, OrchaClient } from "./runtime/create-orcha.js";
+
+setSandboxRuntimeLoader(async () => {
+  const modulePath = "./runtime/actions/sandbox.js";
+  return import(modulePath) as Promise<
+    typeof import("./runtime/actions/sandbox.js")
+  >;
+});
 
 export const orcha = createOrcha(
   (configuration) => {
