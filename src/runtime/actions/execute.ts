@@ -6,6 +6,22 @@ import type {
 import { createLocalActionContext } from "./context.js";
 import { executeNativeAction } from "./native.js";
 
+type SandboxRuntime = typeof import("./sandbox.js");
+type SandboxRuntimeLoader = () => Promise<SandboxRuntime>;
+
+let loadConfiguredSandboxRuntime: SandboxRuntimeLoader =
+  async () => {
+    const modulePath = "./sandbox.js";
+    return import(modulePath) as Promise<SandboxRuntime>;
+  };
+
+/** @internal Supplies the statically bundled sandbox in production builds. */
+export function setSandboxRuntimeLoader(
+  loader: SandboxRuntimeLoader,
+): void {
+  loadConfiguredSandboxRuntime = loader;
+}
+
 export async function executeLocalAction(options: {
   action: CompiledActionManifest;
   parameters: Record<string, unknown>;
@@ -35,10 +51,10 @@ export async function executeLocalAction(options: {
 }
 
 async function loadSandboxRuntime(): Promise<
-  typeof import("./sandbox.js")
+  SandboxRuntime
 > {
   try {
-    return await import("./sandbox.js");
+    return await loadConfiguredSandboxRuntime();
   } catch (error) {
     if (
       error instanceof Error &&

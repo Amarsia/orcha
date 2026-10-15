@@ -77,6 +77,10 @@ export async function buildProject(
       dirname(fileURLToPath(import.meta.url)),
       "../providers/dispatcher.js",
     ).replaceAll("\\", "/");
+    const sandboxRuntimeSource =
+      compiledBundle.actionRuntime === "sandbox"
+        ? createSandboxRuntimeSource()
+        : "";
     const includedProviders = [
       ...new Set(
         allCompiledAgents(compiledBundle.agents).flatMap(
@@ -102,6 +106,7 @@ export async function buildProject(
         `import { createOrcha } from ${JSON.stringify(runtimeFactoryPath)};`,
         `import { createProviderResponseGenerator } from ${JSON.stringify(providerDispatcherPath)};`,
         providerRuntimeSource,
+        sandboxRuntimeSource,
         `const compiledBundle = ${JSON.stringify(compiledBundle)};`,
         "const generateProviderResponse = createProviderResponseGenerator(includedProviders);",
         "export const orcha = createOrcha(() => compiledBundle, generateProviderResponse);",
@@ -144,6 +149,24 @@ export async function buildProject(
       force: true,
     });
   }
+}
+
+function createSandboxRuntimeSource(): string {
+  const runtimeDirectory = dirname(fileURLToPath(import.meta.url));
+  const executePath = resolve(
+    runtimeDirectory,
+    "../runtime/actions/execute.js",
+  ).replaceAll("\\", "/");
+  const sandboxPath = resolve(
+    runtimeDirectory,
+    "../runtime/actions/sandbox.js",
+  ).replaceAll("\\", "/");
+  return [
+    `import { setSandboxRuntimeLoader } from ${JSON.stringify(executePath)};`,
+    `import { executeSandboxedAction } from ${JSON.stringify(sandboxPath)};`,
+    "setSandboxRuntimeLoader(async () => ({ executeSandboxedAction }));",
+    "",
+  ].join("\n");
 }
 
 function allCompiledAgents(

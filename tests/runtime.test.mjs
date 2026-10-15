@@ -3210,6 +3210,43 @@ test("supports multimodal content, variables, and agent-scoped session reads", a
   }
 });
 
+test("bundles native actions without resolving optional sandbox packages", async () => {
+  const optionalSandboxPackages = [];
+  const result = await build({
+    stdin: {
+      contents:
+        'export { executeLocalAction } from "./dist/runtime/actions/execute.js";',
+      resolveDir: repositoryRoot,
+      sourcefile: "native-action-entry.mjs",
+    },
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    target: "node18",
+    write: false,
+    plugins: [
+      {
+        name: "track-optional-sandbox-packages",
+        setup(builder) {
+          builder.onResolve(
+            {
+              filter:
+                /quickjs-emscripten-core|@jitl\/quickjs-singlefile-cjs-release-sync/,
+            },
+            (arguments_) => {
+              optionalSandboxPackages.push(arguments_.path);
+              return undefined;
+            },
+          );
+        },
+      },
+    ],
+  });
+
+  assert.deepEqual(optionalSandboxPackages, []);
+  assert.ok(result.outputFiles[0].text.length > 0);
+});
+
 test("executes the production application without a runtime orchajs import", async () => {
   const mock = await createMockAnthropic();
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-production-"));
