@@ -32,8 +32,8 @@ under `.orcha/sessions/<agentName>/`; opt-in SQLite stores all agents in
 
 `orcha build` writes `.orcha/dist/bundle.js` for bundler integrations and
 `.orcha/dist/manifest.json` for unbundled production runtimes. If deployment
-uses plain `tsc`, `serverless-plugin-typescript`, or another packager that does
-not use `orchajs/esbuild`, explicitly include `.orcha/dist/**` in the
+uses plain `tsc`, `serverless-plugin-typescript`, or another packager that
+does not use `orchajs/esbuild`, explicitly include `.orcha/dist/**` in the
 deployment artifact. AWS Lambda loads the manifest automatically; other
 unbundled environments require `NODE_ENV=production` or
 `ORCHA_USE_BUILD=1`.
