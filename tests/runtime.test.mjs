@@ -5,10 +5,11 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 import { build } from "esbuild";
+import { buildProject } from "../dist/compiler/build-project.js";
 import { compileRegistry } from "../dist/compiler/compile.js";
 import { loadProjectEnvironment } from "../dist/env.js";
 import { orchaPlugin } from "../dist/integrations/esbuild.js";
@@ -3245,6 +3246,59 @@ test("bundles native actions without resolving optional sandbox packages", async
 
   assert.deepEqual(optionalSandboxPackages, []);
   assert.ok(result.outputFiles[0].text.length > 0);
+});
+
+test("loads the compiled manifest in Lambda without agent source files", async () => {
+  const root = await mkdtemp(
+    resolve(tmpdir(), "orchajs-lambda-manifest-"),
+  );
+  try {
+    await writeFixtureProject(root, "https://example.com");
+    await mkdir(resolve(root, "node_modules"), { recursive: true });
+    await symlink(repositoryRoot, resolve(root, "node_modules/orchajs"), "dir");
+    await buildProject({ projectRoot: root });
+    await rm(resolve(root, "orcha/testAgent"), {
+      recursive: true,
+      force: true,
+    });
+
+    const runtimePath = resolve(root, "runtime.mjs");
+    await writeFile(
+      runtimePath,
+      [
+        `import { orcha } from ${JSON.stringify(pathToFileURL(resolve(repositoryRoot, "dist/index.js")).href)};`,
+        `orcha.init({`,
+        `  root: ${JSON.stringify(root)},`,
+        `  providers: { anthropic: "test-key" },`,
+        `  agents: { testAgent: "./testAgent" },`,
+        `});`,
+        `process.stdout.write(JSON.stringify({`,
+        `  initialized: orcha.isInitialized(),`,
+        `  hasAgent: typeof orcha.testAgent?.run === "function",`,
+        `}));`,
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const { stdout } = await executeFile(
+      process.execPath,
+      [runtimePath],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          AWS_LAMBDA_FUNCTION_NAME: "orcha-manifest-test",
+        },
+      },
+    );
+    assert.deepEqual(JSON.parse(stdout), {
+      initialized: true,
+      hasAgent: true,
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("executes the production application without a runtime orchajs import", async () => {

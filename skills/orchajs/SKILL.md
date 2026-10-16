@@ -111,6 +111,12 @@ npx orcha build
 
 Use existing project scripts when they wrap these commands.
 
+For unbundled production deployments, package
+`.orcha/dist/manifest.json`; AWS Lambda loads it automatically, while other
+environments require `NODE_ENV=production` or `ORCHA_USE_BUILD=1`. For bundled
+applications, configure `orchajs/esbuild` or `orchajs/serverless` so the
+generated runtime replaces normal `orchajs` imports.
+
 ## Completion checklist
 
 - New agents and subagents are explicitly registered; agent-owned items are

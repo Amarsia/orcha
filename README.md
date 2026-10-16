@@ -808,13 +808,29 @@ module.exports = {
 };
 ```
 
-Running `orcha build` separately is not enough: it creates
-`.orcha/dist/bundle.js`, but does not rewrite imports in already-built
-handlers.
+For an unbundled production application built with plain `tsc` or
+`serverless-plugin-typescript`, run:
 
-Production CI should package the same way as deployment and verify that:
+```bash
+npx orcha build
+```
 
-- the build generated `.orcha/dist/bundle.js`;
+Package `.orcha/dist/manifest.json` with the application. AWS Lambda is
+detected automatically; other unbundled environments should set
+`NODE_ENV=production` or `ORCHA_USE_BUILD=1`. The normal `orchajs` import and
+`orcha.init()` call then load the compiled manifest synchronously, so the
+`orcha/` agent source folders do not need to be deployed.
+
+This compatibility path still deploys the regular `orchajs` runtime and its
+dependencies. Use the esbuild integration above when deployment size matters;
+it replaces the package import with `.orcha/dist/bundle.js` and removes
+compiler-only code.
+
+Bundled production CI should package the same way as deployment and verify
+that:
+
+- the build generated `.orcha/dist/bundle.js` and
+  `.orcha/dist/manifest.json`;
 - bundled handlers contain no unresolved bare `orchajs` import or require;
 - the deployment archive does not contain `node_modules/orchajs`.
 
