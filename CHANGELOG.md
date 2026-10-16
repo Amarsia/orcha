@@ -1,5 +1,14 @@
 # orchajs
 
+## 0.20.2
+
+### Patch Changes
+
+- [#86](https://github.com/Amarsia/orcha/pull/86) [`bb00049`](https://github.com/Amarsia/orcha/commit/bb000497ba7d150aab3011a57563f1de356d7e71) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Emit a compiled runtime manifest from `orcha build` and load it automatically
+  from normal `orchajs` imports in AWS Lambda and other production environments.
+  This allows unbundled TypeScript deployments to omit agent source directories
+  without recompiling agents at runtime.
+
 ## 0.20.1
 
 ### Patch Changes
