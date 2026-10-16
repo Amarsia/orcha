@@ -28,6 +28,28 @@ credentials. \`dev\` and \`build\` are offline. Sessions use JSONL by default
 under \`.orcha/sessions/<agentName>/\`; opt-in SQLite stores all agents in
 \`.orcha/sessions/orcha-sqlite.db\`.
 
+## Production deployment
+
+\`orcha build\` writes \`.orcha/dist/bundle.js\` for bundler integrations and
+\`.orcha/dist/manifest.json\` for unbundled production runtimes. If deployment
+uses plain \`tsc\`, \`serverless-plugin-typescript\`, or another packager that
+does not use \`orchajs/esbuild\`, explicitly include \`.orcha/dist/**\` in the
+deployment artifact. AWS Lambda loads the manifest automatically; other
+unbundled environments require \`NODE_ENV=production\` or
+\`ORCHA_USE_BUILD=1\`.
+
+For Serverless Framework manual builds:
+
+\`\`\`yaml
+package:
+  patterns:
+    - ".orcha/dist/**"
+\`\`\`
+
+Do not assume that a successful \`orcha build\` means the generated files were
+copied by a later packaging tool. Inspect the final ZIP or container image and
+confirm that \`.orcha/dist/manifest.json\` is present.
+
 ## Registry
 
 \`orcha/index.ts\` initializes providers and explicitly registers agents:

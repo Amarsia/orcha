@@ -359,6 +359,13 @@ variables already present in the process.
 running agents and tests, viewing graphs, and following live session traces.
 It is not included in production agent bundles.
 
+For unbundled production builds, package `.orcha/dist/manifest.json` after
+running `orcha build`. Serverless Framework manual builds must add
+`.orcha/dist/**` to `package.patterns` or legacy `package.include`. Bundled
+applications should use `orchajs/esbuild` or `orchajs/serverless` instead.
+Always inspect the final deployment artifact; generating a manifest does not
+guarantee that a later packager copied it.
+
 ## Verification
 
 Choose checks proportional to the change:
