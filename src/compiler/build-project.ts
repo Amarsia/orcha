@@ -33,6 +33,10 @@ export async function buildProject(
     "production-entry.mjs",
   );
   const outputPath = resolve(projectRoot, ".orcha/dist/bundle.js");
+  const manifestPath = resolve(
+    projectRoot,
+    ".orcha/dist/manifest.json",
+  );
   await mkdir(temporaryDirectory, { recursive: true });
   await mkdir(dirname(outputPath), { recursive: true });
 
@@ -141,6 +145,11 @@ export async function buildProject(
         : {}),
       logLevel: "silent",
     });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(compiledBundle)}\n`,
+      "utf8",
+    );
 
     return outputPath;
   } finally {

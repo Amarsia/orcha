@@ -6,10 +6,19 @@ const applicationBundle = resolve(
   process.argv[3] ?? ".playground/dist/index.js",
 );
 const generatedRuntime = resolve(projectRoot, ".orcha/dist/bundle.js");
+const generatedManifest = resolve(
+  projectRoot,
+  ".orcha/dist/manifest.json",
+);
 
 await access(generatedRuntime).catch(() => {
   throw new Error(
     `Orcha production runtime was not generated at ${generatedRuntime}.`,
+  );
+});
+await access(generatedManifest).catch(() => {
+  throw new Error(
+    `Orcha compiled manifest was not generated at ${generatedManifest}.`,
   );
 });
 
@@ -24,5 +33,5 @@ if (unresolvedImport.test(source)) {
 }
 
 console.log(
-  `Verified generated Orcha runtime and bundled application at ${applicationBundle}.`,
+  `Verified generated Orcha runtime, manifest, and bundled application at ${applicationBundle}.`,
 );
