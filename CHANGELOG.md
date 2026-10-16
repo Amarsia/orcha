@@ -1,5 +1,13 @@
 # orchajs
 
+## 0.20.3
+
+### Patch Changes
+
+- [#88](https://github.com/Amarsia/orcha/pull/88) [`df8bba8`](https://github.com/Amarsia/orcha/commit/df8bba839179c736f193a14fa65d7c6109fa8a94) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Document that manual and unbundled production workflows must include
+  `.orcha/dist/**` in the final deployment artifact, including Serverless
+  Framework package configuration and artifact verification steps.
+
 ## 0.20.2
 
 ### Patch Changes
