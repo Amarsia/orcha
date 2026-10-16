@@ -821,6 +821,32 @@ detected automatically; other unbundled environments should set
 `orcha.init()` call then load the compiled manifest synchronously, so the
 `orcha/` agent source folders do not need to be deployed.
 
+When Serverless Framework performs the packaging without the Orcha plugin,
+explicitly include the generated directory:
+
+```yaml
+package:
+  patterns:
+    - ".orcha/dist/**"
+```
+
+Older Serverless configurations can use `package.include` instead:
+
+```yaml
+package:
+  include:
+    - ".orcha/dist/**"
+```
+
+Verify the packaged artifact rather than only the workspace:
+
+```bash
+npx orcha build
+test -f .orcha/dist/manifest.json
+yarn serverless package
+unzip -l .serverless/*.zip | grep ".orcha/dist/manifest.json"
+```
+
 This compatibility path still deploys the regular `orchajs` runtime and its
 dependencies. Use the esbuild integration above when deployment size matters;
 it replaces the package import with `.orcha/dist/bundle.js` and removes

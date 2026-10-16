@@ -117,6 +117,10 @@ environments require `NODE_ENV=production` or `ORCHA_USE_BUILD=1`. For bundled
 applications, configure `orchajs/esbuild` or `orchajs/serverless` so the
 generated runtime replaces normal `orchajs` imports.
 
+When Serverless Framework packages a manual `orcha build`, add
+`.orcha/dist/**` to `package.patterns` (or legacy `package.include`) and verify
+that the final ZIP contains `.orcha/dist/manifest.json`.
+
 ## Completion checklist
 
 - New agents and subagents are explicitly registered; agent-owned items are
