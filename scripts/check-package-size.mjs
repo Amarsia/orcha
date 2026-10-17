@@ -21,7 +21,15 @@ const megabyte = 1024 * kilobyte;
 const limits = {
   packageTarball: 600 * kilobyte,
   packageUnpacked: 2.5 * megabyte,
-  cleanInstall: 25 * megabyte,
+  cleanInstall: 4 * megabyte,
+  browserRuntime: {
+    raw: 300 * kilobyte,
+    gzip: 75 * kilobyte,
+  },
+  reactNativeRuntime: {
+    raw: 300 * kilobyte,
+    gzip: 75 * kilobyte,
+  },
 };
 
 const providerBundles = [
@@ -78,6 +86,7 @@ const temporaryDirectory = await mkdtemp(join(tmpdir(), "orcha-size-"));
 try {
   await checkPublishedPackage();
   await checkCleanInstall();
+  await checkUniversalRuntimeBundles();
   await checkProviderBundles();
   await checkSandboxBundle();
   console.log("All package and bundle size checks passed.");
@@ -170,10 +179,14 @@ async function checkCleanInstall() {
   assertWithin("clean production install", installedSize, limits.cleanInstall);
 
   const unexpectedPackages = [
+    "@orchajs/playground-ui",
     "@aws-sdk/client-bedrock-runtime",
     "@google/genai",
     "@jitl/quickjs-singlefile-cjs-release-sync",
     "better-sqlite3",
+    "chokidar",
+    "dotenv",
+    "esbuild",
     "quickjs-emscripten-core",
   ];
   for (const packageName of unexpectedPackages) {
@@ -188,6 +201,81 @@ async function checkCleanInstall() {
       }
     }
   }
+}
+
+async function checkUniversalRuntimeBundles() {
+  await checkUniversalRuntimeBundle(
+    "browser runtime",
+    "src/runtime/platform-browser.ts",
+    "browserRuntimePlatform",
+    limits.browserRuntime,
+    [],
+    [
+      "src/runtime/platform-react-native.ts",
+      "src/storage/react-native-jsonl.ts",
+      "node_modules/@react-native-async-storage/",
+    ],
+  );
+  await checkUniversalRuntimeBundle(
+    "React Native runtime",
+    "src/runtime/platform-react-native.ts",
+    "reactNativeRuntimePlatform",
+    limits.reactNativeRuntime,
+    ["@react-native-async-storage/async-storage"],
+    [
+      "src/runtime/platform-browser.ts",
+      "src/storage/browser-indexeddb.ts",
+    ],
+  );
+}
+
+async function checkUniversalRuntimeBundle(
+  name,
+  platformPath,
+  platformExport,
+  budget,
+  external = [],
+  targetExclusions = [],
+) {
+  const result = await build({
+    stdin: {
+      contents: [
+        'import { createOrcha } from "./src/runtime/create-orcha.ts";',
+        'import { createProviderResponseGenerator } from "./src/providers/dispatcher.ts";',
+        `import { ${platformExport} as platform } from "./${platformPath}";`,
+        "const providers = createProviderResponseGenerator({});",
+        "export const orcha = createOrcha(() => ({ schemaVersion: 1, agents: {} }), providers, platform);",
+      ].join("\n"),
+      resolveDir: root,
+      sourcefile: `${name.replaceAll(" ", "-")}.ts`,
+      loader: "ts",
+    },
+    bundle: true,
+    minify: true,
+    platform: "browser",
+    target: ["chrome110", "firefox110", "safari16"],
+    format: "esm",
+    external,
+    metafile: true,
+    write: false,
+    legalComments: "none",
+  });
+  assertExcludedInputs(name, result.metafile, [
+    "src/compiler/",
+    "src/integrations/",
+    "src/playground/",
+    "src/runtime/actions/native.ts",
+    "src/runtime/platform-node.ts",
+    "src/storage/node-jsonl.ts",
+    "src/storage/node-sqlite.ts",
+    "node_modules/@orchajs/playground-ui/",
+    "node_modules/chokidar/",
+    "node_modules/dotenv/",
+    "node_modules/esbuild/",
+    ...providerBundles.map((provider) => provider.source),
+    ...targetExclusions,
+  ]);
+  checkBundle(name, result.outputFiles, budget);
 }
 
 async function checkProviderBundles() {
@@ -205,9 +293,17 @@ async function checkProviderBundles() {
       platform: "node",
       target: "node18",
       format: "esm",
+      metafile: true,
       write: false,
       legalComments: "none",
     });
+    assertExcludedInputs(
+      `Lambda ${provider.name}`,
+      result.metafile,
+      providerBundles
+        .filter((candidate) => candidate.source !== provider.source)
+        .map((candidate) => candidate.source),
+    );
     checkBundle(`Lambda ${provider.name}`, result.outputFiles, provider);
 
     if (provider.browser) {
@@ -224,15 +320,35 @@ async function checkProviderBundles() {
         target: ["chrome110", "firefox110", "safari16"],
         format: "esm",
         external: ["node:*"],
+        metafile: true,
         write: false,
         legalComments: "none",
       });
+      assertExcludedInputs(
+        `browser ${provider.name}`,
+        browserResult.metafile,
+        providerBundles
+          .filter((candidate) => candidate.source !== provider.source)
+          .map((candidate) => candidate.source),
+      );
       checkBundle(
         `browser ${provider.name}`,
         browserResult.outputFiles,
         provider,
       );
     }
+  }
+}
+
+function assertExcludedInputs(name, metafile, exclusions) {
+  const inputs = Object.keys(metafile?.inputs ?? {});
+  const unexpected = inputs.filter((input) =>
+    exclusions.some((excluded) => input.includes(excluded)),
+  );
+  if (unexpected.length > 0) {
+    throw new Error(
+      `${name} includes unused or platform-incompatible modules:\n${unexpected.join("\n")}`,
+    );
   }
 }
 

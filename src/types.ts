@@ -70,7 +70,7 @@ export interface ProjectConfiguration {
   providers: ResolvedProviderConfigurations;
   actions?: LocalActionRuntimeConfiguration;
   storage?: {
-    strategy?: "node-jsonl" | "sqlite";
+    strategy?: "node-jsonl" | "sqlite" | "indexeddb" | "react-native";
     directory?: string;
   };
 }
@@ -85,6 +85,8 @@ export type AgentRegistration =
 export interface OrchaInitConfiguration {
   providers: ProviderInitConfigurations;
   agents: Record<string, AgentRegistration>;
+  /** Precompiled registry used by browser, React Native, and custom runtimes. */
+  bundle?: CompiledBundle;
   amarsia?: {
     key: string;
     endpoint?: string;

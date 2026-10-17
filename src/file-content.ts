@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
 import type { LocalFileContent } from "./types.js";
 
 const MIME_TYPES: Record<string, string> = {
@@ -29,9 +27,9 @@ const MIME_TYPES: Record<string, string> = {
 export function normalizeLocalFile(
   filePath: string,
   mimeType?: string,
-  projectRoot = process.cwd(),
+  projectRoot = ".",
 ): LocalFileContent {
-  const absolutePath = resolve(projectRoot, filePath);
+  const absolutePath = resolvePortablePath(projectRoot, filePath);
   return {
     type: "file",
     filePath: absolutePath,
@@ -71,13 +69,15 @@ export async function readLocalFileContent(
   dataUri: string;
   fileName: string;
 }> {
+  const fsModule = "node:fs/promises";
+  const { readFile } = await import(fsModule);
   const bytes = await readFile(content.filePath);
   const base64 = bytes.toString("base64");
   return {
     bytes,
     base64,
     dataUri: `data:${content.mimeType};base64,${base64}`,
-    fileName: basename(content.filePath),
+    fileName: portableBasename(content.filePath),
   };
 }
 
@@ -88,11 +88,50 @@ function normalizeMimeType(
   if (mimeType?.trim()) {
     return mimeType.trim().toLowerCase();
   }
-  const inferred = MIME_TYPES[extname(source).toLowerCase()];
+  const inferred = MIME_TYPES[portableExtension(source).toLowerCase()];
   if (!inferred) {
     throw new Error(
       `Could not infer a MIME type for "${source}". Provide mimeType explicitly.`,
     );
   }
   return inferred;
+}
+
+function resolvePortablePath(root: string, filePath: string): string {
+  if (/^(?:\/|[a-zA-Z]:[\\/])/.test(filePath)) {
+    return normalizePath(filePath);
+  }
+  return normalizePath(`${root.replace(/[\\/]+$/, "")}/${filePath}`);
+}
+
+function normalizePath(path: string): string {
+  const separator = path.includes("\\") ? "\\" : "/";
+  const prefix = path.match(/^(?:[a-zA-Z]:)?[\\/]/)?.[0] ?? "";
+  const source = prefix ? path.slice(prefix.length) : path;
+  const parts: string[] = [];
+  for (const part of source.split(/[\\/]+/)) {
+    if (!part || part === ".") {
+      continue;
+    }
+    if (part === "..") {
+      if (parts.length > 0 && parts.at(-1) !== "..") {
+        parts.pop();
+      } else if (!prefix) {
+        parts.push(part);
+      }
+      continue;
+    }
+    parts.push(part);
+  }
+  return `${prefix}${parts.join(separator)}` || ".";
+}
+
+function portableBasename(path: string): string {
+  return path.split(/[\\/]/).at(-1) ?? path;
+}
+
+function portableExtension(path: string): string {
+  const name = portableBasename(path);
+  const index = name.lastIndexOf(".");
+  return index > 0 ? name.slice(index) : "";
 }

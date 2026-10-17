@@ -1,9 +1,7 @@
-import { resolve } from "node:path";
 import { RuntimeAgent } from "./agent.js";
-import { createSessionStore } from "../storage/create-store.js";
-import { syncAmarsiaProject } from "../amarsia/sync.js";
 import type { ProviderResponseGenerator } from "../providers/types.js";
 import { setOrchaRuntimeContext } from "./context.js";
+import type { RuntimePlatform } from "./platform.js";
 import type {
   AgentRuntime,
   CompiledAgentManifest,
@@ -39,13 +37,16 @@ class OrchaRuntimeCore implements Orcha {
   >();
   readonly #resolveBundle: BundleResolver;
   readonly #generateProviderResponse: ProviderResponseGenerator;
+  readonly #platform: RuntimePlatform;
 
   constructor(
     resolveBundle: BundleResolver,
     generateProviderResponse: ProviderResponseGenerator,
+    platform: RuntimePlatform,
   ) {
     this.#resolveBundle = resolveBundle;
     this.#generateProviderResponse = generateProviderResponse;
+    this.#platform = platform;
   }
 
   attachClient(client: OrchaClient): void {
@@ -53,16 +54,11 @@ class OrchaRuntimeCore implements Orcha {
   }
 
   init(configuration: OrchaInitConfiguration): OrchaClient {
-    const projectRoot = resolve(
-      configuration.root ??
-        process.env.ORCHA_PROJECT_ROOT ??
-        process.cwd(),
-    );
-    const bundle = this.#resolveBundle(configuration);
-    if (configuration.amarsia?.key) {
-      syncAmarsiaProject({
-        key: configuration.amarsia.key,
-        endpoint: configuration.amarsia.endpoint,
+    const projectRoot = this.#platform.projectRoot(configuration);
+    const bundle = configuration.bundle ?? this.#resolveBundle(configuration);
+    if (configuration.amarsia?.key && this.#platform.syncProject) {
+      this.#platform.syncProject({
+        configuration,
         bundle,
         projectRoot,
       });
@@ -88,14 +84,11 @@ class OrchaRuntimeCore implements Orcha {
         `Production bundle expects local action runtime "${bundle.actionRuntime}".`,
       );
     }
-    const storageDirectory =
-      configuration.storage?.directory ?? ".orcha/sessions";
     const createStore = (manifest: CompiledAgentManifest) =>
-      createSessionStore({
-        strategy: configuration.storage?.strategy,
-        directory: storageDirectory,
+      this.#platform.createSessionStore({
+        configuration,
         projectRoot,
-        agentName: manifest.key ?? manifest.name,
+        manifest,
       });
     const agents = new Map<string, AgentRuntime>();
 
@@ -163,10 +156,12 @@ class OrchaRuntimeCore implements Orcha {
 export function createOrcha(
   resolveBundle: BundleResolver,
   generateProviderResponse: ProviderResponseGenerator,
+  platform: RuntimePlatform,
 ): OrchaClient {
   const core = new OrchaRuntimeCore(
     resolveBundle,
     generateProviderResponse,
+    platform,
   );
   const client = new Proxy(core, {
     get(target, property) {

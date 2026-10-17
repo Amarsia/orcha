@@ -20,6 +20,7 @@ export function compileRegistry(
   registrations: Record<string, AgentRegistration>,
   registryRoot: string,
   actionRuntime: "native" | "sandbox" = "native",
+  target: "node" | "browser" | "react-native" = "node",
 ): CompiledBundle {
   if (
     !registrations ||
@@ -50,6 +51,7 @@ export function compileRegistry(
         registeredPath,
         registryRoot,
         actionRuntime,
+        target,
       );
     }
     const parent = compileAgent(
@@ -57,6 +59,7 @@ export function compileRegistry(
       normalized.path,
       registryRoot,
       actionRuntime,
+      target,
     );
     agents[key] = Object.freeze({
       ...parent,
@@ -126,6 +129,7 @@ function compileAgent(
   registeredPath: string,
   registryRoot: string,
   actionRuntime: "native" | "sandbox",
+  target: "node" | "browser" | "react-native",
 ): CompiledAgentManifest {
     const name = key;
 
@@ -236,7 +240,12 @@ function compileAgent(
       reasoningLevel: configuration.reasoningLevel,
       outputType: configuration.outputType ?? "text",
       outputSchema: configuration.outputSchema,
-      actions: compileActions(name, sourceDirectory, actionRuntime),
+      actions: compileActions(
+        name,
+        sourceDirectory,
+        actionRuntime,
+        target,
+      ),
       skills: compileSkills(name, sourceDirectory),
       evaluations: compileEvaluations(name, sourceDirectory),
       subagentPolicy: configuration.subagents
@@ -250,6 +259,7 @@ function compileActions(
   agentName: string,
   sourceDirectory: string,
   actionRuntime: "native" | "sandbox",
+  target: "node" | "browser" | "react-native",
 ): Record<string, CompiledActionManifest> {
   const actionsDirectory = resolve(sourceDirectory, "actions");
   if (!existsSync(actionsDirectory)) {
@@ -378,6 +388,7 @@ function compileActions(
             entry.name,
             actionsDirectory,
             actionRuntime,
+            target,
           )
         : undefined;
     actions[configuration.name] = Object.freeze({
@@ -659,6 +670,7 @@ function compileLocalAction(
   directoryName: string,
   actionsDirectory: string,
   actionRuntime: "native" | "sandbox",
+  target: "node" | "browser" | "react-native",
 ): { source: string; sourceHash: string } {
   const entryPath = resolve(actionsDirectory, directoryName, "index.js");
   if (!existsSync(entryPath)) {
@@ -675,7 +687,10 @@ function compileLocalAction(
       write: false,
       format: "iife",
       globalName: "__orchaActionModule",
-      platform: actionRuntime === "native" ? "node" : "neutral",
+      platform:
+        actionRuntime === "native" && target === "node"
+          ? "node"
+          : "browser",
       target: "es2022",
       logLevel: "silent",
     });

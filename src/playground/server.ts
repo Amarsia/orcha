@@ -1,15 +1,21 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
+import { createRequire } from "node:module";
+import { extname, isAbsolute, relative, resolve } from "node:path";
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
 import { watch } from "chokidar";
+import { build } from "esbuild";
 import { orcha } from "../orcha.js";
 import type { OrchaClient } from "../orcha.js";
 import { loadProject } from "../project-loader.js";
@@ -45,6 +51,7 @@ export async function startPlayground(
   const mutationToken = randomBytes(32).toString("base64url");
   const allowedHosts = playgroundHosts(host, port);
   await loadProject(projectRoot);
+  const publicRoot = await buildPlaygroundAssets(projectRoot);
 
   const projectClients = new Set<ServerResponse>();
   const server = createServer(async (request, response) => {
@@ -58,6 +65,7 @@ export async function startPlayground(
         projectClients,
         mutationToken,
         allowedHosts,
+        publicRoot,
       });
     } catch (error) {
       sendJson(response, error instanceof HttpError ? error.status : 500, {
@@ -144,6 +152,7 @@ interface RouteContext {
   projectClients: Set<ServerResponse>;
   mutationToken: string;
   allowedHosts: Set<string>;
+  publicRoot: string;
 }
 
 async function routeRequest(context: RouteContext): Promise<void> {
@@ -415,7 +424,7 @@ async function routeRequest(context: RouteContext): Promise<void> {
   }
 
   if (method === "GET") {
-    await serveAsset(response, url.pathname);
+    await serveAsset(response, url.pathname, context.publicRoot);
     return;
   }
 
@@ -587,11 +596,8 @@ async function readAllEventPages(
 async function serveAsset(
   response: ServerResponse,
   pathname: string,
+  publicRoot: string,
 ): Promise<void> {
-  const publicRoot = resolve(
-    dirname(fileURLToPath(import.meta.url)),
-    "public",
-  );
   const requested = pathname === "/" ? "index.html" : pathname.slice(1);
   const path = resolve(publicRoot, requested);
   const relativePath = relative(publicRoot, path);
@@ -603,7 +609,7 @@ async function serveAsset(
     const indexPath = resolve(publicRoot, "index.html");
     if (!existsSync(indexPath)) {
       sendJson(response, 503, {
-        error: "Playground assets are missing. Rebuild orchajs.",
+        error: "Playground assets are missing. Restart the Orcha playground.",
       });
       return;
     }
@@ -619,6 +625,62 @@ async function serveAsset(
     "cache-control": "no-store",
   });
   response.end(await readFile(path));
+}
+
+async function buildPlaygroundAssets(projectRoot: string): Promise<string> {
+  const require = createRequire(import.meta.url);
+  let entryPath: string;
+  let logoPath: string;
+  try {
+    entryPath = require.resolve("@orchajs/playground-ui/mount");
+    logoPath = require.resolve("@orchajs/playground-ui/orcha-logo.svg");
+  } catch (error) {
+    throw new Error(
+      'The playground requires the optional "@orchajs/playground-ui" package. Install it as a development dependency.',
+      { cause: error },
+    );
+  }
+
+  const publicRoot = resolve(projectRoot, ".orcha/playground");
+  await mkdir(publicRoot, { recursive: true });
+  await Promise.all([
+    build({
+      entryPoints: [entryPath],
+      outfile: resolve(publicRoot, "app.js"),
+      bundle: true,
+      format: "esm",
+      platform: "browser",
+      target: ["chrome110", "firefox110", "safari16"],
+      minify: true,
+      sourcemap: false,
+      legalComments: "none",
+      define: {
+        "process.env.NODE_ENV": JSON.stringify("production"),
+      },
+    }),
+    copyFile(logoPath, resolve(publicRoot, "orcha-logo.svg")),
+    writeFile(
+      resolve(publicRoot, "index.html"),
+      `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <link rel="icon" href="/orcha-logo.svg" type="image/svg+xml" />
+    <title>Orcha Playground</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
+`,
+      "utf8",
+    ),
+  ]);
+  return publicRoot;
 }
 
 function contentType(path: string): string {

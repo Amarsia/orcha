@@ -49,7 +49,10 @@ async function collectTypeScriptFiles(directory) {
       if (entry.isDirectory()) {
         return collectTypeScriptFiles(path);
       }
-      if (directory === sourceDirectory && entry.name === "cli.ts") {
+      if (
+        directory === sourceDirectory &&
+        (entry.name === "cli.ts" || entry.name === "bin.ts")
+      ) {
         return [];
       }
       return extname(entry.name) === ".ts" ? [path] : [];

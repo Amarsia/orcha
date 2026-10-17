@@ -23,6 +23,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "react-native": "./dist/react-native.js",
+      "browser": "./dist/browser.js",
       "import": "./dist/index.js",
       "require": "./dist-cjs/index.js"
     },
@@ -40,6 +42,31 @@
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js",
       "require": "./dist-cjs/testing.js"
+    },
+    "./vite": {
+      "types": "./dist/integrations/vite.d.ts",
+      "import": "./dist/integrations/vite.js",
+      "require": "./dist-cjs/integrations/vite.js"
+    },
+    "./webpack": {
+      "types": "./dist/integrations/webpack.d.ts",
+      "import": "./dist/integrations/webpack.js",
+      "require": "./dist-cjs/integrations/webpack.js"
+    },
+    "./next": {
+      "types": "./dist/integrations/next.d.ts",
+      "import": "./dist/integrations/next.js",
+      "require": "./dist-cjs/integrations/next.js"
+    },
+    "./metro": {
+      "types": "./dist/integrations/metro.d.ts",
+      "import": "./dist/integrations/metro.js",
+      "require": "./dist-cjs/integrations/metro.js"
+    },
+    "./expo": {
+      "types": "./dist/integrations/expo.d.ts",
+      "import": "./dist/integrations/expo.js",
+      "require": "./dist-cjs/integrations/expo.js"
     }
   },
   "typesVersions": {
@@ -52,11 +79,26 @@
       ],
       "testing": [
         "dist/testing.d.ts"
+      ],
+      "vite": [
+        "dist/integrations/vite.d.ts"
+      ],
+      "webpack": [
+        "dist/integrations/webpack.d.ts"
+      ],
+      "next": [
+        "dist/integrations/next.d.ts"
+      ],
+      "metro": [
+        "dist/integrations/metro.d.ts"
+      ],
+      "expo": [
+        "dist/integrations/expo.d.ts"
       ]
     }
   },
   "bin": {
-    "orcha": "dist/cli.js"
+    "orcha": "dist/bin.js"
   },
   "files": [
     "dist",
@@ -65,7 +107,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "node scripts/clean-dist.mjs && npm run build --workspace=@orchajs/playground-ui && tsc -p tsconfig.json && node scripts/build-cjs.mjs && tsc -p tsconfig.playground.json && node scripts/build-playground.mjs",
+    "build": "node scripts/clean-dist.mjs && npm run build --workspace=@orchajs/playground-ui && tsc -p tsconfig.json && node scripts/build-cjs.mjs && tsc -p tsconfig.playground.json",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "npm run build && npm run test:runtime && npm run test:create-orcha",
     "test:runtime": "node --test tests/*.test.mjs",
@@ -81,19 +123,25 @@
   "engines": {
     "node": ">=18.20.8"
   },
-  "dependencies": {
-    "chokidar": "4.0.3",
-    "dotenv": "16.6.1",
-    "esbuild": "^0.25.9"
-  },
   "peerDependencies": {
+    "@orchajs/playground-ui": ">=0.2.2 <1",
+    "@react-native-async-storage/async-storage": ">=2 <3",
     "@aws-sdk/client-bedrock-runtime": ">=3.864.0 <4",
     "@google/genai": ">=2.22.0 <3",
     "@jitl/quickjs-singlefile-cjs-release-sync": ">=0.32.0 <0.33",
     "better-sqlite3": ">=11.10.0 <12",
+    "chokidar": ">=4 <5",
+    "dotenv": ">=16 <17",
+    "esbuild": ">=0.25 <0.26",
     "quickjs-emscripten-core": ">=0.32.0 <0.33"
   },
   "peerDependenciesMeta": {
+    "@orchajs/playground-ui": {
+      "optional": true
+    },
+    "@react-native-async-storage/async-storage": {
+      "optional": true
+    },
     "@aws-sdk/client-bedrock-runtime": {
       "optional": true
     },
@@ -104,6 +152,15 @@
       "optional": true
     },
     "better-sqlite3": {
+      "optional": true
+    },
+    "chokidar": {
+      "optional": true
+    },
+    "dotenv": {
+      "optional": true
+    },
+    "esbuild": {
       "optional": true
     },
     "quickjs-emscripten-core": {
@@ -121,10 +178,13 @@
     "@types/react-dom": "^18.3.7",
     "@xyflow/react": "^12.11.6",
     "baseui": "^16.1.1",
+    "better-sqlite3": "11.10.0",
+    "chokidar": "4.0.3",
+    "dotenv": "16.6.1",
+    "esbuild": "^0.25.9",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
-    "better-sqlite3": "11.10.0",
     "quickjs-emscripten-core": "0.32.0",
     "styletron-engine-atomic": "^1.6.2",
     "styletron-react": "^6.1.1",

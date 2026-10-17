@@ -44,8 +44,10 @@ try {
       await initializeProject(projectRoot);
       break;
     case "dev":
-      assertNoArguments(commandArguments, "dev");
-      await watchProject(projectRoot);
+      await watchProject(
+        projectRoot,
+        parseDevTargets(commandArguments),
+      );
       break;
     case "run":
       await runAgent(projectRoot, commandArguments);
@@ -63,9 +65,19 @@ try {
       await exportSession(projectRoot, commandArguments);
       break;
     case "build": {
-      assertNoArguments(commandArguments, "build");
+      const parsed = parseArguments(
+        commandArguments,
+        new Set(["--target"]),
+        new Set(),
+      );
+      if (parsed.positionals.length > 0) {
+        throw new Error(
+          "Usage: orcha build [--target node|browser|react-native]",
+        );
+      }
+      const target = parseBuildTarget(parsed.values.get("--target"));
       loadProjectEnvironment(projectRoot);
-      const outputPath = await buildProject({ projectRoot });
+      const outputPath = await buildProject({ projectRoot, target });
       console.log(`Built ${relative(projectRoot, outputPath)}`);
       break;
     }
@@ -141,11 +153,15 @@ async function initializeProject(projectRoot: string): Promise<void> {
   );
 }
 
-async function watchProject(projectRoot: string): Promise<void> {
+async function watchProject(
+  projectRoot: string,
+  targets: Array<"node" | "browser" | "react-native">,
+): Promise<void> {
   const registryDirectory = resolve(projectRoot, "orcha");
   if (!existsSync(registryDirectory)) {
     throw new Error('Missing "orcha/". Run "orcha init" first.');
   }
+  loadProjectEnvironment(projectRoot);
 
   let validating = false;
   let validateAgain = false;
@@ -157,7 +173,9 @@ async function watchProject(projectRoot: string): Promise<void> {
     }
     validating = true;
     try {
-      await loadProject(projectRoot);
+      for (const target of targets) {
+        await buildProject({ projectRoot, target });
+      }
       const agents = Object.keys(orcha.getCompiledBundle().agents);
       console.log(
         `[orcha] valid — ${agents.length} agent${agents.length === 1 ? "" : "s"}: ${agents.join(", ") || "none"}`,
@@ -176,7 +194,9 @@ async function watchProject(projectRoot: string): Promise<void> {
   };
 
   await validate();
-  console.log("[orcha] watching orcha/**");
+  console.log(
+    `[orcha] watching orcha/** for ${targets.join(", ")}`,
+  );
   const watcher = watch(registryDirectory, { ignoreInitial: true }).on(
     "all",
     () => {
@@ -465,6 +485,42 @@ interface ParsedArguments {
   positionals: string[];
   flags: Set<string>;
   values: Map<string, string>;
+}
+
+function parseDevTargets(
+  arguments_: string[],
+): Array<"node" | "browser" | "react-native"> {
+  const parsed = parseArguments(
+    arguments_,
+    new Set(["--target"]),
+    new Set(),
+  );
+  if (parsed.positionals.length > 0) {
+    throw new Error(
+      "Usage: orcha dev [--target node|browser|react-native|all]",
+    );
+  }
+  const target = parsed.values.get("--target") ?? "node";
+  if (target === "all") {
+    return ["browser", "react-native", "node"];
+  }
+  return [parseBuildTarget(target)];
+}
+
+function parseBuildTarget(
+  value: string | undefined,
+): "node" | "browser" | "react-native" {
+  if (
+    value === undefined ||
+    value === "node" ||
+    value === "browser" ||
+    value === "react-native"
+  ) {
+    return value ?? "node";
+  }
+  throw new Error(
+    `Unknown build target "${value}". Expected node, browser, or react-native.`,
+  );
 }
 
 function parseArguments(
@@ -825,13 +881,13 @@ function printUsage(): void {
       "",
       "Commands:",
       "  init                         Add Orcha to the current project",
-      "  dev                          Validate and watch orcha/**",
+      "  dev [--target <runtime>]     Build and watch orcha/**",
       "  run <agent> [options]        Execute or resume an agent",
       "  test [agent | agent/test]    Run agent tests",
       "  playground [options]         Open the local agent playground",
       "  migrate-storage --to <type>  Copy sessions between JSONL and SQLite",
       "  export-session <agent> <id>  Export one session as JSONL",
-      "  build                        Build the production Orcha bundle",
+      "  build [--target <runtime>]   Build for node, browser, or react-native",
       "",
       "Run and test support --json for machine-readable output.",
     ].join("\n"),

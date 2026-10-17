@@ -16,7 +16,8 @@ import { orchaPlugin } from "../dist/integrations/esbuild.js";
 import { generateBedrockContent } from "../dist/providers/bedrock.js";
 import { generateProviderResponse } from "../dist/providers/index.js";
 import { createLocalActionContext } from "../dist/runtime/actions/context.js";
-import { createOrcha } from "../dist/runtime/create-orcha.js";
+import { createOrcha as createRuntimeOrcha } from "../dist/runtime/create-orcha.js";
+import { nodeRuntimePlatform } from "../dist/runtime/platform-node.js";
 import {
   migrateSessionStore,
   NodeJsonlSessionStore,
@@ -26,6 +27,12 @@ import { listTests, runTests } from "../dist/testing.js";
 
 const executeFile = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const createOrcha = (resolveBundle, generateProviderResponse) =>
+  createRuntimeOrcha(
+    resolveBundle,
+    generateProviderResponse,
+    nodeRuntimePlatform,
+  );
 const sqliteAvailable = await import("better-sqlite3").then(
   () => true,
   () => false,
@@ -45,6 +52,11 @@ test("exposes every public entry point to CommonJS consumers", async () => {
   const testing = require("orchajs/testing");
   const esbuild = require("orchajs/esbuild");
   const serverless = require("orchajs/serverless");
+  const vite = require("orchajs/vite");
+  const webpack = require("orchajs/webpack");
+  const next = require("orchajs/next");
+  const metro = require("orchajs/metro");
+  const expo = require("orchajs/expo");
 
   assert.equal(packageMetadata.main, "./dist-cjs/index.js");
   assert.equal(packageMetadata.module, "./dist/index.js");
@@ -55,6 +67,11 @@ test("exposes every public entry point to CommonJS consumers", async () => {
   assert.equal(typeof testing.runTests, "function");
   assert.equal(typeof esbuild.orchaPlugin, "function");
   assert.equal(typeof serverless, "function");
+  assert.equal(typeof vite.orchaVitePlugin, "function");
+  assert.equal(typeof webpack.OrchaWebpackPlugin, "function");
+  assert.equal(typeof next.withOrcha, "function");
+  assert.equal(typeof metro.withOrchaMetro, "function");
+  assert.equal(typeof expo.withOrchaExpo, "function");
 
   const commonJsFiles = await collectFiles(
     resolve(repositoryRoot, "dist-cjs"),

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { OrchaError } from "../errors.js";
 import {
   normalizeLocalFile,
@@ -130,7 +129,7 @@ export class RuntimeAgent implements AgentRuntime {
     this.#delegatedOnly = options.delegatedOnly ?? false;
     this.#agentKey = options.manifest.key ?? options.manifest.name;
     this.#sessionIdPrefix = options.sessionIdPrefix ?? "ses_";
-    this.#projectRoot = options.projectRoot ?? process.cwd();
+    this.#projectRoot = options.projectRoot ?? ".";
   }
 
   get agent(): string {
@@ -2753,7 +2752,24 @@ function createSessionId(prefix: string): string {
     .toISOString()
     .replace(/\.\d{3}Z$/, "")
     .replace("T", "_");
-  return `${prefix}${utcTimestamp}_${randomUUID()}`;
+  return `${prefix}${utcTimestamp}_${createRandomId()}`;
+}
+
+function createRandomId(): string {
+  const crypto = globalThis.crypto;
+  if (typeof crypto?.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto?.getRandomValues === "function") {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const value = Array.from(bytes, (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+  }
+  throw new Error("Secure random identifiers are unavailable in this runtime.");
 }
 
 function normalizeVariables(

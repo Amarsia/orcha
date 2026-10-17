@@ -33,6 +33,13 @@ test("creates a complete standalone project without installing dependencies", as
     );
     assert.equal(packageJson.name, "my-agent-app");
     assert.equal(packageJson.dependencies.orchajs, packageMetadata.orchaVersion);
+    assert.equal(
+      packageJson.devDependencies["@orchajs/playground-ui"],
+      "^0.2.2",
+    );
+    assert.equal(packageJson.devDependencies.esbuild, "^0.25.9");
+    assert.equal(packageJson.devDependencies.chokidar, "^4.0.3");
+    assert.equal(packageJson.devDependencies.dotenv, "^16.6.1");
     assert.equal(packageJson.scripts.dev, "orcha playground");
     assert.equal(packageJson.scripts.build, "orcha build");
     assert.equal(packageJson.scripts.test, "orcha test");
