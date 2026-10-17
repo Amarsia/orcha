@@ -1,7 +1,9 @@
 import { BrowserIndexedDbSessionStore } from "../storage/browser-indexeddb.js";
 import type { RuntimePlatform } from "./platform.js";
+import { portableRandomUUID } from "./random-id.js";
 
 export const browserRuntimePlatform: RuntimePlatform = {
+  randomUUID: portableRandomUUID,
   projectRoot(configuration) {
     return configuration.root ?? "/";
   },

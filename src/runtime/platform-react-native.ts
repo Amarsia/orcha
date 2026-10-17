@@ -1,7 +1,9 @@
 import { ReactNativeJsonlSessionStore } from "../storage/react-native-jsonl.js";
 import type { RuntimePlatform } from "./platform.js";
+import { portableRandomUUID } from "./random-id.js";
 
 export const reactNativeRuntimePlatform: RuntimePlatform = {
+  randomUUID: portableRandomUUID,
   projectRoot(configuration) {
     return configuration.root ?? "/";
   },

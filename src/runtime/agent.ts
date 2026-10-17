@@ -59,6 +59,7 @@ import {
   type ExecutionSnapshotPublisher,
   type OutputSnapshotPublisher,
 } from "./execution.js";
+import { portableRandomUUID } from "./random-id.js";
 
 interface PendingClientActions {
   run: number;
@@ -98,6 +99,7 @@ export class RuntimeAgent implements AgentRuntime {
   readonly #agentKey: string;
   readonly #sessionIdPrefix: string;
   readonly #projectRoot: string;
+  readonly #randomUUID: () => string;
   readonly #evaluationTasks = new Map<
     string,
     Promise<EvaluationResult[]>
@@ -118,6 +120,7 @@ export class RuntimeAgent implements AgentRuntime {
     delegatedOnly?: boolean;
     sessionIdPrefix?: string;
     projectRoot?: string;
+    randomUUID?: () => string;
   }) {
     this.#manifest = options.manifest;
     this.#configuration = options.configuration;
@@ -130,6 +133,7 @@ export class RuntimeAgent implements AgentRuntime {
     this.#agentKey = options.manifest.key ?? options.manifest.name;
     this.#sessionIdPrefix = options.sessionIdPrefix ?? "ses_";
     this.#projectRoot = options.projectRoot ?? ".";
+    this.#randomUUID = options.randomUUID ?? portableRandomUUID;
   }
 
   get agent(): string {
@@ -171,7 +175,7 @@ export class RuntimeAgent implements AgentRuntime {
   }
 
   createDelegatedSessionId(): string {
-    return createSessionId(this.#sessionIdPrefix);
+    return createSessionId(this.#sessionIdPrefix, this.#randomUUID);
   }
 
   runAsChild(
@@ -197,7 +201,8 @@ export class RuntimeAgent implements AgentRuntime {
   ): Execution {
     const normalized = typeof input === "string" ? { content: input } : input;
     const sessionId =
-      requestedSessionId ?? createSessionId(this.#sessionIdPrefix);
+      requestedSessionId ??
+      createSessionId(this.#sessionIdPrefix, this.#randomUUID);
     if (
       typeof normalized === "object" &&
       normalized !== null &&
@@ -2747,29 +2752,15 @@ function normalizeMetadata(
   return normalized;
 }
 
-function createSessionId(prefix: string): string {
+function createSessionId(
+  prefix: string,
+  randomUUID: () => string,
+): string {
   const utcTimestamp = new Date()
     .toISOString()
     .replace(/\.\d{3}Z$/, "")
     .replace("T", "_");
-  return `${prefix}${utcTimestamp}_${createRandomId()}`;
-}
-
-function createRandomId(): string {
-  const crypto = globalThis.crypto;
-  if (typeof crypto?.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  if (typeof crypto?.getRandomValues === "function") {
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const value = Array.from(bytes, (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
-    return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
-  }
-  throw new Error("Secure random identifiers are unavailable in this runtime.");
+  return `${prefix}${utcTimestamp}_${randomUUID()}`;
 }
 
 function normalizeVariables(

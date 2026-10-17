@@ -106,6 +106,7 @@ class OrchaRuntimeCore implements Orcha {
               generateProviderResponse: this.#generateProviderResponse,
               delegatedOnly: true,
               projectRoot,
+              randomUUID: this.#platform.randomUUID,
             }),
           ],
         ),
@@ -121,6 +122,7 @@ class OrchaRuntimeCore implements Orcha {
           generateProviderResponse: this.#generateProviderResponse,
           subagents,
           projectRoot,
+          randomUUID: this.#platform.randomUUID,
         }),
       );
     }

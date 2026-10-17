@@ -6,6 +6,7 @@ import type {
 } from "../types.js";
 
 export interface RuntimePlatform {
+  randomUUID(): string;
   projectRoot(configuration: OrchaInitConfiguration): string;
   createSessionStore(options: {
     configuration: OrchaInitConfiguration;
