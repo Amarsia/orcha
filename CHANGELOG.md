@@ -1,5 +1,16 @@
 # orchajs
 
+## 0.21.0
+
+### Minor Changes
+
+- [#90](https://github.com/Amarsia/orcha/pull/90) [`363429e`](https://github.com/Amarsia/orcha/commit/363429e1d5b80901687a7c0b86312e9bb05b9822) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Run precompiled agents through the same `orchajs` import in Node, browsers,
+  Next.js, Expo, and bare React Native. Add Vite, Webpack, Next.js, Expo, and
+  Metro integrations, durable IndexedDB and AsyncStorage session stores,
+  target-specific action compilation, and optional development-tool peers so
+  production installs and client bundles exclude compiler, playground,
+  platform-incompatible storage, and unselected provider dependencies.
+
 ## 0.20.3
 
 ### Patch Changes
