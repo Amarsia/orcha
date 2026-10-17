@@ -4,6 +4,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build as bundleEntry } from "esbuild";
 import { orcha } from "../orcha.js";
+import { setRegistryCompiler } from "../runtime/compiler-hook.js";
+import { compileRegistry } from "./compile.js";
 import {
   builtInProviderCatalog,
   isBuiltInProvider,
@@ -15,12 +17,24 @@ import type {
 
 export interface BuildProjectOptions {
   projectRoot?: string;
+  target?: "node" | "browser" | "react-native";
 }
+
+let registryImportSequence = 0;
 
 export async function buildProject(
   options: BuildProjectOptions = {},
 ): Promise<string> {
   const projectRoot = resolve(options.projectRoot ?? process.cwd());
+  const target = options.target ?? "node";
+  setRegistryCompiler((configuration, compilerProjectRoot) =>
+    compileRegistry(
+      configuration.agents,
+      resolve(compilerProjectRoot, "orcha"),
+      configuration.actions?.runtime ?? "native",
+      target,
+    ),
+  );
   const registryPath = resolve(projectRoot, "orcha/index.ts");
   if (!existsSync(registryPath)) {
     throw new Error('Missing "orcha/index.ts". Run "orcha init" first.');
@@ -32,7 +46,10 @@ export async function buildProject(
     temporaryDirectory,
     "production-entry.mjs",
   );
-  const outputPath = resolve(projectRoot, ".orcha/dist/bundle.js");
+  const outputPath = resolve(
+    projectRoot,
+    `.orcha/dist/${bundleFileName(target)}`,
+  );
   const manifestPath = resolve(
     projectRoot,
     ".orcha/dist/manifest.json",
@@ -58,7 +75,7 @@ export async function buildProject(
     process.env.ORCHA_PROJECT_ROOT = projectRoot;
     try {
       await import(
-        `${pathToFileURL(registryBundlePath).href}?time=${Date.now()}`
+        `${pathToFileURL(registryBundlePath).href}?build=${Date.now()}-${registryImportSequence++}`
       );
     } finally {
       if (previousCompiling === undefined) {
@@ -73,9 +90,25 @@ export async function buildProject(
       }
     }
     const compiledBundle = orcha.getCompiledBundle();
+    if (
+      target !== "node" &&
+      compiledBundle.actionRuntime === "sandbox"
+    ) {
+      throw new Error(
+        `The ${target} target supports precompiled native actions only. Set actions.runtime to "native".`,
+      );
+    }
     const runtimeFactoryPath = resolve(
       dirname(fileURLToPath(import.meta.url)),
       "../runtime/create-orcha.js",
+    ).replaceAll("\\", "/");
+    const runtimePlatformPath = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      `../runtime/platform-${target}.js`,
+    ).replaceAll("\\", "/");
+    const runtimeEntryPath = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../runtime-entry.js",
     ).replaceAll("\\", "/");
     const providerDispatcherPath = resolve(
       dirname(fileURLToPath(import.meta.url)),
@@ -85,6 +118,10 @@ export async function buildProject(
       compiledBundle.actionRuntime === "sandbox"
         ? createSandboxRuntimeSource()
         : "";
+    const platformActionRuntimeSource =
+      createPlatformActionRuntimeSource(target);
+    const nodeStorageExports =
+      target === "node" ? createNodeStorageExports() : "";
     const includedProviders = [
       ...new Set(
         allCompiledAgents(compiledBundle.agents).flatMap(
@@ -98,7 +135,7 @@ export async function buildProject(
       ),
     ];
     const providerRuntimeSource =
-      createProviderRuntimeSource(includedProviders);
+      createProviderRuntimeSource(includedProviders, target);
     const needsNodeRequire =
       compiledBundle.actionRuntime === "sandbox" ||
       includedProviders.includes("vertexai") ||
@@ -108,12 +145,16 @@ export async function buildProject(
       productionEntryPath,
       [
         `import { createOrcha } from ${JSON.stringify(runtimeFactoryPath)};`,
+        `import { ${runtimePlatformExport(target)} as runtimePlatform } from ${JSON.stringify(runtimePlatformPath)};`,
         `import { createProviderResponseGenerator } from ${JSON.stringify(providerDispatcherPath)};`,
+        `export * from ${JSON.stringify(runtimeEntryPath)};`,
+        nodeStorageExports,
         providerRuntimeSource,
+        platformActionRuntimeSource,
         sandboxRuntimeSource,
         `const compiledBundle = ${JSON.stringify(compiledBundle)};`,
         "const generateProviderResponse = createProviderResponseGenerator(includedProviders);",
-        "export const orcha = createOrcha(() => compiledBundle, generateProviderResponse);",
+        "export const orcha = createOrcha(() => compiledBundle, generateProviderResponse, runtimePlatform);",
         "export default orcha;",
         "",
       ].join("\n"),
@@ -124,8 +165,13 @@ export async function buildProject(
       outfile: outputPath,
       bundle: true,
       format: "esm",
-      platform: "node",
-      target: "node18",
+      platform: target === "node" ? "node" : "browser",
+      target:
+        target === "node"
+          ? "node18"
+          : target === "browser"
+            ? ["chrome110", "firefox110", "safari16"]
+            : "es2022",
       minify: true,
       legalComments: "none",
       define: {
@@ -133,7 +179,7 @@ export async function buildProject(
           compiledBundle.actionRuntime === "sandbox" ? "1" : "0",
         ),
       },
-      ...(needsNodeRequire
+      ...(needsNodeRequire && target === "node"
         ? {
             banner: {
               js: [
@@ -141,6 +187,13 @@ export async function buildProject(
                 "const require = __orchaCreateRequire(import.meta.url);",
               ].join("\n"),
             },
+          }
+        : {}),
+      ...(target === "react-native"
+        ? {
+            external: [
+              "@react-native-async-storage/async-storage",
+            ],
           }
         : {}),
       logLevel: "silent",
@@ -158,6 +211,24 @@ export async function buildProject(
       force: true,
     });
   }
+}
+
+function bundleFileName(
+  target: "node" | "browser" | "react-native",
+): string {
+  return target === "node" ? "bundle.js" : `bundle.${target}.js`;
+}
+
+function runtimePlatformExport(
+  target: "node" | "browser" | "react-native",
+): string {
+  if (target === "browser") {
+    return "browserRuntimePlatform";
+  }
+  if (target === "react-native") {
+    return "reactNativeRuntimePlatform";
+  }
+  return "nodeRuntimePlatform";
 }
 
 function createSandboxRuntimeSource(): string {
@@ -178,6 +249,45 @@ function createSandboxRuntimeSource(): string {
   ].join("\n");
 }
 
+function createPlatformActionRuntimeSource(
+  target: "node" | "browser" | "react-native",
+): string {
+  const runtimeDirectory = dirname(fileURLToPath(import.meta.url));
+  const executePath = resolve(
+    runtimeDirectory,
+    "../runtime/actions/execute.js",
+  ).replaceAll("\\", "/");
+  const nativePath = resolve(
+    runtimeDirectory,
+    target === "node"
+      ? "../runtime/actions/native.js"
+      : "../runtime/actions/browser-native.js",
+  ).replaceAll("\\", "/");
+  return [
+    `import { setNativeRuntimeLoader } from ${JSON.stringify(executePath)};`,
+    `import { executeNativeAction } from ${JSON.stringify(nativePath)};`,
+    "setNativeRuntimeLoader(async () => ({ executeNativeAction }));",
+    "",
+  ].join("\n");
+}
+
+function createNodeStorageExports(): string {
+  const sourceRoot = dirname(fileURLToPath(import.meta.url));
+  const jsonlPath = resolve(
+    sourceRoot,
+    "../storage/node-jsonl.js",
+  ).replaceAll("\\", "/");
+  const sqlitePath = resolve(
+    sourceRoot,
+    "../storage/node-sqlite.js",
+  ).replaceAll("\\", "/");
+  return [
+    `export { NodeJsonlSessionStore } from ${JSON.stringify(jsonlPath)};`,
+    `export { NodeSqliteSessionStore } from ${JSON.stringify(sqlitePath)};`,
+    "",
+  ].join("\n");
+}
+
 function allCompiledAgents(
   agents: CompiledBundle["agents"],
 ): CompiledAgentManifest[] {
@@ -187,7 +297,10 @@ function allCompiledAgents(
   ]);
 }
 
-function createProviderRuntimeSource(providerNames: string[]): string {
+function createProviderRuntimeSource(
+  providerNames: string[],
+  target: "node" | "browser" | "react-native",
+): string {
   const providersDirectory = resolve(
     dirname(fileURLToPath(import.meta.url)),
     "../providers",
@@ -198,6 +311,14 @@ function createProviderRuntimeSource(providerNames: string[]): string {
   for (const [index, name] of providerNames.entries()) {
     if (!isBuiltInProvider(name)) {
       throw new Error(`Provider "${name}" is not built in.`);
+    }
+    if (
+      target !== "node" &&
+      (name === "bedrock" || name === "vertexai")
+    ) {
+      throw new Error(
+        `Provider "${name}" is not available for the ${target} target.`,
+      );
     }
     const descriptor = builtInProviderCatalog[name];
     const localName = `provider${index}`;

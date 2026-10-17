@@ -3,10 +3,20 @@ import { mkdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build as bundleEntry } from "esbuild";
+import { compileRegistry } from "./compiler/compile.js";
 import { loadProjectEnvironment } from "./env.js";
 import { orcha } from "./orcha.js";
+import { setRegistryCompiler } from "./runtime/compiler-hook.js";
 
 export async function loadProject(projectRoot: string): Promise<void> {
+  setRegistryCompiler((configuration, compilerProjectRoot) =>
+    compileRegistry(
+      configuration.agents,
+      resolve(compilerProjectRoot, "orcha"),
+      configuration.actions?.runtime ?? "native",
+      "node",
+    ),
+  );
   loadProjectEnvironment(projectRoot);
   const registryPath = resolve(projectRoot, "orcha/index.ts");
   if (!existsSync(registryPath)) {

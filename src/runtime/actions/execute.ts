@@ -3,11 +3,27 @@ import type {
   LocalActionRuntimeConfiguration,
   SessionMetadata,
 } from "../../types.js";
-import { createLocalActionContext } from "./context.js";
-import { executeNativeAction } from "./native.js";
+import {
+  createLocalActionContext,
+  type LocalActionContext,
+} from "./context.js";
 
 type SandboxRuntime = typeof import("./sandbox.js");
 type SandboxRuntimeLoader = () => Promise<SandboxRuntime>;
+interface NativeRuntime {
+  executeNativeAction(
+    action: CompiledActionManifest,
+    parameters: Record<string, unknown>,
+    context: LocalActionContext,
+  ): Promise<unknown>;
+}
+type NativeRuntimeLoader = () => Promise<NativeRuntime>;
+
+let loadConfiguredNativeRuntime: NativeRuntimeLoader = async () => {
+  throw new Error(
+    "The native action runtime was not included in this Orcha build.",
+  );
+};
 
 let loadConfiguredSandboxRuntime: SandboxRuntimeLoader = async () => {
   throw new Error(
@@ -22,6 +38,11 @@ export function setSandboxRuntimeLoader(
   loadConfiguredSandboxRuntime = loader;
 }
 
+/** @internal Supplies the platform-specific native action executor. */
+export function setNativeRuntimeLoader(loader: NativeRuntimeLoader): void {
+  loadConfiguredNativeRuntime = loader;
+}
+
 export async function executeLocalAction(options: {
   action: CompiledActionManifest;
   parameters: Record<string, unknown>;
@@ -32,6 +53,7 @@ export async function executeLocalAction(options: {
 }): Promise<unknown> {
   const context = createLocalActionContext(options);
   if (options.configuration.runtime === "native") {
+    const { executeNativeAction } = await loadConfiguredNativeRuntime();
     return executeNativeAction(options.action, options.parameters, context);
   }
 

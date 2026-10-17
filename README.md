@@ -50,6 +50,109 @@ The Google GenAI and Vertex AI adapters use Google's current SDK and require
 Node.js 20 or newer. On Node.js 18, the rest of Orcha—including Amazon
 Bedrock—remains available.
 
+Compiler and playground packages are optional development dependencies. Apps
+created with `create-orcha` include them automatically. Existing projects that
+use the CLI or a bundler integration should install them explicitly:
+
+```bash
+npm install --save-dev esbuild chokidar dotenv
+```
+
+The local playground is also development-only:
+
+```bash
+npm install --save-dev @orchajs/playground-ui
+```
+
+## React, Next.js, and React Native
+
+Application code always imports the same package:
+
+```ts
+import { orcha } from "orchajs";
+```
+
+The framework integration compiles the filesystem registry ahead of time and
+redirects that unchanged import to a small, target-specific runtime. Compiler,
+filesystem, playground, and unused provider code are not included in the
+customer bundle. Provider adapters are selected from the compiled registry, so
+using OpenAI does not include Anthropic, Google, Bedrock, or Vertex AI code.
+
+For React with Vite:
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { orchaVitePlugin } from "orchajs/vite";
+
+export default defineConfig({
+  plugins: [orchaVitePlugin(), react()],
+});
+```
+
+Webpack-based React applications use the equivalent plugin:
+
+```js
+const { OrchaWebpackPlugin } = require("orchajs/webpack");
+
+const orcha = new OrchaWebpackPlugin();
+module.exports = {
+  resolve: { alias: { "orchajs$": orcha.bundlePath } },
+  plugins: [orcha],
+};
+```
+
+Next.js 16 uses Turbopack by default. Its config may be asynchronous, so the
+integration compiles both browser and Node targets before returning the config
+and also configures Webpack fallback builds:
+
+```ts
+// next.config.ts
+import { withOrcha } from "orchajs/next";
+
+export default async function nextConfig() {
+  return withOrcha({});
+}
+```
+
+Both Expo and bare React Native use the same precompiled runtime and persistent
+AsyncStorage:
+
+```bash
+# Bare React Native
+npm install @react-native-async-storage/async-storage
+
+# Expo
+npx expo install @react-native-async-storage/async-storage
+```
+
+Bare React Native:
+
+```js
+// metro.config.js
+const { getDefaultConfig } = require("@react-native/metro-config");
+const { withOrchaMetro } = require("orchajs/metro");
+
+module.exports = withOrchaMetro(getDefaultConfig(__dirname));
+```
+
+Expo:
+
+```js
+// metro.config.js
+const { getDefaultConfig } = require("expo/metro-config");
+const { withOrchaExpo } = require("orchajs/expo");
+
+module.exports = withOrchaExpo(getDefaultConfig(__dirname));
+```
+
+Browser and React Native builds execute compiled agents locally. Only
+Anthropic, DeepSeek, Google GenAI, and OpenAI are browser-compatible; Bedrock
+and Vertex AI remain server runtimes. Provider credentials included in client
+configuration are visible to end users, so production applications should use
+restricted client credentials or a server-side provider proxy.
+
 ---
 
 ## The convention

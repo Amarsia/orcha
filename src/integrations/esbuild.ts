@@ -14,13 +14,20 @@ export function orchaPlugin(
   options: OrchaEsbuildPluginOptions = {},
 ): Plugin {
   const projectRoot = resolve(options.projectRoot ?? process.cwd());
-  const generatedBundle = resolve(projectRoot, ".orcha/dist/bundle.js");
 
   return {
     name: "orchajs",
     setup(builder) {
+      const target =
+        builder.initialOptions.platform === "browser"
+          ? "browser"
+          : "node";
+      const generatedBundle = resolve(
+        projectRoot,
+        `.orcha/dist/${target === "node" ? "bundle.js" : "bundle.browser.js"}`,
+      );
       builder.onStart(async () => {
-        await buildProject({ projectRoot });
+        await buildProject({ projectRoot, target });
       });
 
       builder.onResolve({ filter: /^orchajs$/ }, () => ({

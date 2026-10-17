@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { OrchaError } from "../errors.js";
 import {
   normalizeLocalFile,
@@ -60,6 +59,7 @@ import {
   type ExecutionSnapshotPublisher,
   type OutputSnapshotPublisher,
 } from "./execution.js";
+import { portableRandomUUID } from "./random-id.js";
 
 interface PendingClientActions {
   run: number;
@@ -99,6 +99,7 @@ export class RuntimeAgent implements AgentRuntime {
   readonly #agentKey: string;
   readonly #sessionIdPrefix: string;
   readonly #projectRoot: string;
+  readonly #randomUUID: () => string;
   readonly #evaluationTasks = new Map<
     string,
     Promise<EvaluationResult[]>
@@ -119,6 +120,7 @@ export class RuntimeAgent implements AgentRuntime {
     delegatedOnly?: boolean;
     sessionIdPrefix?: string;
     projectRoot?: string;
+    randomUUID?: () => string;
   }) {
     this.#manifest = options.manifest;
     this.#configuration = options.configuration;
@@ -130,7 +132,8 @@ export class RuntimeAgent implements AgentRuntime {
     this.#delegatedOnly = options.delegatedOnly ?? false;
     this.#agentKey = options.manifest.key ?? options.manifest.name;
     this.#sessionIdPrefix = options.sessionIdPrefix ?? "ses_";
-    this.#projectRoot = options.projectRoot ?? process.cwd();
+    this.#projectRoot = options.projectRoot ?? ".";
+    this.#randomUUID = options.randomUUID ?? portableRandomUUID;
   }
 
   get agent(): string {
@@ -172,7 +175,7 @@ export class RuntimeAgent implements AgentRuntime {
   }
 
   createDelegatedSessionId(): string {
-    return createSessionId(this.#sessionIdPrefix);
+    return createSessionId(this.#sessionIdPrefix, this.#randomUUID);
   }
 
   runAsChild(
@@ -198,7 +201,8 @@ export class RuntimeAgent implements AgentRuntime {
   ): Execution {
     const normalized = typeof input === "string" ? { content: input } : input;
     const sessionId =
-      requestedSessionId ?? createSessionId(this.#sessionIdPrefix);
+      requestedSessionId ??
+      createSessionId(this.#sessionIdPrefix, this.#randomUUID);
     if (
       typeof normalized === "object" &&
       normalized !== null &&
@@ -2748,7 +2752,10 @@ function normalizeMetadata(
   return normalized;
 }
 
-function createSessionId(prefix: string): string {
+function createSessionId(
+  prefix: string,
+  randomUUID: () => string,
+): string {
   const utcTimestamp = new Date()
     .toISOString()
     .replace(/\.\d{3}Z$/, "")

@@ -1,9 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { compileRegistry } from "./compiler/compile.js";
 import { generateProviderResponse } from "./providers/index.js";
-import { setSandboxRuntimeLoader } from "./runtime/actions/execute.js";
+import {
+  setNativeRuntimeLoader,
+  setSandboxRuntimeLoader,
+} from "./runtime/actions/execute.js";
+import { executeNativeAction } from "./runtime/actions/native.js";
+import { getRegistryCompiler } from "./runtime/compiler-hook.js";
 import { createOrcha } from "./runtime/create-orcha.js";
+import { nodeRuntimePlatform } from "./runtime/platform-node.js";
 import type {
   CompiledBundle,
   OrchaInitConfiguration,
@@ -11,6 +16,7 @@ import type {
 
 export type { Orcha, OrchaClient } from "./runtime/create-orcha.js";
 
+setNativeRuntimeLoader(async () => ({ executeNativeAction }));
 setSandboxRuntimeLoader(async () => {
   const modulePath = "./runtime/actions/sandbox.js";
   return import(modulePath) as Promise<
@@ -25,20 +31,22 @@ export const orcha = createOrcha(
         process.env.ORCHA_PROJECT_ROOT ??
         process.cwd(),
     );
+    const compiler = getRegistryCompiler();
+    if (process.env.ORCHA_COMPILING === "1" && compiler) {
+      return compiler(configuration, projectRoot);
+    }
     if (
-      process.env.ORCHA_COMPILING !== "1" &&
-      isPrecompiledRuntime()
+      isPrecompiledRuntime() ||
+      existsSync(compiledManifestPath(projectRoot))
     ) {
       return loadCompiledManifest(projectRoot, configuration);
     }
-    const registryRoot = resolve(projectRoot, "orcha");
-    return compileRegistry(
-      configuration.agents,
-      registryRoot,
-      configuration.actions?.runtime ?? "native",
+    throw new Error(
+      'Orcha agents must be compiled before runtime initialization. Run "npx orcha dev" during development or "npx orcha build" before starting the application.',
     );
   },
   generateProviderResponse,
+  nodeRuntimePlatform,
 );
 
 function isPrecompiledRuntime(): boolean {
@@ -54,10 +62,7 @@ function loadCompiledManifest(
   projectRoot: string,
   configuration: OrchaInitConfiguration,
 ): CompiledBundle {
-  const manifestPath = resolve(
-    projectRoot,
-    ".orcha/dist/manifest.json",
-  );
+  const manifestPath = compiledManifestPath(projectRoot);
   if (!existsSync(manifestPath)) {
     throw new Error(
       `ORCHA_PRODUCTION_BUNDLE_MISSING: "${manifestPath}" was not found. Run "npx orcha build" before packaging, include ".orcha/dist" in the deployment, or configure the Orcha build integration.`,
@@ -102,4 +107,8 @@ function loadCompiledManifest(
     );
   }
   return bundle;
+}
+
+function compiledManifestPath(projectRoot: string): string {
+  return resolve(projectRoot, ".orcha/dist/manifest.json");
 }
