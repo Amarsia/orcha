@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.23.0
+
+### Minor Changes
+
+- [#94](https://github.com/Amarsia/orcha/pull/94) [`55353da`](https://github.com/Amarsia/orcha/commit/55353da0e8150ebc0d3174903d1edf015fb6a0b6) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Include privacy-safe evaluation outcomes, evaluator metadata, token usage, rubric scores, thresholds, reasoning, and evidence in Amarsia run telemetry.
+
 ## 0.22.0
 
 ### Minor Changes
