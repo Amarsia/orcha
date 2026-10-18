@@ -325,6 +325,9 @@ function projectRunFact(
       event.type === "evaluation.completed" ||
       event.type === "evaluation.failed",
   );
+  const evaluationMetrics = evaluations.flatMap((event) =>
+    Array.isArray(event.data.metrics) ? event.data.metrics : [],
+  );
   const error = asRecord(terminal?.data.error);
   const lastAssistant = assistants.at(-1);
   const status =
@@ -395,6 +398,19 @@ function projectRunFact(
         event.type === "evaluation.completed" &&
         event.data.status === "passed",
     ).length,
+    evaluation_failure_count: evaluations.filter(
+      (event) =>
+        event.type === "evaluation.completed" &&
+        event.data.status === "failed",
+    ).length,
+    evaluation_error_count: evaluations.filter(
+      (event) => event.type === "evaluation.failed",
+    ).length,
+    evaluation_metric_count: evaluationMetrics.length,
+    evaluation_metric_pass_count: evaluationMetrics.filter(
+      (metric) => asRecord(metric)?.passed === true,
+    ).length,
+    evaluations: projectEvaluationLogs(evaluations),
     ...(typeof error?.code === "string" ? { error_code: error.code } : {}),
     ...(typeof error?.message === "string"
       ? { error_message: sanitizeErrorMessage(error.message) }
@@ -497,6 +513,68 @@ function projectActionLogs(events: SessionEvent[]) {
           : {}),
       };
     });
+}
+
+function projectEvaluationLogs(events: SessionEvent[]) {
+  return events.slice(0, 50).map((event) => {
+    const usage = asRecord(event.data.usage);
+    const error = asRecord(event.data.error);
+    const metrics = Array.isArray(event.data.metrics)
+      ? event.data.metrics
+          .map(asRecord)
+          .filter(
+            (metric): metric is Record<string, unknown> => metric !== undefined,
+          )
+          .slice(0, 50)
+          .map((metric) => ({
+            name:
+              typeof metric.name === "string" ? metric.name : "unknown_metric",
+            score: numberValue(metric.score),
+            threshold: numberValue(metric.threshold),
+            passed: metric.passed === true,
+            reasoning:
+              typeof metric.reasoning === "string"
+                ? sanitizeErrorMessage(metric.reasoning)
+                : "",
+            evidence: Array.isArray(metric.evidence)
+              ? metric.evidence
+                  .filter(
+                    (item): item is string => typeof item === "string",
+                  )
+                  .slice(0, 20)
+                  .map(sanitizeErrorMessage)
+              : [],
+          }))
+      : [];
+    return {
+      name:
+        typeof event.data.name === "string"
+          ? event.data.name
+          : "unknown_evaluation",
+      status:
+        event.type === "evaluation.failed"
+          ? ("error" as const)
+          : event.data.status === "passed"
+            ? ("passed" as const)
+            : ("failed" as const),
+      ...(typeof event.data.provider === "string"
+        ? { provider: event.data.provider }
+        : {}),
+      ...(typeof event.data.model === "string"
+        ? { model: event.data.model }
+        : {}),
+      duration_ms: numberValue(event.data.durationMs),
+      input_tokens: numberValue(usage?.inputTokens),
+      output_tokens: numberValue(usage?.outputTokens),
+      reasoning_tokens: numberValue(usage?.reasoningTokens),
+      cache_read_tokens: numberValue(usage?.cacheReadTokens),
+      cache_write_tokens: numberValue(usage?.cacheWriteTokens),
+      metrics,
+      ...(typeof error?.message === "string"
+        ? { error_message: sanitizeErrorMessage(error.message) }
+        : {}),
+    };
+  });
 }
 
 function takeBatch(queue: Map<string, AmarsiaRunFact>): AmarsiaRunFact[] {

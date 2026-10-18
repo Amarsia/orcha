@@ -129,6 +129,11 @@ export interface AmarsiaTelemetryRunV1 {
   actions: AmarsiaTelemetryActionV1[];
   evaluation_count: number;
   evaluation_pass_count: number;
+  evaluation_failure_count: number;
+  evaluation_error_count: number;
+  evaluation_metric_count: number;
+  evaluation_metric_pass_count: number;
+  evaluations: AmarsiaTelemetryEvaluationV1[];
   error_code?: string;
   error_message?: string;
   error_retryable?: boolean;
@@ -142,6 +147,30 @@ export interface AmarsiaTelemetryActionV1 {
   ended_at: string;
   duration_ms: number;
   error_code?: string;
+  error_message?: string;
+}
+
+export interface AmarsiaTelemetryEvaluationMetricV1 {
+  name: string;
+  score: number;
+  threshold: number;
+  passed: boolean;
+  reasoning: string;
+  evidence: string[];
+}
+
+export interface AmarsiaTelemetryEvaluationV1 {
+  name: string;
+  status: "passed" | "failed" | "error";
+  provider?: string;
+  model?: string;
+  duration_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  metrics: AmarsiaTelemetryEvaluationMetricV1[];
   error_message?: string;
 }
 
