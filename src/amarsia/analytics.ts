@@ -307,11 +307,11 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function sanitizeErrorMessage(value: string): string {
   return value
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
     .replace(
       /\b(authorization|api[-_ ]?key|token|secret|password)\b\s*[:=]\s*[^\s,;]+/gi,
       "$1=[redacted]",
     )
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
     .replace(
       /\b(?:sk|pk|amarsia)_[A-Za-z0-9_-]{12,}\b/gi,
       "[redacted]",

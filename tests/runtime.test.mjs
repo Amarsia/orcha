@@ -3701,12 +3701,7 @@ async function createMockAnthropic(responseFactory) {
   return {
     requests,
     baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () =>
-      new Promise((resolveClose, rejectClose) =>
-        server.close((error) =>
-          error ? rejectClose(error) : resolveClose(),
-        ),
-      ),
+    close: () => closeTestServer(server),
   };
 }
 
@@ -3772,12 +3767,7 @@ async function createMockOpenAI(responseFactory) {
   return {
     requests,
     baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () =>
-      new Promise((resolveClose, rejectClose) =>
-        server.close((error) =>
-          error ? rejectClose(error) : resolveClose(),
-        ),
-      ),
+    close: () => closeTestServer(server),
   };
 }
 
@@ -3835,12 +3825,7 @@ async function createMockDeepSeek(responseFactory) {
   return {
     requests,
     baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () =>
-      new Promise((resolveClose, rejectClose) =>
-        server.close((error) =>
-          error ? rejectClose(error) : resolveClose(),
-        ),
-      ),
+    close: () => closeTestServer(server),
   };
 }
 
@@ -3893,13 +3878,17 @@ async function createMockGoogleGenAI(responseFactory) {
   return {
     requests,
     baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () =>
-      new Promise((resolveClose, rejectClose) =>
-        server.close((error) =>
-          error ? rejectClose(error) : resolveClose(),
-        ),
-      ),
+    close: () => closeTestServer(server),
   };
+}
+
+function closeTestServer(server) {
+  return new Promise((resolveClose, rejectClose) => {
+    server.close((error) =>
+      error ? rejectClose(error) : resolveClose(),
+    );
+    server.closeAllConnections();
+  });
 }
 
 function writeServerSentEvent(response, event) {
