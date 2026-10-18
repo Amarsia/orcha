@@ -1,4 +1,8 @@
 import { RuntimeAgent } from "./agent.js";
+import {
+  AmarsiaTelemetryClient,
+  withAmarsiaTelemetry,
+} from "../amarsia/analytics.js";
 import type { ProviderResponseGenerator } from "../providers/types.js";
 import { setOrchaRuntimeContext } from "./context.js";
 import type { RuntimePlatform } from "./platform.js";
@@ -14,6 +18,8 @@ import type {
 export interface Orcha {
   init(configuration: OrchaInitConfiguration): OrchaClient;
   isInitialized(): boolean;
+  /** Flushes queued Amarsia telemetry without blocking normal agent runs. */
+  flushTelemetry(options?: { timeoutMs?: number }): Promise<void>;
   /** @internal Used by the development compiler. */
   getCompiledBundle(): CompiledBundle;
 }
@@ -27,6 +33,7 @@ class OrchaRuntimeCore implements Orcha {
   #agents = new Map<string, AgentRuntime>();
   #bundle: CompiledBundle | undefined;
   #client: OrchaClient | undefined;
+  #telemetry: AmarsiaTelemetryClient | undefined;
   readonly #activeSessions = new Set<string>();
   readonly #sessionControls = new Map<
     string,
@@ -54,6 +61,9 @@ class OrchaRuntimeCore implements Orcha {
   }
 
   init(configuration: OrchaInitConfiguration): OrchaClient {
+    if (this.#telemetry) {
+      void this.#telemetry.close();
+    }
     const projectRoot = this.#platform.projectRoot(configuration);
     const bundle = configuration.bundle ?? this.#resolveBundle(configuration);
     if (configuration.amarsia?.key && this.#platform.syncProject) {
@@ -90,6 +100,16 @@ class OrchaRuntimeCore implements Orcha {
         projectRoot,
         manifest,
       });
+    const telemetry = configuration.amarsia?.key
+      ? new AmarsiaTelemetryClient(configuration.amarsia)
+      : undefined;
+    this.#telemetry = telemetry;
+    const createRuntimeStore = (manifest: CompiledAgentManifest) => {
+      const store = createStore(manifest);
+      return telemetry
+        ? withAmarsiaTelemetry({ store, manifest, client: telemetry })
+        : store;
+    };
     const agents = new Map<string, AgentRuntime>();
 
     for (const [name, manifest] of Object.entries(bundle.agents)) {
@@ -100,7 +120,7 @@ class OrchaRuntimeCore implements Orcha {
             new RuntimeAgent({
               manifest: subagentManifest,
               configuration: runtimeConfiguration,
-              store: createStore(subagentManifest),
+              store: createRuntimeStore(subagentManifest),
               activeSessions: this.#activeSessions,
               sessionControls: this.#sessionControls,
               generateProviderResponse: this.#generateProviderResponse,
@@ -116,7 +136,7 @@ class OrchaRuntimeCore implements Orcha {
         new RuntimeAgent({
           manifest,
           configuration: runtimeConfiguration,
-          store: createStore(manifest),
+          store: createRuntimeStore(manifest),
           activeSessions: this.#activeSessions,
           sessionControls: this.#sessionControls,
           generateProviderResponse: this.#generateProviderResponse,
@@ -141,6 +161,10 @@ class OrchaRuntimeCore implements Orcha {
 
   isInitialized(): boolean {
     return this.#bundle !== undefined;
+  }
+
+  async flushTelemetry(options?: { timeoutMs?: number }): Promise<void> {
+    await this.#telemetry?.drain(options);
   }
 
   getCompiledBundle(): CompiledBundle {

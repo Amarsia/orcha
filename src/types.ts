@@ -96,6 +96,60 @@ export interface OrchaInitConfiguration {
   root?: string;
 }
 
+/** Privacy-safe, versioned run fact sent to Amarsia when `amarsia.key` is set. */
+export interface AmarsiaTelemetryRunV1 {
+  event_id: string;
+  agent_external_id: string;
+  session_id: string;
+  run_number: number;
+  parent_agent_external_id?: string;
+  parent_session_id?: string;
+  status: string;
+  provider: string;
+  model: string;
+  region?: string;
+  output_type?: string;
+  stop_reason?: string;
+  started_at: string;
+  ended_at?: string;
+  duration_ms?: number;
+  model_duration_ms: number;
+  action_duration_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens?: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  user_message_count: number;
+  assistant_message_count: number;
+  action_count: number;
+  action_success_count: number;
+  action_failure_count: number;
+  subagent_count: number;
+  actions: AmarsiaTelemetryActionV1[];
+  evaluation_count: number;
+  evaluation_pass_count: number;
+  error_code?: string;
+  error_message?: string;
+  error_retryable?: boolean;
+}
+
+export interface AmarsiaTelemetryActionV1 {
+  call_id: string;
+  name: string;
+  status: "completed" | "failed";
+  started_at: string;
+  ended_at: string;
+  duration_ms: number;
+  error_code?: string;
+  error_message?: string;
+}
+
+export interface AmarsiaTelemetryBatchV1 {
+  schema_version: 1;
+  runs: AmarsiaTelemetryRunV1[];
+}
+
 export interface SubagentConfiguration {
   maxPerRun?: number;
 }

@@ -3,8 +3,8 @@ import {
   createAmarsiaProjectMetadata,
   type AmarsiaProjectMetadata,
 } from "./metadata.js";
+import { resolveAmarsiaEndpoint } from "./endpoint.js";
 
-const DEFAULT_AMARSIA_API_URL = "https://api.amarsia.com";
 const syncedHashes = new Map<string, string>();
 
 export function syncAmarsiaProject(options: {
@@ -33,12 +33,6 @@ export function syncAmarsiaProject(options: {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[orcha] Amarsia project sync failed: ${message}`);
   });
-}
-
-function resolveAmarsiaEndpoint(endpoint: string | undefined): string {
-  return (
-    endpoint?.trim() || process.env.AMARSIA_API_URL || DEFAULT_AMARSIA_API_URL
-  ).replace(/\/$/, "");
 }
 
 async function postProjectMetadata(options: {

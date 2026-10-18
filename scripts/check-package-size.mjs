@@ -85,10 +85,12 @@ const temporaryDirectory = await mkdtemp(join(tmpdir(), "orcha-size-"));
 
 try {
   await checkPublishedPackage();
-  await checkCleanInstall();
-  await checkUniversalRuntimeBundles();
-  await checkProviderBundles();
-  await checkSandboxBundle();
+  await Promise.all([
+    checkCleanInstall(),
+    checkUniversalRuntimeBundles(),
+    checkProviderBundles(),
+    checkSandboxBundle(),
+  ]);
   console.log("All package and bundle size checks passed.");
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
@@ -170,8 +172,10 @@ async function checkCleanInstall() {
       "--ignore-scripts",
       "--no-audit",
       "--no-fund",
+      "--legacy-peer-deps",
+      "--package-lock=false",
     ],
-    { cwd: installDirectory, maxBuffer: 10 * megabyte },
+    { cwd: installDirectory, maxBuffer: 10 * megabyte, timeout: 30_000 },
   );
 
   const nodeModules = join(installDirectory, "node_modules");

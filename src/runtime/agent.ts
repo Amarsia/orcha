@@ -1,4 +1,8 @@
-import { OrchaError } from "../errors.js";
+import {
+  describeProviderError,
+  isRetryableProviderConnectionError,
+  OrchaError,
+} from "../errors.js";
 import {
   normalizeLocalFile,
   normalizeUrlContent,
@@ -1086,29 +1090,31 @@ export class RuntimeAgent implements AgentRuntime {
       }
       providerTools.push(...this.#subagentToolDefinitions());
       try {
-        response = await this.#generateProviderResponse(
-          this.#manifest.provider,
-          provider,
-          {
-            model: this.#manifest.model,
-            region: this.#manifest.region,
-            maxTokens: this.#manifest.maxTokens,
-            reasoningLevel: this.#manifest.reasoningLevel,
-            outputType: this.#manifest.outputType,
-            outputSchema: this.#manifest.outputSchema,
-            systemPrompt: buildSystemPrompt(
-              this.#manifest,
-              previousEvents,
-              variables,
-            ),
-            messages,
-            tools: providerTools,
-            publishOutput: (output) => {
-              streamedOutput = output;
-              publishOutput?.(output);
-            },
-            signal: this.#sessionControls.get(sessionId)?.controller.signal,
-          },
+        const signal =
+          this.#sessionControls.get(sessionId)?.controller.signal;
+        response = await withProviderConnectionRetry(
+          () =>
+            this.#generateProviderResponse(this.#manifest.provider, provider, {
+              model: this.#manifest.model,
+              region: this.#manifest.region,
+              maxTokens: this.#manifest.maxTokens,
+              reasoningLevel: this.#manifest.reasoningLevel,
+              outputType: this.#manifest.outputType,
+              outputSchema: this.#manifest.outputSchema,
+              systemPrompt: buildSystemPrompt(
+                this.#manifest,
+                previousEvents,
+                variables,
+              ),
+              messages,
+              tools: providerTools,
+              publishOutput: (output) => {
+                streamedOutput = output;
+                publishOutput?.(output);
+              },
+              signal,
+            }),
+          signal,
         );
       } catch (error) {
         if (this.#sessionControls.get(sessionId)?.pauseRequested) {
@@ -1149,10 +1155,19 @@ export class RuntimeAgent implements AgentRuntime {
         if (error instanceof OrchaError) {
           throw error;
         }
+        const providerError = describeProviderError(error);
         throw new OrchaError(
           "provider_error",
-          error instanceof Error ? error.message : String(error),
-          { retryable: true, cause: error },
+          providerError.message,
+          {
+            retryable: true,
+            cause: error,
+            details: {
+              provider: this.#manifest.provider,
+              model: this.#manifest.model,
+              ...providerError.details,
+            },
+          },
         );
       }
       const modelDurationMs = Math.round(performance.now() - modelStartedAt);
@@ -3770,6 +3785,25 @@ function findLast(
     }
   }
   return undefined;
+}
+
+async function withProviderConnectionRetry<T>(
+  operation: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (
+      signal?.aborted ||
+      !isRetryableProviderConnectionError(error)
+    ) {
+      throw error;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    if (signal?.aborted) throw error;
+    return operation();
+  }
 }
 
 function failure(
