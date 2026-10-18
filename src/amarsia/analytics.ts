@@ -223,6 +223,7 @@ function projectRunFact(
     subagent_count: runEvents.filter(
       (event) => event.type === "subagent.initiated",
     ).length,
+    actions: projectActionLogs(runEvents),
     evaluation_count: evaluations.length,
     evaluation_pass_count: evaluations.filter(
       (event) =>
@@ -295,6 +296,42 @@ function sumNumber(events: SessionEvent[], key: string): number {
   return events.reduce((sum, event) => sum + numberValue(event.data[key]), 0);
 }
 
+function projectActionLogs(events: SessionEvent[]) {
+  return events
+    .filter(
+      (event) =>
+        event.type === "action.completed" || event.type === "action.failed",
+    )
+    .slice(0, 100)
+    .map((event) => {
+      const error = asRecord(event.data.error);
+      const requested = events.find(
+        (candidate) =>
+          candidate.type === "action.requested" &&
+          candidate.data.callId === event.data.callId,
+      );
+      return {
+        call_id:
+          typeof event.data.callId === "string"
+            ? event.data.callId
+            : `action-${event.sequence}`,
+        name:
+          typeof event.data.name === "string" ? event.data.name : "unknown",
+        status:
+          event.type === "action.completed"
+            ? ("completed" as const)
+            : ("failed" as const),
+        started_at: requested?.timestamp ?? event.timestamp,
+        ended_at: event.timestamp,
+        duration_ms: numberValue(event.data.durationMs),
+        ...(typeof error?.code === "string" ? { error_code: error.code } : {}),
+        ...(typeof error?.message === "string"
+          ? { error_message: sanitizeErrorMessage(error.message) }
+          : {}),
+      };
+    });
+}
+
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
@@ -316,6 +353,6 @@ function sanitizeErrorMessage(value: string): string {
       /\b(?:sk|pk|amarsia)_[A-Za-z0-9_-]{12,}\b/gi,
       "[redacted]",
     )
-    .slice(0, 2000);
+    .slice(0, 8000);
 }
 

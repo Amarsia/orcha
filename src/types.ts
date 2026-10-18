@@ -126,11 +126,23 @@ export interface AmarsiaTelemetryRunV1 {
   action_success_count: number;
   action_failure_count: number;
   subagent_count: number;
+  actions: AmarsiaTelemetryActionV1[];
   evaluation_count: number;
   evaluation_pass_count: number;
   error_code?: string;
   error_message?: string;
   error_retryable?: boolean;
+}
+
+export interface AmarsiaTelemetryActionV1 {
+  call_id: string;
+  name: string;
+  status: "completed" | "failed";
+  started_at: string;
+  ended_at: string;
+  duration_ms: number;
+  error_code?: string;
+  error_message?: string;
 }
 
 export interface AmarsiaTelemetryBatchV1 {
