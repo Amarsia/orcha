@@ -25,6 +25,7 @@ export class AmarsiaTelemetryClient {
   readonly #queue = new Map<string, AmarsiaRunFact>();
   #timer: ReturnType<typeof setTimeout> | undefined;
   #attempt = 0;
+  #flushing = false;
 
   constructor(options: { key: string; endpoint?: string }) {
     this.#key = options.key;
@@ -33,6 +34,10 @@ export class AmarsiaTelemetryClient {
 
   enqueue(fact: AmarsiaRunFact): void {
     this.#queue.set(fact.event_id, fact);
+    if (fact.status !== "running") {
+      this.#scheduleTerminal();
+      return;
+    }
     if (this.#queue.size >= 20) {
       void this.#flush();
       return;
@@ -52,8 +57,17 @@ export class AmarsiaTelemetryClient {
     timer.unref?.();
   }
 
+  #scheduleTerminal(): void {
+    if (this.#timer) clearTimeout(this.#timer);
+    this.#timer = setTimeout(() => {
+      this.#timer = undefined;
+      void this.#flush();
+    }, 0);
+  }
+
   async #flush(): Promise<void> {
-    if (this.#queue.size === 0) return;
+    if (this.#queue.size === 0 || this.#flushing) return;
+    this.#flushing = true;
     const batch = [...this.#queue.values()].slice(0, 100);
     for (const fact of batch) this.#queue.delete(fact.event_id);
     try {
@@ -65,6 +79,7 @@ export class AmarsiaTelemetryClient {
             "content-type": "application/json",
             "x-amarsia-project-key": this.#key,
           },
+          keepalive: true,
           body: JSON.stringify({
             schema_version: 1,
             runs: batch,
@@ -78,10 +93,26 @@ export class AmarsiaTelemetryClient {
     } catch {
       this.#attempt += 1;
       if (this.#attempt <= 6) {
-        for (const fact of batch) this.#queue.set(fact.event_id, fact);
+        for (const fact of batch) {
+          if (!this.#queue.has(fact.event_id)) {
+            this.#queue.set(fact.event_id, fact);
+          }
+        }
         this.#schedule(Math.min(30_000, 500 * 2 ** this.#attempt));
       } else {
         this.#attempt = 0;
+      }
+    } finally {
+      this.#flushing = false;
+      if (this.#queue.size > 0 && !this.#timer) {
+        const hasTerminalFact = [...this.#queue.values()].some(
+          (fact) => fact.status !== "running",
+        );
+        if (hasTerminalFact) {
+          void this.#flush();
+        } else {
+          this.#schedule(250);
+        }
       }
     }
   }
@@ -167,9 +198,13 @@ function projectRunFact(
   const error = asRecord(terminal?.data.error);
   const lastAssistant = assistants.at(-1);
   const status =
-    typeof terminal?.data.status === "string"
-      ? terminal.data.status
-      : "running";
+    terminal?.type === "run.completed"
+      ? "completed"
+      : terminal?.type === "run.failed"
+        ? "failed"
+        : terminal?.type === "run.paused"
+          ? "paused"
+          : "running";
   return {
     event_id: `${manifest.key}:${sessionId}:${run}`,
     agent_external_id: manifest.key,

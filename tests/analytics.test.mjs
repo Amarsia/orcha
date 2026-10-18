@@ -98,3 +98,67 @@ test("Amarsia telemetry is redacted and idempotent within a batch", async () => 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Amarsia telemetry normalizes internal pause reasons", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, init) => {
+    requests.push(JSON.parse(init.body));
+    return new Response(null, { status: 202 });
+  };
+  const events = [
+    {
+      sequence: 1,
+      type: "session.created",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      run: 1,
+      data: {},
+    },
+    {
+      sequence: 2,
+      type: "run.started",
+      timestamp: "2026-01-01T00:00:01.000Z",
+      run: 1,
+      data: { status: "running", provider: "openai", model: "gpt-test" },
+    },
+    {
+      sequence: 3,
+      type: "run.paused",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      run: 1,
+      data: { status: "waiting_for_client_action" },
+    },
+  ];
+  const telemetry = new AmarsiaTelemetryClient({
+    key: "amarsia_project_key",
+    endpoint: "https://example.test",
+  });
+  const wrapped = withAmarsiaTelemetry({
+    client: telemetry,
+    manifest: {
+      key: "support-agent",
+      name: "Support agent",
+      provider: "openai",
+      model: "gpt-test",
+    },
+    store: {
+      async append() {},
+      async read() {
+        return events;
+      },
+      async listSessionIds() {
+        return ["session-1"];
+      },
+    },
+  });
+
+  try {
+    await wrapped.append("session-1", [events[2]]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].runs[0].status, "paused");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
