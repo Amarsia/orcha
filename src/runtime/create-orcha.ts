@@ -18,6 +18,8 @@ import type {
 export interface Orcha {
   init(configuration: OrchaInitConfiguration): OrchaClient;
   isInitialized(): boolean;
+  /** Flushes queued Amarsia telemetry without blocking normal agent runs. */
+  flushTelemetry(options?: { timeoutMs?: number }): Promise<void>;
   /** @internal Used by the development compiler. */
   getCompiledBundle(): CompiledBundle;
 }
@@ -31,6 +33,7 @@ class OrchaRuntimeCore implements Orcha {
   #agents = new Map<string, AgentRuntime>();
   #bundle: CompiledBundle | undefined;
   #client: OrchaClient | undefined;
+  #telemetry: AmarsiaTelemetryClient | undefined;
   readonly #activeSessions = new Set<string>();
   readonly #sessionControls = new Map<
     string,
@@ -58,6 +61,9 @@ class OrchaRuntimeCore implements Orcha {
   }
 
   init(configuration: OrchaInitConfiguration): OrchaClient {
+    if (this.#telemetry) {
+      void this.#telemetry.drain();
+    }
     const projectRoot = this.#platform.projectRoot(configuration);
     const bundle = configuration.bundle ?? this.#resolveBundle(configuration);
     if (configuration.amarsia?.key && this.#platform.syncProject) {
@@ -97,6 +103,7 @@ class OrchaRuntimeCore implements Orcha {
     const telemetry = configuration.amarsia?.key
       ? new AmarsiaTelemetryClient(configuration.amarsia)
       : undefined;
+    this.#telemetry = telemetry;
     const createRuntimeStore = (manifest: CompiledAgentManifest) => {
       const store = createStore(manifest);
       return telemetry
@@ -154,6 +161,10 @@ class OrchaRuntimeCore implements Orcha {
 
   isInitialized(): boolean {
     return this.#bundle !== undefined;
+  }
+
+  async flushTelemetry(options?: { timeoutMs?: number }): Promise<void> {
+    await this.#telemetry?.drain(options);
   }
 
   getCompiledBundle(): CompiledBundle {

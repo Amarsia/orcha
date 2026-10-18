@@ -17,6 +17,9 @@ const RELEVANT_EVENTS = new Set([
   "evaluation.failed",
 ]);
 
+const MAX_BATCH_RUNS = 100;
+const MAX_KEEPALIVE_BYTES = 48 * 1024;
+
 export type AmarsiaRunFact = AmarsiaTelemetryRunV1;
 
 export class AmarsiaTelemetryClient {
@@ -25,7 +28,7 @@ export class AmarsiaTelemetryClient {
   readonly #queue = new Map<string, AmarsiaRunFact>();
   #timer: ReturnType<typeof setTimeout> | undefined;
   #attempt = 0;
-  #flushing = false;
+  #flushPromise: Promise<void> | undefined;
 
   constructor(options: { key: string; endpoint?: string }) {
     this.#key = options.key;
@@ -65,10 +68,51 @@ export class AmarsiaTelemetryClient {
     }, 0);
   }
 
+  async drain(options: { timeoutMs?: number } = {}): Promise<void> {
+    const timeoutMs = Math.max(0, options.timeoutMs ?? 2_000);
+    const deadline = Date.now() + timeoutMs;
+    if (this.#timer) {
+      clearTimeout(this.#timer);
+      this.#timer = undefined;
+    }
+    while (this.#queue.size > 0 || this.#flushPromise) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return;
+      await Promise.race([
+        this.#flush(),
+        new Promise<void>((resolve) => setTimeout(resolve, remaining)),
+      ]);
+    }
+  }
+
   async #flush(): Promise<void> {
-    if (this.#queue.size === 0 || this.#flushing) return;
-    this.#flushing = true;
-    const batch = [...this.#queue.values()].slice(0, 100);
+    if (this.#flushPromise) return this.#flushPromise;
+    if (this.#queue.size === 0) return;
+    this.#flushPromise = this.#performFlush();
+    try {
+      await this.#flushPromise;
+    } finally {
+      this.#flushPromise = undefined;
+      if (this.#queue.size > 0 && !this.#timer) {
+        const hasTerminalFact = [...this.#queue.values()].some(
+          (fact) => fact.status !== "running",
+        );
+        if (hasTerminalFact) {
+          void this.#flush();
+        } else {
+          this.#schedule(250);
+        }
+      }
+    }
+  }
+
+  async #performFlush(): Promise<void> {
+    const batch = takeBatch(this.#queue);
+    if (batch.length === 0) return;
+    const body = JSON.stringify({
+      schema_version: 1,
+      runs: batch,
+    } satisfies AmarsiaTelemetryBatchV1);
     for (const fact of batch) this.#queue.delete(fact.event_id);
     try {
       const response = await fetch(
@@ -79,11 +123,8 @@ export class AmarsiaTelemetryClient {
             "content-type": "application/json",
             "x-amarsia-project-key": this.#key,
           },
-          keepalive: true,
-          body: JSON.stringify({
-            schema_version: 1,
-            runs: batch,
-          } satisfies AmarsiaTelemetryBatchV1),
+          keepalive: utf8ByteLength(body) <= MAX_KEEPALIVE_BYTES,
+          body,
         },
       );
       if (!response.ok) {
@@ -101,18 +142,9 @@ export class AmarsiaTelemetryClient {
         this.#schedule(Math.min(30_000, 500 * 2 ** this.#attempt));
       } else {
         this.#attempt = 0;
-      }
-    } finally {
-      this.#flushing = false;
-      if (this.#queue.size > 0 && !this.#timer) {
-        const hasTerminalFact = [...this.#queue.values()].some(
-          (fact) => fact.status !== "running",
+        console.warn(
+          `Amarsia telemetry delivery failed after 6 retries; dropping ${batch.length} run update(s).`,
         );
-        if (hasTerminalFact) {
-          void this.#flush();
-        } else {
-          this.#schedule(250);
-        }
       }
     }
   }
@@ -124,6 +156,8 @@ export function withAmarsiaTelemetry(options: {
   client: AmarsiaTelemetryClient;
 }): SessionStore {
   const { store, manifest, client } = options;
+  const projections = new Map<string, SessionProjection>();
+  const pending = new Map<string, Promise<void>>();
   return {
     read: (sessionId) => store.read(sessionId),
     listSessionIds: () => store.listSessionIds(),
@@ -132,42 +166,103 @@ export function withAmarsiaTelemetry(options: {
     subscribeAll: store.subscribeAll?.bind(store),
     async append(sessionId, events) {
       await store.append(sessionId, events);
-      const runs = new Set(
-        events
-          .filter(
-            (event) =>
-              typeof event.run === "number" &&
-              RELEVANT_EVENTS.has(event.type),
-          )
-          .map((event) => event.run as number),
-      );
-      if (runs.size === 0) return;
-      void store
-        .read(sessionId)
-        .then((allEvents) => {
-          if (isTestSession(allEvents)) return;
+      const runs = relevantRuns(events);
+      if (
+        runs.size === 0 &&
+        !projections.has(sessionId) &&
+        !pending.has(sessionId)
+      ) {
+        return;
+      }
+      const previous = pending.get(sessionId) ?? Promise.resolve();
+      const processing = previous
+        .then(async () => {
+          let projection = projections.get(sessionId);
+          if (!projection) {
+            projection = createProjection(await store.read(sessionId));
+            projections.set(sessionId, projection);
+          } else {
+            appendToProjection(projection, events);
+          }
+          if (projection.isTest) return;
           for (const run of runs) {
             const fact = projectRunFact(
               manifest,
               sessionId,
               run,
-              allEvents,
+              projection,
             );
             if (fact) client.enqueue(fact);
           }
         })
         .catch(() => undefined);
+      pending.set(sessionId, processing);
+      void processing.finally(() => {
+        if (pending.get(sessionId) === processing) {
+          pending.delete(sessionId);
+        }
+      });
     },
   };
+}
+
+interface SessionProjection {
+  readonly seenSequences: Set<number>;
+  readonly runs: Map<number, SessionEvent[]>;
+  sessionCreated?: SessionEvent;
+  isTest: boolean;
+}
+
+function createProjection(events: SessionEvent[]): SessionProjection {
+  const projection: SessionProjection = {
+    seenSequences: new Set(),
+    runs: new Map(),
+    isTest: false,
+  };
+  appendToProjection(projection, events);
+  return projection;
+}
+
+function appendToProjection(
+  projection: SessionProjection,
+  events: SessionEvent[],
+): void {
+  for (const event of events) {
+    if (projection.seenSequences.has(event.sequence)) continue;
+    projection.seenSequences.add(event.sequence);
+    if (event.type === "session.created") {
+      projection.sessionCreated = event;
+      const metadata = asRecord(event.data.metadata);
+      projection.isTest = metadata?.orchaTest === true;
+    }
+    if (typeof event.run !== "number") continue;
+    const runEvents = projection.runs.get(event.run);
+    if (runEvents) {
+      runEvents.push(event);
+    } else {
+      projection.runs.set(event.run, [event]);
+    }
+  }
+}
+
+function relevantRuns(events: SessionEvent[]): Set<number> {
+  const runs = new Set<number>();
+  for (const event of events) {
+    if (typeof event.run === "number" && RELEVANT_EVENTS.has(event.type)) {
+      runs.add(event.run);
+    }
+  }
+  return runs;
 }
 
 function projectRunFact(
   manifest: CompiledAgentManifest,
   sessionId: string,
   run: number,
-  events: SessionEvent[],
+  projection: SessionProjection,
 ): AmarsiaRunFact | undefined {
-  const runEvents = events.filter((event) => event.run === run);
+  const runEvents = projection.runs.get(run);
+  if (!runEvents) return undefined;
   const started = runEvents.find((event) => event.type === "run.started");
   if (!started) return undefined;
   const terminal = [...runEvents]
@@ -175,10 +270,7 @@ function projectRunFact(
     .find((event) =>
       ["run.completed", "run.failed", "run.paused"].includes(event.type),
     );
-  const sessionCreated = events.find(
-    (event) => event.type === "session.created",
-  );
-  const lineage = asRecord(sessionCreated?.data.lineage);
+  const lineage = asRecord(projection.sessionCreated?.data.lineage);
   const assistants = runEvents.filter(
     (event) =>
       event.type === "message.created" && event.data.role === "assistant",
@@ -321,17 +413,20 @@ function usageFields(usage: Record<string, unknown>) {
   };
 }
 
-function isTestSession(events: SessionEvent[]): boolean {
-  const created = events.find((event) => event.type === "session.created");
-  const metadata = asRecord(created?.data.metadata);
-  return metadata?.orchaTest === true;
-}
-
 function sumNumber(events: SessionEvent[], key: string): number {
   return events.reduce((sum, event) => sum + numberValue(event.data[key]), 0);
 }
 
 function projectActionLogs(events: SessionEvent[]) {
+  const requestedByCallId = new Map<string, SessionEvent>();
+  for (const event of events) {
+    if (
+      event.type === "action.requested" &&
+      typeof event.data.callId === "string"
+    ) {
+      requestedByCallId.set(event.data.callId, event);
+    }
+  }
   return events
     .filter(
       (event) =>
@@ -340,11 +435,10 @@ function projectActionLogs(events: SessionEvent[]) {
     .slice(0, 100)
     .map((event) => {
       const error = asRecord(event.data.error);
-      const requested = events.find(
-        (candidate) =>
-          candidate.type === "action.requested" &&
-          candidate.data.callId === event.data.callId,
-      );
+      const requested =
+        typeof event.data.callId === "string"
+          ? requestedByCallId.get(event.data.callId)
+          : undefined;
       return {
         call_id:
           typeof event.data.callId === "string"
@@ -365,6 +459,41 @@ function projectActionLogs(events: SessionEvent[]) {
           : {}),
       };
     });
+}
+
+function takeBatch(queue: Map<string, AmarsiaRunFact>): AmarsiaRunFact[] {
+  const batch: AmarsiaRunFact[] = [];
+  let bytes = utf8ByteLength('{"schema_version":1,"runs":[]}');
+  for (const fact of queue.values()) {
+    const factBytes = utf8ByteLength(JSON.stringify(fact)) + 1;
+    if (
+      batch.length > 0 &&
+      (batch.length >= MAX_BATCH_RUNS ||
+        bytes + factBytes > MAX_KEEPALIVE_BYTES)
+    ) {
+      break;
+    }
+    batch.push(fact);
+    bytes += factBytes;
+  }
+  return batch;
+}
+
+function utf8ByteLength(value: string): number {
+  if (typeof TextEncoder !== "undefined") {
+    return new TextEncoder().encode(value).byteLength;
+  }
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      bytes += 4;
+      index += 1;
+    } else bytes += 3;
+  }
+  return bytes;
 }
 
 function numberValue(value: unknown): number {
