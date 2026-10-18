@@ -6,7 +6,7 @@ import type {
   SessionStore,
   Usage,
 } from "../types.js";
-import { resolveAmarsiaEndpoint } from "./sync.js";
+import { resolveAmarsiaEndpoint } from "./endpoint.js";
 
 const RELEVANT_EVENTS = new Set([
   "run.started",
