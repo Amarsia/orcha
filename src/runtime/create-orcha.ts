@@ -62,7 +62,7 @@ class OrchaRuntimeCore implements Orcha {
 
   init(configuration: OrchaInitConfiguration): OrchaClient {
     if (this.#telemetry) {
-      void this.#telemetry.drain();
+      void this.#telemetry.close();
     }
     const projectRoot = this.#platform.projectRoot(configuration);
     const bundle = configuration.bundle ?? this.#resolveBundle(configuration);

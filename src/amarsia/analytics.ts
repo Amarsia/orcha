@@ -19,6 +19,7 @@ const RELEVANT_EVENTS = new Set([
 
 const MAX_BATCH_RUNS = 100;
 const MAX_KEEPALIVE_BYTES = 48 * 1024;
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 export type AmarsiaRunFact = AmarsiaTelemetryRunV1;
 
@@ -26,7 +27,9 @@ export class AmarsiaTelemetryClient {
   readonly #key: string;
   readonly #baseUrl: string;
   readonly #queue = new Map<string, AmarsiaRunFact>();
+  readonly #activeRuns = new Map<string, AmarsiaRunFact>();
   #timer: ReturnType<typeof setTimeout> | undefined;
+  #heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
   #attempt = 0;
   #flushPromise: Promise<void> | undefined;
 
@@ -37,6 +40,16 @@ export class AmarsiaTelemetryClient {
 
   enqueue(fact: AmarsiaRunFact): void {
     this.#queue.set(fact.event_id, fact);
+    if (fact.status === "running") {
+      this.#activeRuns.set(fact.event_id, fact);
+      this.#scheduleHeartbeat();
+    } else {
+      this.#activeRuns.delete(fact.event_id);
+      if (this.#activeRuns.size === 0 && this.#heartbeatTimer) {
+        clearTimeout(this.#heartbeatTimer);
+        this.#heartbeatTimer = undefined;
+      }
+    }
     if (fact.status !== "running") {
       this.#scheduleTerminal();
       return;
@@ -68,6 +81,22 @@ export class AmarsiaTelemetryClient {
     }, 0);
   }
 
+  #scheduleHeartbeat(): void {
+    if (this.#heartbeatTimer || this.#activeRuns.size === 0) return;
+    this.#heartbeatTimer = setTimeout(() => {
+      this.#heartbeatTimer = undefined;
+      for (const fact of this.#activeRuns.values()) {
+        this.#queue.set(fact.event_id, fact);
+      }
+      void this.#flush();
+      this.#scheduleHeartbeat();
+    }, HEARTBEAT_INTERVAL_MS);
+    const timer = this.#heartbeatTimer as ReturnType<typeof setTimeout> & {
+      unref?: () => void;
+    };
+    timer.unref?.();
+  }
+
   async drain(options: { timeoutMs?: number } = {}): Promise<void> {
     const timeoutMs = Math.max(0, options.timeoutMs ?? 2_000);
     const deadline = Date.now() + timeoutMs;
@@ -83,6 +112,15 @@ export class AmarsiaTelemetryClient {
         new Promise<void>((resolve) => setTimeout(resolve, remaining)),
       ]);
     }
+  }
+
+  async close(options: { timeoutMs?: number } = {}): Promise<void> {
+    if (this.#heartbeatTimer) {
+      clearTimeout(this.#heartbeatTimer);
+      this.#heartbeatTimer = undefined;
+    }
+    this.#activeRuns.clear();
+    await this.drain(options);
   }
 
   async #flush(): Promise<void> {
