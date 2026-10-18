@@ -35,9 +35,13 @@ export function syncAmarsiaProject(options: {
   });
 }
 
-function resolveAmarsiaEndpoint(endpoint: string | undefined): string {
+export function resolveAmarsiaEndpoint(endpoint: string | undefined): string {
   return (
-    endpoint?.trim() || process.env.AMARSIA_API_URL || DEFAULT_AMARSIA_API_URL
+    endpoint?.trim() ||
+    (typeof process !== "undefined"
+      ? process.env?.AMARSIA_API_URL
+      : undefined) ||
+    DEFAULT_AMARSIA_API_URL
   ).replace(/\/$/, "");
 }
 

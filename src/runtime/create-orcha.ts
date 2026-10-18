@@ -1,4 +1,8 @@
 import { RuntimeAgent } from "./agent.js";
+import {
+  AmarsiaTelemetryClient,
+  withAmarsiaTelemetry,
+} from "../amarsia/analytics.js";
 import type { ProviderResponseGenerator } from "../providers/types.js";
 import { setOrchaRuntimeContext } from "./context.js";
 import type { RuntimePlatform } from "./platform.js";
@@ -90,6 +94,15 @@ class OrchaRuntimeCore implements Orcha {
         projectRoot,
         manifest,
       });
+    const telemetry = configuration.amarsia?.key
+      ? new AmarsiaTelemetryClient(configuration.amarsia)
+      : undefined;
+    const createRuntimeStore = (manifest: CompiledAgentManifest) => {
+      const store = createStore(manifest);
+      return telemetry
+        ? withAmarsiaTelemetry({ store, manifest, client: telemetry })
+        : store;
+    };
     const agents = new Map<string, AgentRuntime>();
 
     for (const [name, manifest] of Object.entries(bundle.agents)) {
@@ -100,7 +113,7 @@ class OrchaRuntimeCore implements Orcha {
             new RuntimeAgent({
               manifest: subagentManifest,
               configuration: runtimeConfiguration,
-              store: createStore(subagentManifest),
+              store: createRuntimeStore(subagentManifest),
               activeSessions: this.#activeSessions,
               sessionControls: this.#sessionControls,
               generateProviderResponse: this.#generateProviderResponse,
@@ -116,7 +129,7 @@ class OrchaRuntimeCore implements Orcha {
         new RuntimeAgent({
           manifest,
           configuration: runtimeConfiguration,
-          store: createStore(manifest),
+          store: createRuntimeStore(manifest),
           activeSessions: this.#activeSessions,
           sessionControls: this.#sessionControls,
           generateProviderResponse: this.#generateProviderResponse,
