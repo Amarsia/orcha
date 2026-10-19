@@ -1,5 +1,14 @@
 # orchajs
 
+## 0.23.2
+
+### Patch Changes
+
+- [#98](https://github.com/Amarsia/orcha/pull/98) [`9a49e87`](https://github.com/Amarsia/orcha/commit/9a49e87155f5e50e4bc9df18cf19cf99f2abd953) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Fix playground startup when the optional UI package is installed by resolving its ESM exports correctly. Ship the UI package with its React runtime dependencies so projects do not need to install them separately.
+
+- Updated dependencies [[`9a49e87`](https://github.com/Amarsia/orcha/commit/9a49e87155f5e50e4bc9df18cf19cf99f2abd953)]:
+  - @orchajs/playground-ui@0.2.3
+
 ## 0.23.1
 
 ### Patch Changes
