@@ -5,6 +5,58 @@ import {
   AmarsiaTelemetryClient,
   withAmarsiaTelemetry,
 } from "../dist/amarsia/analytics.js";
+import { createAmarsiaProjectMetadata } from "../dist/amarsia/metadata.js";
+
+test("Amarsia project metadata emits reusable agents once", () => {
+  const specialist = {
+    key: "documentParser",
+    name: "Document Parser",
+    provider: "bedrock",
+    model: "test-model",
+    outputType: "text",
+    actions: {},
+    skills: {},
+    evaluations: {},
+    subagents: {},
+  };
+  const coordinator = {
+    key: "sCorpTester",
+    name: "S Corp Tester",
+    provider: "bedrock",
+    model: "test-model",
+    outputType: "text",
+    actions: {},
+    skills: {},
+    evaluations: {},
+    subagents: { documentParser: specialist },
+  };
+
+  const metadata = createAmarsiaProjectMetadata(
+    {
+      schemaVersion: 1,
+      agents: {
+        documentParser: specialist,
+        sCorpTester: coordinator,
+      },
+    },
+    process.cwd(),
+  );
+
+  assert.deepEqual(
+    metadata.agents.map((agent) => agent.external_id),
+    ["documentParser", "sCorpTester"],
+  );
+  assert.equal(
+    metadata.agents.find((agent) => agent.external_id === "documentParser")
+      ?.parent_external_id,
+    undefined,
+  );
+  assert.deepEqual(
+    metadata.agents.find((agent) => agent.external_id === "sCorpTester")
+      ?.metadata.subagents,
+    ["documentParser"],
+  );
+});
 
 test("Amarsia telemetry is redacted and idempotent within a batch", async () => {
   const originalFetch = globalThis.fetch;
