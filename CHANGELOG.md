@@ -1,5 +1,14 @@
 # orchajs
 
+## 0.23.4
+
+### Patch Changes
+
+- [#102](https://github.com/Amarsia/orcha/pull/102) [`f5ca6e6`](https://github.com/Amarsia/orcha/commit/f5ca6e69a0dcc35def3c3037a5fdd7c7c772fa15) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Restore Node.js 18 and 20 installation compatibility by publishing the playground as prebundled browser assets. Playground UI libraries are now build-time dependencies and no longer install the unused Base Web, React Map GL, Mapbox, or Node 22-only JSON parser dependency tree in customer projects.
+
+- Updated dependencies [[`f5ca6e6`](https://github.com/Amarsia/orcha/commit/f5ca6e69a0dcc35def3c3037a5fdd7c7c772fa15)]:
+  - @orchajs/playground-ui@0.2.4
+
 ## 0.23.3
 
 ### Patch Changes
