@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.23.5
+
+### Patch Changes
+
+- [#104](https://github.com/Amarsia/orcha/pull/104) [`ee45e5f`](https://github.com/Amarsia/orcha/commit/ee45e5fe5b375ad0e3d14f65b204e3412636c16c) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Require the Node 18-compatible playground UI release when automatically installing development tooling, preventing existing Yarn lockfiles from retaining the incompatible 0.2.3 release.
+
 ## 0.23.4
 
 ### Patch Changes
