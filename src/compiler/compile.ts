@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import { buildSync } from "esbuild";
 import { isBuiltInProvider } from "../providers/catalog.js";
@@ -267,14 +272,10 @@ function compileActions(
   }
 
   const actions: Record<string, CompiledActionManifest> = {};
-  for (const entry of readdirSync(actionsDirectory, { withFileTypes: true })) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-
+  for (const entry of discoverDirectories(actionsDirectory)) {
     const configurationPath = resolve(
       actionsDirectory,
-      entry.name,
+      entry,
       "index.json",
     );
     let configuration: ActionConfiguration;
@@ -284,12 +285,12 @@ function compileActions(
       ) as ActionConfiguration;
     } catch (error) {
       throw new Error(
-        `Action "${agentName}/${entry.name}" is missing a valid index.json.`,
+        `Action "${agentName}/${entry}" is missing a valid index.json.`,
         { cause: error },
       );
     }
     validateEnabled(
-      `Action "${agentName}/${entry.name}"`,
+      `Action "${agentName}/${entry}"`,
       configuration?.enabled,
     );
     if (configuration?.enabled === false) {
@@ -298,12 +299,12 @@ function compileActions(
 
     if (!configuration.name?.trim() || !configuration.description?.trim()) {
       throw new Error(
-        `Action "${agentName}/${entry.name}" requires name and description.`,
+        `Action "${agentName}/${entry}" requires name and description.`,
       );
     }
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(configuration.name)) {
       throw new Error(
-        `Action "${agentName}/${entry.name}" has an invalid model-facing name.`,
+        `Action "${agentName}/${entry}" has an invalid model-facing name.`,
       );
     }
     if (
@@ -315,13 +316,13 @@ function compileActions(
       ].includes(configuration.name)
     ) {
       throw new Error(
-        `Action "${agentName}/${entry.name}" uses reserved name "${configuration.name}".`,
+        `Action "${agentName}/${entry}" uses reserved name "${configuration.name}".`,
       );
     }
     const execution = configuration.execution ?? "local";
     if (!["client", "local"].includes(execution)) {
       throw new Error(
-        `Action "${agentName}/${entry.name}" has invalid execution "${configuration.execution}".`,
+        `Action "${agentName}/${entry}" has invalid execution "${configuration.execution}".`,
       );
     }
     if (
@@ -330,7 +331,7 @@ function compileActions(
       Array.isArray(configuration.parameters)
     ) {
       throw new Error(
-        `Action "${agentName}/${entry.name}" requires a parameters JSON Schema.`,
+        `Action "${agentName}/${entry}" requires a parameters JSON Schema.`,
       );
     }
     if (
@@ -340,11 +341,11 @@ function compileActions(
         Array.isArray(configuration.outputSchema))
     ) {
       throw new Error(
-        `Action "${agentName}/${entry.name}" has an invalid outputSchema.`,
+        `Action "${agentName}/${entry}" has an invalid outputSchema.`,
       );
     }
     validateNumber(
-      `${agentName}/${entry.name}`,
+      `${agentName}/${entry}`,
       "timeoutMs",
       configuration.timeoutMs,
       { integer: true, minimum: 1, maximum: 120_000 },
@@ -354,7 +355,7 @@ function compileActions(
       !Array.isArray(configuration.permissions.env)
     ) {
       throw new Error(
-        `Action "${agentName}/${entry.name}" permissions.env must be an array.`,
+        `Action "${agentName}/${entry}" permissions.env must be an array.`,
       );
     }
     if (
@@ -362,7 +363,7 @@ function compileActions(
       !Array.isArray(configuration.permissions.network)
     ) {
       throw new Error(
-        `Action "${agentName}/${entry.name}" permissions.network must be an array.`,
+        `Action "${agentName}/${entry}" permissions.network must be an array.`,
       );
     }
     for (const permission of [
@@ -371,7 +372,7 @@ function compileActions(
     ]) {
       if (typeof permission !== "string" || !permission.trim()) {
         throw new Error(
-          `Action "${agentName}/${entry.name}" has an invalid permission.`,
+          `Action "${agentName}/${entry}" has an invalid permission.`,
         );
       }
     }
@@ -385,7 +386,7 @@ function compileActions(
       execution === "local"
         ? compileLocalAction(
             agentName,
-            entry.name,
+            entry,
             actionsDirectory,
             actionRuntime,
             target,
@@ -394,7 +395,7 @@ function compileActions(
     actions[configuration.name] = Object.freeze({
       ...configuration,
       execution,
-      directoryName: entry.name,
+      directoryName: entry,
       ...compiledSource,
     });
   }
@@ -521,7 +522,13 @@ function compileEvaluations(
 
 function discoverDirectories(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .filter(
+      (entry) =>
+        !entry.name.startsWith(".") &&
+        (entry.isDirectory() ||
+          (entry.isSymbolicLink() &&
+            statSync(resolve(directory, entry.name)).isDirectory())),
+    )
     .map((entry) => entry.name)
     .sort();
 }
