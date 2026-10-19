@@ -10,28 +10,21 @@
   },
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
-    },
-    "./mount": {
-      "types": "./dist/mount.d.ts",
-      "import": "./dist/mount.js",
-      "default": "./dist/mount.js"
-    },
+    "./app.js": "./dist/app.js",
+    "./app.css": "./dist/app.css",
     "./orcha-logo.svg": "./dist/orcha-logo.svg"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json && node -e \"require('node:fs').copyFileSync('src/orcha-logo.svg', 'dist/orcha-logo.svg')\"",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json && node scripts/bundle.mjs",
     "prepack": "npm run build"
   },
-  "dependencies": {
+  "devDependencies": {
     "@xyflow/react": "^12.11.6",
     "baseui": "^16.1.1",
+    "esbuild": "^0.25.9",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",

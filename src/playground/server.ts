@@ -15,7 +15,6 @@ import {
   type ServerResponse,
 } from "node:http";
 import { watch } from "chokidar";
-import { build } from "esbuild";
 import { orcha } from "../orcha.js";
 import type { OrchaClient } from "../orcha.js";
 import { loadProject } from "../project-loader.js";
@@ -628,11 +627,15 @@ async function serveAsset(
 }
 
 async function buildPlaygroundAssets(projectRoot: string): Promise<string> {
-  let entryPath: string;
+  let scriptPath: string;
+  let stylesheetPath: string;
   let logoPath: string;
   try {
-    entryPath = fileURLToPath(
-      import.meta.resolve("@orchajs/playground-ui/mount"),
+    scriptPath = fileURLToPath(
+      import.meta.resolve("@orchajs/playground-ui/app.js"),
+    );
+    stylesheetPath = fileURLToPath(
+      import.meta.resolve("@orchajs/playground-ui/app.css"),
     );
     logoPath = fileURLToPath(
       import.meta.resolve("@orchajs/playground-ui/orcha-logo.svg"),
@@ -647,20 +650,8 @@ async function buildPlaygroundAssets(projectRoot: string): Promise<string> {
   const publicRoot = resolve(projectRoot, ".orcha/playground");
   await mkdir(publicRoot, { recursive: true });
   await Promise.all([
-    build({
-      entryPoints: [entryPath],
-      outfile: resolve(publicRoot, "app.js"),
-      bundle: true,
-      format: "esm",
-      platform: "browser",
-      target: ["chrome110", "firefox110", "safari16"],
-      minify: true,
-      sourcemap: false,
-      legalComments: "none",
-      define: {
-        "process.env.NODE_ENV": JSON.stringify("production"),
-      },
-    }),
+    copyFile(scriptPath, resolve(publicRoot, "app.js")),
+    copyFile(stylesheetPath, resolve(publicRoot, "app.css")),
     copyFile(logoPath, resolve(publicRoot, "orcha-logo.svg")),
     writeFile(
       resolve(publicRoot, "index.html"),
