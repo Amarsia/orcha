@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.23.1
+
+### Patch Changes
+
+- [#96](https://github.com/Amarsia/orcha/pull/96) [`f3ed653`](https://github.com/Amarsia/orcha/commit/f3ed653fca1e37152bb7d72818a5fbc997130424) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Discover and compile symlinked action, skill, and evaluation directories. The playground now also displays linked resources and connects enabled linked actions in the agent graph.
+
 ## 0.23.0
 
 ### Minor Changes
