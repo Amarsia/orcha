@@ -1,5 +1,15 @@
 # orchajs
 
+## 0.23.3
+
+### Patch Changes
+
+- [#100](https://github.com/Amarsia/orcha/pull/100) [`2ba7594`](https://github.com/Amarsia/orcha/commit/2ba75947fe3daed08fdcf0e555be6f0ae71802ab) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Install development-only playground tooling automatically on the first `orcha playground` run. The CLI detects npm, Yarn, pnpm, or Bun, records the tooling as development dependencies, and restarts the playground after installation.
+
+  Deduplicate agents that are registered both at the project root and as subagents when syncing project metadata to Amarsia, so valid reusable-agent registries connect successfully and can ingest run telemetry.
+
+  Keep the model's system context aligned with the actions available on every runtime turn, preventing agents from incorrectly skipping configured local actions after subagent calls.
+
 ## 0.23.2
 
 ### Patch Changes
