@@ -2637,7 +2637,16 @@ function normalizeDelegatedInput(
       "run_agent input must contain at least one valid content item.",
     );
   }
-  return content;
+  if (content.some((item) => item.type === "text")) {
+    return content;
+  }
+  return [
+    {
+      type: "text",
+      text: "Process the attached content according to your agent instructions.",
+    },
+    ...content,
+  ];
 }
 
 function agentContentInputSchema(): Record<string, unknown> {

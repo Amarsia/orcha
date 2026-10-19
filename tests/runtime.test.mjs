@@ -820,10 +820,6 @@ test("runs a private subagent in a linked durable session", async () => {
             agent: "researcher",
             input: [
               {
-                type: "text",
-                text: "Verify the focused claim from this document.",
-              },
-              {
                 filePath: "./evidence/claim.pdf",
               },
             ],
@@ -907,7 +903,7 @@ test("runs a private subagent in a linked durable session", async () => {
     assert.deepEqual(childRequest.messages[0].content, [
       {
         type: "text",
-        text: "Verify the focused claim from this document.",
+        text: "Process the attached content according to your agent instructions.",
       },
       {
         type: "file",

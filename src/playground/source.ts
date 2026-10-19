@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { getOrchaRuntimeContext } from "../runtime/context.js";
 import type { OrchaClient } from "../runtime/create-orcha.js";
@@ -140,11 +140,25 @@ async function readCollectionItems(
       { key, manifest },
     ]),
   );
+  const directories = (
+    await Promise.all(
+      entries
+        .filter((entry) => !entry.name.startsWith("."))
+        .map(async (entry) => ({
+          entry,
+          isDirectory:
+            entry.isDirectory() ||
+            (entry.isSymbolicLink() &&
+              (await stat(resolve(root, entry.name))).isDirectory()),
+        })),
+    )
+  ).filter(({ isDirectory }) => isDirectory);
   return Promise.all(
-    entries
-      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
-      .sort((left, right) => left.name.localeCompare(right.name))
-      .map(async (entry) => {
+    directories
+      .sort((left, right) =>
+        left.entry.name.localeCompare(right.entry.name),
+      )
+      .map(async ({ entry }) => {
         const directory = resolve(root, entry.name);
         const rawConfiguration = await readRequired(
           resolve(directory, "index.json"),
