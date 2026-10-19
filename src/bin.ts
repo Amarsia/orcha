@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 const TOOLING_PACKAGES = [
-  "@orchajs/playground-ui@^0.2.3",
+  "@orchajs/playground-ui@^0.2.4",
   "esbuild@^0.25",
   "chokidar@^4",
   "dotenv@^16",
