@@ -7,8 +7,8 @@ import {
   readFile,
   writeFile,
 } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { extname, isAbsolute, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   createServer,
   type IncomingMessage,
@@ -628,12 +628,15 @@ async function serveAsset(
 }
 
 async function buildPlaygroundAssets(projectRoot: string): Promise<string> {
-  const require = createRequire(import.meta.url);
   let entryPath: string;
   let logoPath: string;
   try {
-    entryPath = require.resolve("@orchajs/playground-ui/mount");
-    logoPath = require.resolve("@orchajs/playground-ui/orcha-logo.svg");
+    entryPath = fileURLToPath(
+      import.meta.resolve("@orchajs/playground-ui/mount"),
+    );
+    logoPath = fileURLToPath(
+      import.meta.resolve("@orchajs/playground-ui/orcha-logo.svg"),
+    );
   } catch (error) {
     throw new Error(
       'The playground requires the optional "@orchajs/playground-ui" package. Install it as a development dependency.',
