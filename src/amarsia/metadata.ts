@@ -116,12 +116,30 @@ export function createAmarsiaProjectMetadata(
 function flattenAgents(
   agents: Record<string, CompiledAgentManifest>,
 ): AmarsiaAgentMetadata[] {
-  const result: AmarsiaAgentMetadata[] = [];
+  const rootIds = new Set(
+    Object.values(agents).map((manifest) => manifest.key),
+  );
+  const manifests = new Map<string, CompiledAgentManifest>();
+  const parentIds = new Map<string, Set<string>>();
+  const orderedIds: string[] = [];
+  const traversed = new WeakSet<CompiledAgentManifest>();
   const visit = (
     manifest: CompiledAgentManifest,
     parentExternalId?: string,
   ) => {
-    result.push(agentMetadata(manifest, parentExternalId));
+    if (!manifests.has(manifest.key)) {
+      manifests.set(manifest.key, manifest);
+      orderedIds.push(manifest.key);
+    }
+    if (parentExternalId) {
+      const parents = parentIds.get(manifest.key) ?? new Set<string>();
+      parents.add(parentExternalId);
+      parentIds.set(manifest.key, parents);
+    }
+    if (traversed.has(manifest)) {
+      return;
+    }
+    traversed.add(manifest);
     for (const subagent of Object.values(manifest.subagents ?? {})) {
       visit(subagent, manifest.key);
     }
@@ -130,7 +148,18 @@ function flattenAgents(
   for (const manifest of Object.values(agents)) {
     visit(manifest);
   }
-  return result;
+  return orderedIds.map((externalId) => {
+    const manifest = manifests.get(externalId);
+    if (!manifest) {
+      throw new Error(`Missing compiled agent "${externalId}".`);
+    }
+    const parents = parentIds.get(externalId);
+    const parentExternalId =
+      !rootIds.has(externalId) && parents?.size === 1
+        ? parents.values().next().value
+        : undefined;
+    return agentMetadata(manifest, parentExternalId);
+  });
 }
 
 function agentMetadata(

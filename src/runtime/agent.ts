@@ -1105,6 +1105,7 @@ export class RuntimeAgent implements AgentRuntime {
                 this.#manifest,
                 previousEvents,
                 variables,
+                availableToolNames,
               ),
               messages,
               tools: providerTools,
@@ -2849,8 +2850,21 @@ function buildSystemPrompt(
   manifest: CompiledAgentManifest,
   events: SessionEvent[],
   variables: Record<string, string>,
+  availableActionNames: string[],
 ): string {
   const sections = [renderPrompt(manifest.systemPrompt, variables)];
+  if (availableActionNames.length > 0) {
+    sections.push(
+      [
+        "## Available actions",
+        "The following actions are available in this run. Invoke the relevant action when the workflow requires it; do not claim it is unavailable.",
+        ...availableActionNames.map((name) => {
+          const action = manifest.actions[name];
+          return `- ${action.name}: ${action.description}`;
+        }),
+      ].join("\n"),
+    );
+  }
   const skills = manifest.skills ?? {};
   const availableSkills = Object.values(skills);
   if (availableSkills.length > 0) {

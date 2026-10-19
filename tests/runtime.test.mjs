@@ -235,6 +235,12 @@ test("writes a useful JSONL timeline for a successful model run", async () => {
     assert.equal(events[3].data.stopReason, "end_turn");
     assert.equal(typeof events[3].data.durationMs, "number");
     assert.equal(events[4].data.status, "completed");
+    assert.match(fixture.requests[0].system, /## Available actions/);
+    assert.match(fixture.requests[0].system, /calculate_invoice_total/);
+    assert.doesNotMatch(
+      fixture.requests[0].system,
+      /request_invoice_approval/,
+    );
   } finally {
     await fixture.dispose();
   }
@@ -3143,7 +3149,7 @@ test("supports multimodal content, variables, and agent-scoped session reads", a
       },
     }).result;
     assert.equal(created.status, "completed");
-    assert.equal(fixture.requests[0].system, "Prepare work for Acme.");
+    assert.match(fixture.requests[0].system, /^Prepare work for Acme\./);
     assert.deepEqual(fixture.requests[0].messages[0].content[1], {
       type: "image",
       source: {
