@@ -10,8 +10,8 @@
   },
   "type": "module",
   "exports": {
-    "./app.js": "./dist/app.js",
-    "./app.css": "./dist/app.css",
+    "./playground.js": "./dist/playground.js",
+    "./playground.css": "./dist/playground.css",
     "./orcha-logo.svg": "./dist/orcha-logo.svg"
   },
   "files": [

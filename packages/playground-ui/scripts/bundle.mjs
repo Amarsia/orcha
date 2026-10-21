@@ -7,7 +7,9 @@ await Promise.all([
     entryPoints: [
       fileURLToPath(new URL("../src/mount.tsx", import.meta.url)),
     ],
-    outfile: fileURLToPath(new URL("../dist/app.js", import.meta.url)),
+    outfile: fileURLToPath(
+      new URL("../dist/playground.js", import.meta.url),
+    ),
     bundle: true,
     format: "esm",
     platform: "browser",
