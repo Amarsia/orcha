@@ -1,6 +1,6 @@
 {
   "name": "orchajs",
-  "version": "0.23.6",
+  "version": "0.23.7",
   "description": "A filesystem-convention, stateful agent framework for JavaScript.",
   "license": "MIT",
   "repository": {
@@ -124,7 +124,7 @@
     "node": ">=18.20.8"
   },
   "peerDependencies": {
-    "@orchajs/playground-ui": ">=0.2.4",
+    "@orchajs/playground-ui": ">=0.2.5",
     "@react-native-async-storage/async-storage": ">=2 <3",
     "@aws-sdk/client-bedrock-runtime": ">=3.864.0 <4",
     "@google/genai": ">=2.22.0 <3",
