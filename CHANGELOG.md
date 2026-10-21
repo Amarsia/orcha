@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.23.9
+
+### Patch Changes
+
+- [#112](https://github.com/Amarsia/orcha/pull/112) [`9288263`](https://github.com/Amarsia/orcha/commit/928826352413d1f655f20c326c7ed98984dd9e05) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Ensure terminal telemetry is projected and dispatched before completed runs return, and make `flushTelemetry()` wait for pending projections so successful runs are not later marked as interrupted.
+
 ## 0.23.8
 
 ### Patch Changes
