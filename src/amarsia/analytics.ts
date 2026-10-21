@@ -28,6 +28,7 @@ export class AmarsiaTelemetryClient {
   readonly #baseUrl: string;
   readonly #queue = new Map<string, AmarsiaRunFact>();
   readonly #activeRuns = new Map<string, AmarsiaRunFact>();
+  readonly #pendingProjections = new Set<Promise<void>>();
   #timer: ReturnType<typeof setTimeout> | undefined;
   #heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
   #attempt = 0;
@@ -73,6 +74,14 @@ export class AmarsiaTelemetryClient {
     timer.unref?.();
   }
 
+  /** @internal Tracks telemetry projection work that must settle before drain completes. */
+  trackProjection(projection: Promise<void>): void {
+    this.#pendingProjections.add(projection);
+    void projection.finally(() => {
+      this.#pendingProjections.delete(projection);
+    });
+  }
+
   #scheduleTerminal(): void {
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = setTimeout(() => {
@@ -100,13 +109,24 @@ export class AmarsiaTelemetryClient {
   async drain(options: { timeoutMs?: number } = {}): Promise<void> {
     const timeoutMs = Math.max(0, options.timeoutMs ?? 2_000);
     const deadline = Date.now() + timeoutMs;
-    if (this.#timer) {
-      clearTimeout(this.#timer);
-      this.#timer = undefined;
-    }
-    while (this.#queue.size > 0 || this.#flushPromise) {
+    while (
+      this.#pendingProjections.size > 0 ||
+      this.#queue.size > 0 ||
+      this.#flushPromise
+    ) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) return;
+      if (this.#pendingProjections.size > 0) {
+        await Promise.race([
+          Promise.allSettled([...this.#pendingProjections]).then(() => undefined),
+          new Promise<void>((resolve) => setTimeout(resolve, remaining)),
+        ]);
+        continue;
+      }
+      if (this.#timer) {
+        clearTimeout(this.#timer);
+        this.#timer = undefined;
+      }
       await Promise.race([
         this.#flush(),
         new Promise<void>((resolve) => setTimeout(resolve, remaining)),
@@ -121,6 +141,11 @@ export class AmarsiaTelemetryClient {
     }
     this.#activeRuns.clear();
     await this.drain(options);
+    if (this.#heartbeatTimer) {
+      clearTimeout(this.#heartbeatTimer);
+      this.#heartbeatTimer = undefined;
+    }
+    this.#activeRuns.clear();
   }
 
   async #flush(): Promise<void> {
@@ -235,11 +260,22 @@ export function withAmarsiaTelemetry(options: {
         })
         .catch(() => undefined);
       pending.set(sessionId, processing);
+      client.trackProjection(processing);
       void processing.finally(() => {
         if (pending.get(sessionId) === processing) {
           pending.delete(sessionId);
         }
       });
+      if (
+        events.some(
+          (event) =>
+            event.type === "run.completed" ||
+            event.type === "run.failed" ||
+            event.type === "run.paused",
+        )
+      ) {
+        await processing;
+      }
     },
   };
 }
