@@ -37,62 +37,57 @@ const command = process.argv[2];
 const commandArguments = process.argv.slice(3);
 const projectRoot = process.cwd();
 
-try {
-  switch (command) {
-    case "init":
-      assertNoArguments(commandArguments, "init");
-      await initializeProject(projectRoot);
-      break;
-    case "dev":
-      await watchProject(
-        projectRoot,
-        parseDevTargets(commandArguments),
+switch (command) {
+  case "init":
+    assertNoArguments(commandArguments, "init");
+    await initializeProject(projectRoot);
+    break;
+  case "dev":
+    await watchProject(
+      projectRoot,
+      parseDevTargets(commandArguments),
+    );
+    break;
+  case "run":
+    await runAgent(projectRoot, commandArguments);
+    break;
+  case "test":
+    await testAgents(projectRoot, commandArguments);
+    break;
+  case "playground":
+    await runPlayground(projectRoot, commandArguments);
+    break;
+  case "migrate-storage":
+    await migrateStorage(projectRoot, commandArguments);
+    break;
+  case "export-session":
+    await exportSession(projectRoot, commandArguments);
+    break;
+  case "build": {
+    const parsed = parseArguments(
+      commandArguments,
+      new Set(["--target"]),
+      new Set(),
+    );
+    if (parsed.positionals.length > 0) {
+      throw new Error(
+        "Usage: orcha build [--target node|browser|react-native]",
       );
-      break;
-    case "run":
-      await runAgent(projectRoot, commandArguments);
-      break;
-    case "test":
-      await testAgents(projectRoot, commandArguments);
-      break;
-    case "playground":
-      await runPlayground(projectRoot, commandArguments);
-      break;
-    case "migrate-storage":
-      await migrateStorage(projectRoot, commandArguments);
-      break;
-    case "export-session":
-      await exportSession(projectRoot, commandArguments);
-      break;
-    case "build": {
-      const parsed = parseArguments(
-        commandArguments,
-        new Set(["--target"]),
-        new Set(),
-      );
-      if (parsed.positionals.length > 0) {
-        throw new Error(
-          "Usage: orcha build [--target node|browser|react-native]",
-        );
-      }
-      const target = parseBuildTarget(parsed.values.get("--target"));
-      loadProjectEnvironment(projectRoot);
-      const outputPath = await buildProject({ projectRoot, target });
-      console.log(`Built ${relative(projectRoot, outputPath)}`);
-      break;
     }
-    case "help":
-    case "--help":
-    case "-h":
-    case undefined:
-      printUsage();
-      break;
-    default:
-      throw new Error(`Unknown command "${command}". Run "orcha --help".`);
+    const target = parseBuildTarget(parsed.values.get("--target"));
+    loadProjectEnvironment(projectRoot);
+    const outputPath = await buildProject({ projectRoot, target });
+    console.log(`Built ${relative(projectRoot, outputPath)}`);
+    break;
   }
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+  case "help":
+  case "--help":
+  case "-h":
+  case undefined:
+    printUsage();
+    break;
+  default:
+    throw new Error(`Unknown command "${command}". Run "orcha --help".`);
 }
 
 async function initializeProject(projectRoot: string): Promise<void> {
