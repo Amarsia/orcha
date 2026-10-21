@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.23.8
+
+### Patch Changes
+
+- [#110](https://github.com/Amarsia/orcha/pull/110) [`937a3a1`](https://github.com/Amarsia/orcha/commit/937a3a196ef909c932a72005f6920d277c10a01f) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Route playground startup failures through the CLI bootstrapper so missing or outdated development tooling is installed automatically. Require the compatible playground UI release before restarting the playground.
+
 ## 0.23.7
 
 ### Patch Changes
