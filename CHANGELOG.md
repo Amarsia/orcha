@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.23.6
+
+### Patch Changes
+
+- [#106](https://github.com/Amarsia/orcha/pull/106) [`a70132d`](https://github.com/Amarsia/orcha/commit/a70132d64bdcfb8278d845f945b560438b08d8ee) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Generate session IDs with filesystem-safe `HH-MM-SS` timestamps so JSONL session storage works on Windows. Existing colon-based session IDs remain valid for backward compatibility.
+
 ## 0.23.5
 
 ### Patch Changes
