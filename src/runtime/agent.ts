@@ -2784,7 +2784,8 @@ function createSessionId(
   const utcTimestamp = new Date()
     .toISOString()
     .replace(/\.\d{3}Z$/, "")
-    .replace("T", "_");
+    .replace("T", "_")
+    .replaceAll(":", "-");
   return `${prefix}${utcTimestamp}_${randomUUID()}`;
 }
 
