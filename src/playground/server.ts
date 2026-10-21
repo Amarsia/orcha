@@ -632,10 +632,10 @@ async function buildPlaygroundAssets(projectRoot: string): Promise<string> {
   let logoPath: string;
   try {
     scriptPath = fileURLToPath(
-      import.meta.resolve("@orchajs/playground-ui/app.js"),
+      import.meta.resolve("@orchajs/playground-ui/playground.js"),
     );
     stylesheetPath = fileURLToPath(
-      import.meta.resolve("@orchajs/playground-ui/app.css"),
+      import.meta.resolve("@orchajs/playground-ui/playground.css"),
     );
     logoPath = fileURLToPath(
       import.meta.resolve("@orchajs/playground-ui/orcha-logo.svg"),

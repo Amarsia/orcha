@@ -107,7 +107,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "node scripts/clean-dist.mjs && npm run build --workspace=@orchajs/playground-ui && tsc -p tsconfig.json && node scripts/build-cjs.mjs && tsc -p tsconfig.playground.json",
+    "build": "node scripts/clean-dist.mjs && npm run build --workspace=@orchajs/playground-ui && tsc -p tsconfig.json && node scripts/build-cjs.mjs && tsc -p tsconfig.playground.json && node scripts/finalize-build.mjs",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "npm run build && npm run test:runtime && npm run test:create-orcha",
     "test:runtime": "node --test tests/*.test.mjs",
