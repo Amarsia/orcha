@@ -1,5 +1,17 @@
 # orchajs
 
+## 0.23.7
+
+### Patch Changes
+
+- [#108](https://github.com/Amarsia/orcha/pull/108) [`d36cb7e`](https://github.com/Amarsia/orcha/commit/d36cb7e6c3f3858f03fbfffacc149b7f2e298a0a) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Fix playground distribution and local CLI execution:
+
+  - Publish the prebundled playground under collision-safe asset names, preventing replacement by the similarly named TypeScript `App.js` output on case-insensitive filesystems.
+  - Mark the generated CLI entry point as executable after every build so workspace and file-based installations can run `npx orcha` without manual permission changes.
+
+- Updated dependencies [[`d36cb7e`](https://github.com/Amarsia/orcha/commit/d36cb7e6c3f3858f03fbfffacc149b7f2e298a0a)]:
+  - @orchajs/playground-ui@0.2.5
+
 ## 0.23.6
 
 ### Patch Changes
