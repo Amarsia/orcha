@@ -214,3 +214,92 @@ test("Amarsia telemetry normalizes internal pause reasons", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Amarsia telemetry delivers evaluation updates before append resolves", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, init) => {
+    requests.push(JSON.parse(init.body));
+    return new Response(null, { status: 202 });
+  };
+  const evaluation = {
+    sequence: 4,
+    type: "evaluation.completed",
+    timestamp: "2026-01-01T00:00:04.000Z",
+    run: 1,
+    data: {
+      name: "response_quality",
+      status: "passed",
+      durationMs: 750,
+      metrics: [
+        {
+          name: "groundedness",
+          score: 0.95,
+          threshold: 0.8,
+          passed: true,
+          reasoning: "The response is grounded.",
+          evidence: ["Confirmed evidence"],
+        },
+      ],
+    },
+  };
+  const events = [
+    {
+      sequence: 1,
+      type: "session.created",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      run: 1,
+      data: {},
+    },
+    {
+      sequence: 2,
+      type: "run.started",
+      timestamp: "2026-01-01T00:00:01.000Z",
+      run: 1,
+      data: { status: "running", provider: "openai", model: "gpt-test" },
+    },
+    {
+      sequence: 3,
+      type: "run.completed",
+      timestamp: "2026-01-01T00:00:03.000Z",
+      run: 1,
+      data: { status: "completed", durationMs: 2_000 },
+    },
+    evaluation,
+  ];
+  const telemetry = new AmarsiaTelemetryClient({
+    key: "amarsia_project_key",
+    endpoint: "https://example.test",
+  });
+  const wrapped = withAmarsiaTelemetry({
+    client: telemetry,
+    manifest: {
+      key: "support-agent",
+      name: "Support agent",
+      provider: "openai",
+      model: "gpt-test",
+    },
+    store: {
+      async append() {},
+      async read() {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return events;
+      },
+      async listSessionIds() {
+        return ["session-1"];
+      },
+    },
+  });
+
+  try {
+    await wrapped.append("session-1", [evaluation]);
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].runs[0].evaluation_count, 1);
+    assert.equal(requests[0].runs[0].evaluation_metric_count, 1);
+    assert.equal(requests[0].runs[0].evaluations[0].name, "response_quality");
+  } finally {
+    await telemetry.close();
+    globalThis.fetch = originalFetch;
+  }
+});
