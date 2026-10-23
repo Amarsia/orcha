@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.23.10
+
+### Patch Changes
+
+- [#114](https://github.com/Amarsia/orcha/pull/114) [`72954e2`](https://github.com/Amarsia/orcha/commit/72954e231dad49fbcaa9fdb575ba67bbc149f4df) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Flush evaluation telemetry after durable evaluation results are recorded so short-lived and serverless requests report evaluation logs and metrics to Amarsia Analytics before `execution.evaluations` resolves.
+
 ## 0.23.9
 
 ### Patch Changes
