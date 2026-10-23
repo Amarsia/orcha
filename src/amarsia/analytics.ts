@@ -20,6 +20,7 @@ const RELEVANT_EVENTS = new Set([
 const MAX_BATCH_RUNS = 100;
 const MAX_KEEPALIVE_BYTES = 48 * 1024;
 const HEARTBEAT_INTERVAL_MS = 30_000;
+const EVALUATION_FLUSH_TIMEOUT_MS = 5_000;
 
 export type AmarsiaRunFact = AmarsiaTelemetryRunV1;
 
@@ -266,15 +267,22 @@ export function withAmarsiaTelemetry(options: {
           pending.delete(sessionId);
         }
       });
-      if (
-        events.some(
-          (event) =>
-            event.type === "run.completed" ||
-            event.type === "run.failed" ||
-            event.type === "run.paused",
-        )
-      ) {
+      const hasTerminalRunEvent = events.some(
+        (event) =>
+          event.type === "run.completed" ||
+          event.type === "run.failed" ||
+          event.type === "run.paused",
+      );
+      const hasEvaluationResult = events.some(
+        (event) =>
+          event.type === "evaluation.completed" ||
+          event.type === "evaluation.failed",
+      );
+      if (hasTerminalRunEvent || hasEvaluationResult) {
         await processing;
+      }
+      if (hasEvaluationResult) {
+        await client.drain({ timeoutMs: EVALUATION_FLUSH_TIMEOUT_MS });
       }
     },
   };
