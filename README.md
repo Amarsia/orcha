@@ -322,9 +322,11 @@ npm install quickjs-emscripten-core @jitl/quickjs-singlefile-cjs-release-sync
 ## Quick start
 
 ```bash
-npm install orchajs
-npx orcha init
+npx orchajs init
 ```
+
+This installs `orchajs` and its development tooling in the current project,
+then creates the starter agent files.
 
 The default installation includes the compiler, CLI, native actions, JSONL
 storage, and fetch-based Anthropic, DeepSeek, and OpenAI adapters. Install an
