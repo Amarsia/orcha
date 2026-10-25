@@ -225,7 +225,7 @@ These remain outside the first-release sequence:
   parameterized cases, retries, concurrency controls, and provider matrices.
 - Actor-driven simulation tests with independent actor and agent models,
   repeated runs, turn limits, token budgets, and evaluation aggregation.
-- A standalone `npx orcha init <project>` playground generator that creates a
+- A standalone `npx orchajs init <project>` playground generator that creates a
   Node.js Orcha application with a small UI for listing and running agents,
   browsing their sessions, and reading durable JSONL logs. Keep this separate
   from the core headless CLI.
