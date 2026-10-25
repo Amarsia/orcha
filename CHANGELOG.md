@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.23.11
+
+### Patch Changes
+
+- [#116](https://github.com/Amarsia/orcha/pull/116) [`6c0738c`](https://github.com/Amarsia/orcha/commit/6c0738cdbd1d3c66f90cee310327162d0a5344f5) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Make `npx orchajs init` a complete one-command setup for existing projects. It installs `orchajs` and development-only compiler and playground tooling with the detected package manager before creating the starter agent files.
+
 ## 0.23.10
 
 ### Patch Changes
