@@ -6,6 +6,7 @@ import { build as bundleEntry } from "esbuild";
 import { compileRegistry } from "./compiler/compile.js";
 import { loadProjectEnvironment } from "./env.js";
 import { orcha } from "./orcha.js";
+import { ensureCompiledProviderDependencies } from "./providers/dependencies.js";
 import { setRegistryCompiler } from "./runtime/compiler-hook.js";
 
 export async function loadProject(projectRoot: string): Promise<void> {
@@ -20,7 +21,7 @@ export async function loadProject(projectRoot: string): Promise<void> {
   loadProjectEnvironment(projectRoot);
   const registryPath = resolve(projectRoot, "orcha/index.ts");
   if (!existsSync(registryPath)) {
-    throw new Error('Missing "orcha/index.ts". Run "orcha init" first.');
+    throw new Error('Missing "orcha/index.ts". Run "orchajs init" first.');
   }
   const temporaryDirectory = resolve(projectRoot, ".orcha/.cli");
   const bundlePath = resolve(
@@ -62,6 +63,10 @@ export async function loadProject(projectRoot: string): Promise<void> {
         '"orcha/index.ts" must call orcha.init({ providers, agents }).',
       );
     }
+    await ensureCompiledProviderDependencies(
+      orcha.getCompiledBundle(),
+      projectRoot,
+    );
   } finally {
     await rm(bundlePath, { force: true });
   }

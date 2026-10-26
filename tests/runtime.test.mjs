@@ -60,6 +60,8 @@ test("exposes every public entry point to CommonJS consumers", async () => {
 
   assert.equal(packageMetadata.main, "./dist-cjs/index.js");
   assert.equal(packageMetadata.module, "./dist/index.js");
+  assert.equal(packageMetadata.bin.orchajs, "dist/bin.js");
+  assert.equal(packageMetadata.bin.orcha, "dist/bin.js");
   assert.equal(typeof main.orcha.init, "function");
   assert.equal(typeof legacyMain.orcha.init, "function");
   assert.equal(typeof main.NodeJsonlSessionStore, "function");
@@ -3377,6 +3379,7 @@ test(
     await writeVertexFixtureProject(root);
     await mkdir(resolve(root, "node_modules"), { recursive: true });
     await symlink(repositoryRoot, resolve(root, "node_modules/orchajs"), "dir");
+    await linkFixtureDependency(root, "@google/genai");
 
     const outputPath = resolve(root, "dist/index.js");
     await build({
@@ -3410,6 +3413,10 @@ test("bundles AWS authentication only for Bedrock agents", async () => {
     await writeBedrockFixtureProject(root);
     await mkdir(resolve(root, "node_modules"), { recursive: true });
     await symlink(repositoryRoot, resolve(root, "node_modules/orchajs"), "dir");
+    await linkFixtureDependency(
+      root,
+      "@aws-sdk/client-bedrock-runtime",
+    );
 
     const outputPath = resolve(root, "dist/index.js");
     await build({
@@ -3981,6 +3988,9 @@ async function writeVertexFixtureProject(root) {
     "package.json": JSON.stringify({
       private: true,
       type: "module",
+      dependencies: {
+        "@google/genai": "^2.22.0",
+      },
     }),
     "orcha/vertexAgent/index.json": JSON.stringify({
       name: "Vertex Agent",
@@ -4031,6 +4041,9 @@ async function writeBedrockFixtureProject(root) {
     "package.json": JSON.stringify({
       private: true,
       type: "module",
+      dependencies: {
+        "@aws-sdk/client-bedrock-runtime": "^3.864.0",
+      },
     }),
     "orcha/bedrockAgent/index.json": JSON.stringify({
       name: "Bedrock Agent",
@@ -4070,6 +4083,16 @@ async function writeProjectFiles(root, files) {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, contents, "utf8");
   }
+}
+
+async function linkFixtureDependency(root, packageName) {
+  const destination = resolve(root, "node_modules", packageName);
+  await mkdir(dirname(destination), { recursive: true });
+  await symlink(
+    resolve(repositoryRoot, "node_modules", packageName),
+    destination,
+    "dir",
+  );
 }
 
 async function writeFixtureProject(root, baseUrl, actionRuntime = "native") {

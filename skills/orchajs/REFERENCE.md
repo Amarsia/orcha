@@ -340,15 +340,15 @@ Only one execution may mutate a session at a time. Concurrent mutation returns
 ## Commands
 
 ```bash
-orcha init
-orcha dev
-orcha playground
-orcha run <agent> --input "..."
-orcha run <agent> --input-file request.json
-orcha run <agent> --session <id> --input "..."
-orcha run <agent> --session <id> --tool-results results.json
-orcha test [agent[/case]]
-orcha build
+orchajs init
+orchajs dev
+orchajs playground
+orchajs run <agent> --input "..."
+orchajs run <agent> --input-file request.json
+orchajs run <agent> --session <id> --input "..."
+orchajs run <agent> --session <id> --tool-results results.json
+orchajs test [agent[/case]]
+orchajs build
 ```
 
 `dev` and `build` are offline. `run` and `test` call real providers and require
@@ -360,7 +360,7 @@ running agents and tests, viewing graphs, and following live session traces.
 It is not included in production agent bundles.
 
 For unbundled production builds, package `.orcha/dist/manifest.json` after
-running `orcha build`. Serverless Framework manual builds must add
+running `orchajs build`. Serverless Framework manual builds must add
 `.orcha/dist/**` to `package.patterns` or legacy `package.include`. Bundled
 applications should use `orchajs/esbuild` or `orchajs/serverless` instead.
 Always inspect the final deployment artifact; generating a manifest does not
@@ -370,10 +370,10 @@ guarantee that a later packager copied it.
 
 Choose checks proportional to the change:
 
-- Registry or filesystem changes: `npx orcha dev`
-- Agent behavior: targeted `npx orcha test agent/case`
-- Production compilation: `npx orcha build`
-- Manual provider flow: targeted `npx orcha run`
+- Registry or filesystem changes: `npx orchajs dev`
+- Agent behavior: targeted `npx orchajs test agent/case`
+- Production compilation: `npx orchajs build`
+- Manual provider flow: targeted `npx orchajs run`
 
 Do not invoke provider-consuming tests or live side effects without making
 their cost and impact clear to the user.

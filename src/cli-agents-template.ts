@@ -6,21 +6,21 @@ files under \`.orcha/\`.
 
 ## Commands
 
-- \`orcha init\` creates the initial Orcha files without overwriting files.
-- \`orcha dev\` validates agent source and watches \`orcha/**\` for changes.
-- \`orcha playground\` opens the built-in local UI and hot reloads agent source.
-- \`orcha run <agent> --input "…"\` executes one registered agent.
-- \`orcha run <agent> --input-file request.json\` accepts structured input.
-- \`orcha run <agent> --session <id> --input "…"\` continues a session.
-- \`orcha run <agent> --session <id> --tool-results results.json\` submits
+- \`orchajs init\` creates the initial Orcha files without overwriting files.
+- \`orchajs dev\` validates agent source and watches \`orcha/**\` for changes.
+- \`orchajs playground\` opens the built-in local UI and hot reloads agent source.
+- \`orchajs run <agent> --input "…"\` executes one registered agent.
+- \`orchajs run <agent> --input-file request.json\` accepts structured input.
+- \`orchajs run <agent> --session <id> --input "…"\` continues a session.
+- \`orchajs run <agent> --session <id> --tool-results results.json\` submits
   pending client-action results.
-- \`orcha test\` runs every enabled discovered agent test.
-- \`orcha test <agent>\` or \`orcha test <agent>/<case>\` narrows the run.
-- \`orcha migrate-storage --to sqlite|node-jsonl\` copies all session histories
+- \`orchajs test\` runs every enabled discovered agent test.
+- \`orchajs test <agent>\` or \`orchajs test <agent>/<case>\` narrows the run.
+- \`orchajs migrate-storage --to sqlite|node-jsonl\` copies all session histories
   between local stores without deleting the source.
-- \`orcha export-session <agent> <sessionId> [--output <path>]\` exports one
+- \`orchajs export-session <agent> <sessionId> [--output <path>]\` exports one
   session from the active store as JSONL.
-- \`orcha build\` creates the production Orcha bundle without calling models.
+- \`orchajs build\` creates the production Orcha bundle without calling models.
 - Add \`--json\` to \`run\` and \`test\` for machine-readable output.
 
 \`run\`, \`test\`, and playground executions use real providers and require
@@ -30,7 +30,7 @@ under \`.orcha/sessions/<agentName>/\`; opt-in SQLite stores all agents in
 
 ## Production deployment
 
-\`orcha build\` writes \`.orcha/dist/bundle.js\` for bundler integrations and
+\`orchajs build\` writes \`.orcha/dist/bundle.js\` for bundler integrations and
 \`.orcha/dist/manifest.json\` for unbundled production runtimes. If deployment
 uses plain \`tsc\`, \`serverless-plugin-typescript\`, or another packager that
 does not use \`orchajs/esbuild\`, explicitly include \`.orcha/dist/**\` in the
@@ -46,7 +46,7 @@ package:
     - ".orcha/dist/**"
 \`\`\`
 
-Do not assume that a successful \`orcha build\` means the generated files were
+Do not assume that a successful \`orchajs build\` means the generated files were
 copied by a later packaging tool. Inspect the final ZIP or container image and
 confirm that \`.orcha/dist/manifest.json\` is present.
 
@@ -569,7 +569,7 @@ Test \`index.json\` fields:
 - \`expect.actions\` (optional): ordered expected calls. Each may assert
   \`arguments.equals\` or \`arguments.partial\`.
 
-The test folder name is the selector used by \`orcha test agent/testName\`.
+The test folder name is the selector used by \`orchajs test agent/testName\`.
 
 ## Evaluations
 
@@ -597,7 +597,7 @@ metrics, and thresholds:
 
 \`execution.result\` does not wait for judges. Await
 \`execution.evaluations\` when results must finish before process exit.
-Evaluations always finish during \`orcha test\`; judge errors and missed
+Evaluations always finish during \`orchajs test\`; judge errors and missed
 thresholds fail the test. Lifecycle events are \`evaluation.requested\`,
 \`evaluation.completed\`, and \`evaluation.failed\`.
 
@@ -1003,7 +1003,7 @@ number. A conversational \`resume(...content)\` starts a new run number.
    Concrete action arguments and outputs are validated against their schemas
    when the action is used.
 
-\`orcha dev\` repeats validation when files change. \`orcha build\` performs
+\`orchajs dev\` repeats validation when files change. \`orchajs build\` performs
 offline production compilation. Neither command invokes a provider.
 
 ### Run lifecycle
@@ -1082,7 +1082,7 @@ needed for faithful continuation but are omitted from evaluation transcripts.
 - Mock actions when tests must avoid side effects; document intentional live
   action coverage.
 - Do not commit \`.orcha/\`; it contains generated output and session data.
-- Run \`orcha dev\` after filesystem changes and \`orcha test\` when behavior
+- Run \`orchajs dev\` after filesystem changes and \`orchajs test\` when behavior
   changes.
 - Do not weaken assertions to match incorrect behavior. Remove an assertion
   only when it is stricter than the documented agent contract.

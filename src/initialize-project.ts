@@ -62,7 +62,7 @@ export async function initializeProject(projectRoot: string): Promise<void> {
 
   await ensureGitignore(projectRoot);
   console.log(
-    '\nRun "orcha dev" to validate changes or "orcha run exampleAgent --input \\"Hello\\"" to execute the agent.',
+    '\nRun "orchajs dev" to validate changes or "orchajs run exampleAgent --input \\"Hello\\"" to execute the agent.',
   );
 }
 

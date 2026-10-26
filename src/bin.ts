@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import {
+  detectPackageManager,
+  installCommand,
+  runPackageManager,
+} from "./package-manager.js";
 
 const TOOLING_PACKAGES = [
   "@orchajs/playground-ui@^0.2.5",
@@ -19,7 +23,7 @@ async function run(): Promise<void> {
   try {
     if (process.argv[2] === "init") {
       if (process.argv.length > 3) {
-        throw new Error("Usage: orcha init");
+        throw new Error("Usage: orchajs init");
       }
       await installProjectDependencies();
       const { initializeProject } = await import(
@@ -52,7 +56,7 @@ async function bootstrapPlayground(): Promise<void> {
   console.log(
     `[orcha] Installing development-only playground tooling with ${packageManager}...`,
   );
-  const installCode = await runProcess(
+  const installCode = await runPackageManager(
     installation.command,
     installation.arguments,
   );
@@ -61,12 +65,14 @@ async function bootstrapPlayground(): Promise<void> {
     return;
   }
 
-  const retryCode = await runProcess(
+  const retryCode = await runPackageManager(
     process.execPath,
     [process.argv[1], ...process.argv.slice(2)],
     {
-      ...process.env,
-      [BOOTSTRAP_ENV]: "1",
+      env: {
+        ...process.env,
+        [BOOTSTRAP_ENV]: "1",
+      },
     },
   );
   process.exitCode = retryCode;
@@ -95,7 +101,7 @@ async function installProjectDependencies(): Promise<void> {
     [`orchajs@${ownPackage.version}`],
     false,
   );
-  const runtimeCode = await runProcess(
+  const runtimeCode = await runPackageManager(
     runtimeInstallation.command,
     runtimeInstallation.arguments,
   );
@@ -108,7 +114,7 @@ async function installProjectDependencies(): Promise<void> {
     TOOLING_PACKAGES,
     true,
   );
-  const toolingCode = await runProcess(
+  const toolingCode = await runPackageManager(
     toolingInstallation.command,
     toolingInstallation.arguments,
   );
@@ -117,95 +123,6 @@ async function installProjectDependencies(): Promise<void> {
       "Failed to install Orcha development tooling in the current project.",
     );
   }
-}
-
-function detectPackageManager(): "npm" | "yarn" | "pnpm" | "bun" {
-  if (existsSync(resolve("yarn.lock"))) {
-    return "yarn";
-  }
-  if (existsSync(resolve("pnpm-lock.yaml"))) {
-    return "pnpm";
-  }
-  if (
-    existsSync(resolve("bun.lock")) ||
-    existsSync(resolve("bun.lockb"))
-  ) {
-    return "bun";
-  }
-  const userAgent = process.env.npm_config_user_agent;
-  if (userAgent?.startsWith("yarn/")) {
-    return "yarn";
-  }
-  if (userAgent?.startsWith("pnpm/")) {
-    return "pnpm";
-  }
-  if (userAgent?.startsWith("bun/")) {
-    return "bun";
-  }
-  return "npm";
-}
-
-function installCommand(
-  packageManager: "npm" | "yarn" | "pnpm" | "bun",
-  packages: readonly string[],
-  development: boolean,
-): { command: string; arguments: string[] } {
-  switch (packageManager) {
-    case "yarn":
-      return {
-        command: executable("yarn"),
-        arguments: ["add", ...(development ? ["--dev"] : []), ...packages],
-      };
-    case "pnpm":
-      return {
-        command: executable("pnpm"),
-        arguments: [
-          "add",
-          ...(development ? ["--save-dev"] : []),
-          ...packages,
-        ],
-      };
-    case "bun":
-      return {
-        command: executable("bun"),
-        arguments: ["add", ...(development ? ["--dev"] : []), ...packages],
-      };
-    default:
-      return {
-        command: executable("npm"),
-        arguments: [
-          "install",
-          ...(development ? ["--save-dev"] : []),
-          ...packages,
-        ],
-      };
-  }
-}
-
-function executable(command: string): string {
-  return process.platform === "win32" ? `${command}.cmd` : command;
-}
-
-function runProcess(
-  command: string,
-  arguments_: string[],
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<number> {
-  return new Promise((resolveProcess, reject) => {
-    const child = spawn(command, arguments_, {
-      cwd: process.cwd(),
-      env,
-      stdio: "inherit",
-    });
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      if (signal) {
-        process.kill(process.pid, signal);
-        return;
-      }
-      resolveProcess(code ?? 1);
-    });
-  });
 }
 
 function isMissingToolingError(error: unknown): boolean {
@@ -220,7 +137,7 @@ function reportError(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   if (isMissingToolingError(error)) {
     console.error(
-      `Orcha development tooling is missing. Run "orcha playground" to install the development-only playground dependencies automatically.`,
+      `Orcha development tooling is missing. Run "orchajs playground" to install the development-only playground dependencies automatically.`,
     );
   } else {
     console.error(message);

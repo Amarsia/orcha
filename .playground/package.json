@@ -14,6 +14,7 @@
     "start:production:local": "NODE_ENV=production node --require dotenv/config dist/index.js"
   },
   "dependencies": {
+    "@google/genai": "^2.22.0",
     "orchajs": "file:.."
   },
   "devDependencies": {

@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "orcha playground",
-    "playground": "orcha playground",
-    "build": "orcha build",
-    "test": "orcha test",
-    "orcha:dev": "orcha dev",
-    "orcha:test": "orcha test"
+    "dev": "orchajs playground",
+    "playground": "orchajs playground",
+    "build": "orchajs build",
+    "test": "orchajs test",
+    "orcha:dev": "orchajs dev",
+    "orcha:test": "orchajs test"
   },
   "dependencies": {
     "orchajs": "__ORCHA_VERSION__"

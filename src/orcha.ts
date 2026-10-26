@@ -42,7 +42,7 @@ export const orcha = createOrcha(
       return loadCompiledManifest(projectRoot, configuration);
     }
     throw new Error(
-      'Orcha agents must be compiled before runtime initialization. Run "npx orcha dev" during development or "npx orcha build" before starting the application.',
+      'Orcha agents must be compiled before runtime initialization. Run "npx orchajs dev" during development or "npx orchajs build" before starting the application.',
     );
   },
   generateProviderResponse,
@@ -65,7 +65,7 @@ function loadCompiledManifest(
   const manifestPath = compiledManifestPath(projectRoot);
   if (!existsSync(manifestPath)) {
     throw new Error(
-      `ORCHA_PRODUCTION_BUNDLE_MISSING: "${manifestPath}" was not found. Run "npx orcha build" before packaging, include ".orcha/dist" in the deployment, or configure the Orcha build integration.`,
+      `ORCHA_PRODUCTION_BUNDLE_MISSING: "${manifestPath}" was not found. Run "npx orchajs build" before packaging, include ".orcha/dist" in the deployment, or configure the Orcha build integration.`,
     );
   }
 
@@ -74,7 +74,7 @@ function loadCompiledManifest(
     parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
   } catch (error) {
     throw new Error(
-      `Orcha could not read the compiled manifest at "${manifestPath}". Run "npx orcha build" again.`,
+      `Orcha could not read the compiled manifest at "${manifestPath}". Run "npx orchajs build" again.`,
       { cause: error },
     );
   }
@@ -89,7 +89,7 @@ function loadCompiledManifest(
     Array.isArray(parsed.agents)
   ) {
     throw new Error(
-      `Orcha compiled manifest "${manifestPath}" is invalid. Run "npx orcha build" again.`,
+      `Orcha compiled manifest "${manifestPath}" is invalid. Run "npx orchajs build" again.`,
     );
   }
 
@@ -103,7 +103,7 @@ function loadCompiledManifest(
     )
   ) {
     throw new Error(
-      `Orcha compiled manifest does not match the registered agents. Run "npx orcha build" again. Expected [${registeredAgents.join(", ")}], found [${compiledAgents.join(", ")}].`,
+      `Orcha compiled manifest does not match the registered agents. Run "npx orchajs build" again. Expected [${registeredAgents.join(", ")}], found [${compiledAgents.join(", ")}].`,
     );
   }
   return bundle;
