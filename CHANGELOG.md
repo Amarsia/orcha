@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.23.12
+
+### Patch Changes
+
+- [#118](https://github.com/Amarsia/orcha/pull/118) [`657419c`](https://github.com/Amarsia/orcha/commit/657419c6b90a7764f3a64e43ba3815572fd8efa0) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Automatically install the optional SDK required by each provider selected by an agent or enabled evaluation. Build, development, playground, run, test, and framework integration workflows now add only the missing provider dependencies using the project's package manager before compiling or loading the project. Add `orchajs` as the preferred CLI binary while retaining `orcha` as a backward-compatible alias.
+
 ## 0.23.11
 
 ### Patch Changes
