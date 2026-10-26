@@ -33,7 +33,7 @@ to exercise the client-action pause and continuation flow.
 - Wait for and display asynchronous evaluations when configured.
 - Run the selected agent's registered model-backed tests with one click.
 
-The browser has no direct filesystem or provider access. `orcha playground`
+The browser has no direct filesystem or provider access. `orchajs playground`
 binds to localhost, loads `.env`, watches `orcha/**`, and reports invalid edits
 in the interface.
 

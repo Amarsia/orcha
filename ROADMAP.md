@@ -25,7 +25,7 @@ An agent is a folder and the folder is the source of truth.
 - Validation for providers, models, generation settings, output types, and
   JSON output schemas.
 - Compiled manifests that embed instructions and action definitions.
-- `orcha build` and an esbuild integration that embeds a self-contained Orcha
+- `orchajs build` and an esbuild integration that embeds a self-contained Orcha
   runtime into production applications.
 - Provider-isolated production bundles so unused provider SDKs and
   authentication libraries are excluded.
@@ -88,7 +88,7 @@ Agent-owned deterministic test cases live under each agent's `/tests` folder.
   `test.completed` event containing the assertion results.
 - Export `runTests()` from `orchajs/testing` to run every enabled test.
 - Run registered suites explicitly through `runTests()` before production
-  builds in CI; keep `orcha build` offline and credential-free.
+  builds in CI; keep `orchajs build` offline and credential-free.
 - Produce machine-readable reports with suite and case status, assertions,
   duration, usage, and session IDs.
 - Keep framework tests separate from consumer agent tests.
@@ -195,13 +195,13 @@ Completion criteria:
 
 Finish the developer workflow after the runtime conventions are stable.
 
-- `orcha init` safely creates the registry, a minimal example agent, and
+- `orchajs init` safely creates the registry, a minimal example agent, and
   comprehensive agent-facing documentation in `AGENTS.md`.
-- `orcha dev` performs offline validation and watches `orcha/**`.
-- `orcha run <agent>` executes or resumes one registered agent from text,
+- `orchajs dev` performs offline validation and watches `orcha/**`.
+- `orchajs run <agent>` executes or resumes one registered agent from text,
   structured files, or stdin.
-- `orcha test [agent | agent/test]` runs all or selected model-backed tests.
-- `orcha build` remains an offline production compilation command.
+- `orchajs test [agent | agent/test]` runs all or selected model-backed tests.
+- `orchajs build` remains an offline production compilation command.
 - `run` and `test` expose machine-readable JSON output for CI and coding
   agents.
 - Keep every CLI command usable in local development and CI without a hosted

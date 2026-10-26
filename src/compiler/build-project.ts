@@ -10,6 +10,7 @@ import {
   builtInProviderCatalog,
   isBuiltInProvider,
 } from "../providers/catalog.js";
+import { ensureProviderDependencies } from "../providers/dependencies.js";
 import type {
   CompiledAgentManifest,
   CompiledBundle,
@@ -37,7 +38,7 @@ export async function buildProject(
   );
   const registryPath = resolve(projectRoot, "orcha/index.ts");
   if (!existsSync(registryPath)) {
-    throw new Error('Missing "orcha/index.ts". Run "orcha init" first.');
+    throw new Error('Missing "orcha/index.ts". Run "orchajs init" first.');
   }
 
   const temporaryDirectory = resolve(projectRoot, ".orcha/.build");
@@ -136,6 +137,7 @@ export async function buildProject(
     ];
     const providerRuntimeSource =
       createProviderRuntimeSource(includedProviders, target);
+    await ensureProviderDependencies(includedProviders, projectRoot);
     const needsNodeRequire =
       compiledBundle.actionRuntime === "sandbox" ||
       includedProviders.includes("vertexai") ||

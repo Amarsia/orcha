@@ -40,9 +40,9 @@ test("creates a complete standalone project without installing dependencies", as
     assert.equal(packageJson.devDependencies.esbuild, "^0.25.9");
     assert.equal(packageJson.devDependencies.chokidar, "^4.0.3");
     assert.equal(packageJson.devDependencies.dotenv, "^16.6.1");
-    assert.equal(packageJson.scripts.dev, "orcha playground");
-    assert.equal(packageJson.scripts.build, "orcha build");
-    assert.equal(packageJson.scripts.test, "orcha test");
+    assert.equal(packageJson.scripts.dev, "orchajs playground");
+    assert.equal(packageJson.scripts.build, "orchajs build");
+    assert.equal(packageJson.scripts.test, "orchajs test");
     assert.equal(packageJson.engines.node, ">=18.20.8");
     await assert.rejects(access(join(targetDirectory, "node_modules")));
 

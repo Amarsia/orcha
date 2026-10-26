@@ -400,32 +400,32 @@ application runtime:
 
 ```bash
 # Offline validation that watches orcha/**
-npx orcha dev
+npx orchajs dev
 
 # Open the built-in localhost playground and watch orcha/**
-npx orcha playground
+npx orchajs playground
 
 # Execute a registered agent. Input can also come from a JSON file or stdin.
-npx orcha run exampleAgent --input "Help me understand this invoice"
+npx orchajs run exampleAgent --input "Help me understand this invoice"
 
 # Continue an existing session or resolve pending client actions.
-npx orcha run exampleAgent --session ses_123 --input "Summarize it"
-npx orcha run exampleAgent --session ses_123 --tool-results results.json
+npx orchajs run exampleAgent --session ses_123 --input "Summarize it"
+npx orchajs run exampleAgent --session ses_123 --tool-results results.json
 
 # Run all tests, one agent, or one case.
-npx orcha test
-npx orcha test exampleAgent
-npx orcha test exampleAgent/exampleCase
+npx orchajs test
+npx orchajs test exampleAgent
+npx orchajs test exampleAgent/exampleCase
 
 # Copy all session histories to SQLite or back to JSONL.
-npx orcha migrate-storage --to sqlite
-npx orcha migrate-storage --to node-jsonl
+npx orchajs migrate-storage --to sqlite
+npx orchajs migrate-storage --to node-jsonl
 
 # Export one session from the active store as portable JSONL.
-npx orcha export-session exampleAgent ses_123 --output session.jsonl
+npx orchajs export-session exampleAgent ses_123 --output session.jsonl
 
 # Offline production compilation.
-npx orcha build
+npx orchajs build
 ```
 
 `playground` accepts `--host`, `--port`, and `--no-open`; it binds to
@@ -440,7 +440,7 @@ subagent lifecycle, each child agent's actions, and clickable session logs.
 installed package. It exposes agent instructions, actions, skills,
 evaluations, tests, durable sessions, and linked subagent transcripts without
 adding frontend dependencies to the project or production agent bundle.
-`orcha init` also creates a comprehensive `AGENTS.md` describing Orcha's
+`orchajs init` also creates a comprehensive `AGENTS.md` describing Orcha's
 filesystem contract and APIs. The CLI does not provide a UI; applications can
 build one from the storage-neutral runtime session APIs.
 
@@ -814,7 +814,7 @@ Test sessions use the configured session store beside normal sessions. The
 final `test.completed` event records the suite, case, status, duration, and
 every assertion. Run tests explicitly before building in CI. Tests use the
 configured providers, so the test step requires provider credentials and
-consumes model tokens; `orcha build` itself remains offline and does not
+consumes model tokens; `orchajs build` itself remains offline and does not
 require those credentials.
 
 ## Evaluations
@@ -889,7 +889,7 @@ build:
   esbuild: false
 ```
 
-No separate `orcha build` command or deployment script is required. During
+No separate `orchajs build` command or deployment script is required. During
 `serverless package` and `serverless deploy`, the integration adds Orcha to the
 existing esbuild pipeline. It preserves other esbuild plugins, compiles the
 registry, and replaces exact `orchajs` imports with the generated production
@@ -917,7 +917,7 @@ For an unbundled production application built with plain `tsc` or
 `serverless-plugin-typescript`, run:
 
 ```bash
-npx orcha build
+npx orchajs build
 ```
 
 Package `.orcha/dist/manifest.json` with the application. AWS Lambda is
@@ -946,7 +946,7 @@ package:
 Verify the packaged artifact rather than only the workspace:
 
 ```bash
-npx orcha build
+npx orchajs build
 test -f .orcha/dist/manifest.json
 yarn serverless package
 unzip -l .serverless/*.zip | grep ".orcha/dist/manifest.json"
@@ -973,7 +973,7 @@ playground, unused providers, and optional runtimes out of deployed handlers.
 
 ## What's in this repo right now
 
-- [x] Registry compiler + `orcha build`
+- [x] Registry compiler + `orchajs build`
 - [x] Model Action Protocol — client actions and opt-in native/sandboxed local actions
 - [x] Provider-neutral Anthropic, Bedrock, DeepSeek, OpenAI, Google GenAI, and Vertex AI adapters
 - [x] Stateful sessions — Node JSONL/SQLite replay and client-action pause/resume
@@ -981,7 +981,7 @@ playground, unused providers, and optional runtimes out of deployed handlers.
 - [x] Agent `/tests` with durable test-prefixed logs and explicit CI gating
 - [x] Registered LLM-judged `/evaluations`
 - [ ] Agent `/guardrails`
-- [x] Production compiler and `orcha build`
+- [x] Production compiler and `orchajs build`
 - [x] Lightweight CLI for init, validation, execution, tests, and builds
 
 See [`ROADMAP.md`](./ROADMAP.md) for what's coming after — guardrails,

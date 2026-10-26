@@ -94,19 +94,19 @@ orcha/
 
 ```bash
 # Offline validation and watch
-npx orcha dev
+npx orchajs dev
 
 # Local inspection and execution UI
-npx orcha playground
+npx orchajs playground
 
 # Real provider execution
-npx orcha run <agent> --input "..."
+npx orchajs run <agent> --input "..."
 
 # Real provider tests; may consume tokens and run live actions
-npx orcha test [agent[/case]]
+npx orchajs test [agent[/case]]
 
 # Offline production compilation
-npx orcha build
+npx orchajs build
 ```
 
 Use existing project scripts when they wrap these commands.
@@ -117,7 +117,7 @@ environments require `NODE_ENV=production` or `ORCHA_USE_BUILD=1`. For bundled
 applications, configure `orchajs/esbuild` or `orchajs/serverless` so the
 generated runtime replaces normal `orchajs` imports.
 
-When Serverless Framework packages a manual `orcha build`, add
+When Serverless Framework packages a manual `orchajs build`, add
 `.orcha/dist/**` to `package.patterns` (or legacy `package.include`) and verify
 that the final ZIP contains `.orcha/dist/manifest.json`.
 

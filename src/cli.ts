@@ -71,7 +71,7 @@ switch (command) {
     );
     if (parsed.positionals.length > 0) {
       throw new Error(
-        "Usage: orcha build [--target node|browser|react-native]",
+        "Usage: orchajs build [--target node|browser|react-native]",
       );
     }
     const target = parseBuildTarget(parsed.values.get("--target"));
@@ -87,7 +87,7 @@ switch (command) {
     printUsage();
     break;
   default:
-    throw new Error(`Unknown command "${command}". Run "orcha --help".`);
+    throw new Error(`Unknown command "${command}". Run "orchajs --help".`);
 }
 
 async function watchProject(
@@ -96,7 +96,7 @@ async function watchProject(
 ): Promise<void> {
   const registryDirectory = resolve(projectRoot, "orcha");
   if (!existsSync(registryDirectory)) {
-    throw new Error('Missing "orcha/". Run "orcha init" first.');
+    throw new Error('Missing "orcha/". Run "orchajs init" first.');
   }
   loadProjectEnvironment(projectRoot);
 
@@ -164,7 +164,7 @@ async function runAgent(
   const agentName = parsed.positionals[0];
   if (!agentName || parsed.positionals.length > 1) {
     throw new Error(
-      'Usage: orcha run <agent> (--input "…" | --input-file request.json) [--session <id>] [--json]',
+      'Usage: orchajs run <agent> (--input "…" | --input-file request.json) [--session <id>] [--json]',
     );
   }
   await loadProject(projectRoot);
@@ -230,7 +230,7 @@ async function testAgents(
   const parsed = parseArguments(arguments_, new Set());
   if (parsed.positionals.length > 1) {
     throw new Error(
-      "Usage: orcha test [agent | agent/test] [--json]",
+      "Usage: orchajs test [agent | agent/test] [--json]",
     );
   }
   const selector = parsed.positionals[0];
@@ -288,7 +288,7 @@ async function runPlayground(
   );
   if (parsed.positionals.length > 0) {
     throw new Error(
-      "Usage: orcha playground [--host localhost] [--port 4310] [--no-open]",
+      "Usage: orchajs playground [--host localhost] [--port 4310] [--no-open]",
     );
   }
   const portValue = parsed.values.get("--port");
@@ -315,7 +315,7 @@ async function migrateStorage(
   );
   if (parsed.positionals.length > 0) {
     throw new Error(
-      "Usage: orcha migrate-storage --to <sqlite | node-jsonl> [--agent <name>]",
+      "Usage: orchajs migrate-storage --to <sqlite | node-jsonl> [--agent <name>]",
     );
   }
   const destinationStrategy = storageStrategy(parsed.values.get("--to"));
@@ -365,7 +365,7 @@ async function exportSession(
   const [agentName, sessionId] = parsed.positionals;
   if (!agentName || !sessionId || parsed.positionals.length !== 2) {
     throw new Error(
-      "Usage: orcha export-session <agent> <sessionId> [--output <path>]",
+      "Usage: orchajs export-session <agent> <sessionId> [--output <path>]",
     );
   }
 
@@ -434,7 +434,7 @@ function parseDevTargets(
   );
   if (parsed.positionals.length > 0) {
     throw new Error(
-      "Usage: orcha dev [--target node|browser|react-native|all]",
+      "Usage: orchajs dev [--target node|browser|react-native|all]",
     );
   }
   const target = parsed.values.get("--target") ?? "node";
@@ -792,14 +792,14 @@ function assertNoArguments(
   command: string,
 ): void {
   if (arguments_.length > 0) {
-    throw new Error(`Usage: orcha ${command}`);
+    throw new Error(`Usage: orchajs ${command}`);
   }
 }
 
 function printUsage(): void {
   console.log(
     [
-      "Usage: orcha <command>",
+      "Usage: orchajs <command>",
       "",
       "Commands:",
       "  init                         Add Orcha to the current project",

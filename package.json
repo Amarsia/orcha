@@ -98,6 +98,7 @@
     }
   },
   "bin": {
+    "orchajs": "dist/bin.js",
     "orcha": "dist/bin.js"
   },
   "files": [

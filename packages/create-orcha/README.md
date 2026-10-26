@@ -12,7 +12,7 @@ npm install
 The generated project includes:
 
 - an Orcha agent registry with example agents;
-- `orcha playground` for a hot-reloading local interface;
+- `orchajs playground` for a hot-reloading local interface;
 - text and multimodal agent input;
 - durable sessions and chronological execution traces;
 - parent agents with private durable subagents;
