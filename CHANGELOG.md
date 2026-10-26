@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.24.0
+
+### Minor Changes
+
+- [#120](https://github.com/Amarsia/orcha/pull/120) [`7aabcc1`](https://github.com/Amarsia/orcha/commit/7aabcc13e58d582d372dc0590c6628091058d104) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Add MCP client support for agents and subagents. Register named MCP folders directly on each agent, discover all server tools at runtime, and execute namespaced MCP tools through the durable provider tool loop. Streamable HTTP works across Node.js, browser, Expo, and React Native builds, while stdio is available for Node.js targets. The MCP SDK remains optional and is installed only for projects that configure MCP connections.
+
 ## 0.23.12
 
 ### Patch Changes
