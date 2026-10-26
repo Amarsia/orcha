@@ -1,6 +1,6 @@
 {
   "name": "orchajs",
-  "version": "0.23.11",
+  "version": "0.23.12",
   "description": "A filesystem-convention, stateful agent framework for JavaScript.",
   "license": "MIT",
   "repository": {
