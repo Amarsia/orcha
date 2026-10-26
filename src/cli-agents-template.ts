@@ -87,6 +87,8 @@ required.
   \`AMARSIA_API_URL\` and then \`https://api.amarsia.com\`.
 - \`actions\` (optional): overrides the native local-action runtime or configures
   its environment and sandbox settings.
+- \`mcp.credentials\` (optional): runtime-only values used to resolve
+  \`\${NAME}\` placeholders in MCP headers or stdio environment values.
 - \`storage.strategy\` (optional): \`"node-jsonl"\` (default) or \`"sqlite"\`.
   The SQLite driver ships as an internal optional Orcha dependency.
 - \`storage.directory\` (optional): session directory relative to project
@@ -138,11 +140,47 @@ explicit service-account credentials are optional. Bedrock requires \`region\`;
 explicit AWS credentials are optional. Never place credentials in
 \`index.json\`, instructions, tests, session metadata, or committed files.
 
+## MCP connections
+
+Assign named MCP folders in an agent or subagent registration:
+
+\`\`\`ts
+agents: {
+  supportBot: {
+    path: "./supportBot",
+    mcp: {
+      github: "./mcp/github",
+    },
+  },
+}
+\`\`\`
+
+\`orcha/mcp/github/index.json\` configures either cross-platform Streamable
+HTTP or Node-only stdio:
+
+\`\`\`json
+{
+  "transport": "streamable-http",
+  "url": "https://mcp.example.com",
+  "headers": {
+    "Authorization": "Bearer \${GITHUB_MCP_TOKEN}"
+  }
+}
+\`\`\`
+
+All discovered tools are available as \`github__<toolName>\`. MCP output is
+untrusted external data. Keep secrets out of JSON and provide placeholder
+values through \`orcha.init().mcp.credentials\`; Node also reads
+\`process.env\`.
+
 ## Agent folders
 
 \`\`\`text
 orcha/
   index.ts
+  mcp/
+    github/
+      index.json
   supportBot/
     index.json
     instructions.md
@@ -1029,7 +1067,7 @@ offline production compilation. Neither command invokes a provider.
    The parent reports \`waiting_for_subagent\` until each synchronous child
    call returns.
 8. The model loop continues until final output, failure, a pause, or the
-   maximum of 10 action rounds.
+   maximum of 20 action rounds.
 9. Usage is normalized and aggregated across every model call in the run.
 10. After \`run.completed\`, enabled evaluations start in the background.
    \`execution.result\` is already available; \`execution.evaluations\` waits

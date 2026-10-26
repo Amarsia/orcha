@@ -38,6 +38,9 @@ An agent is a folder and the folder is the source of truth.
 - Sandboxed permissions, timeouts, resource limits, source hashing, and
   idempotent action execution.
 - Durable action-request, completion, failure, pause, and resume events.
+- Named MCP connections for agents and subagents, with cross-platform
+  Streamable HTTP, Node.js stdio, dynamic tool discovery, credential
+  placeholders, and dependency-isolated bundles.
 
 ### 3. Durable agent runtime
 
@@ -231,7 +234,6 @@ These remain outside the first-release sequence:
   from the core headless CLI.
 - Remote session-store adapters.
 - OpenTelemetry tracing.
-- MCP interoperability adapters.
 - Hosted evaluation dashboards.
 - Additional providers after the built-in provider contract is stable.
 

@@ -1,6 +1,6 @@
 ---
 name: orchajs
-description: Build, configure, test, debug, and operate durable AI agents with OrchaJS. Use when a project imports orchajs, contains an orcha directory, or uses the orcha init, dev, run, test, build, or playground commands.
+description: Build, configure, test, debug, and operate durable AI agents with OrchaJS. Use when a project imports orchajs, contains an orcha directory, or uses the orchajs init, dev, run, test, build, or playground commands.
 ---
 
 # OrchaJS
@@ -28,7 +28,8 @@ or types are available.
 
 1. Inspect `orcha/index.ts` and the relevant agent folders.
 2. Identify whether the task changes configuration, instructions, actions,
-   skills, tests, evaluations, subagents, or application integration.
+   MCP connections, skills, tests, evaluations, subagents, or application
+   integration.
 3. Make the smallest complete change while preserving provider-neutral runtime
    behavior.
 4. Register agents and subagents explicitly. Actions, skills, tests, and
@@ -74,6 +75,9 @@ orcha/
   Client actions execute in the calling application.
 - Parent agents may invoke only explicitly registered subagents. Parent and
   child sessions remain separate and linked.
+- Agents and subagents receive MCP connections only through their named
+  `mcp` registration map. MCP tools are discovered at runtime and namespaced
+  as `<connection>__<tool>`.
 - Use agent session APIs for history, events, listing, pause, and resume.
   Never read or modify `.orcha` storage directly in application code.
 - Do not edit generated files under `.orcha/`.

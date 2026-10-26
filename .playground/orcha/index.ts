@@ -3,7 +3,7 @@ import { orcha } from "orchajs";
 orcha.init({
   amarsia: { key: process.env.AMARSIA_PROJECT_KEY ?? "", endpoint: "http://0.0.0.0:8000" },
   storage: {
-    strategy: "sqlite",
+    strategy: "node-jsonl",
   },
   providers: {
     anthropic: process.env.ANTHROPIC_API_KEY ?? "",
@@ -43,5 +43,11 @@ orcha.init({
     },
     riskBot: "./riskBot",
     supportBot: "./supportBot",
+    mcpTester: {
+      path: "./mcpTester",
+      mcp: {
+        memory: "./mcp/memory",
+      },
+    },
   },
 });

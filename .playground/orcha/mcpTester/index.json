@@ -1,0 +1,10 @@
+{
+  "name": "MCP Stress Tester",
+  "description": "Exercise every available memory MCP tool and report verified results.",
+  "provider": "openai",
+  "model": "gpt-5-mini",
+  "region": "provider_managed",
+  "maxTokens": 4096,
+  "reasoningLevel": "minimal",
+  "outputType": "text"
+}

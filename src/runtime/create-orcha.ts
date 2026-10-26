@@ -64,6 +64,11 @@ class OrchaRuntimeCore implements Orcha {
     if (this.#telemetry) {
       void this.#telemetry.close();
     }
+    for (const agent of this.#agents.values()) {
+      if (agent instanceof RuntimeAgent) {
+        void agent._close();
+      }
+    }
     const projectRoot = this.#platform.projectRoot(configuration);
     const bundle = configuration.bundle ?? this.#resolveBundle(configuration);
     if (configuration.amarsia?.key && this.#platform.syncProject) {
@@ -84,6 +89,7 @@ class OrchaRuntimeCore implements Orcha {
         ...configuration.actions,
         runtime: configuration.actions?.runtime ?? "native",
       },
+      mcp: configuration.mcp,
       storage: configuration.storage,
     };
     if (

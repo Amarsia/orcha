@@ -8,6 +8,7 @@ import {
 import { executeNativeAction } from "./runtime/actions/native.js";
 import { getRegistryCompiler } from "./runtime/compiler-hook.js";
 import { createOrcha } from "./runtime/create-orcha.js";
+import { setMcpClientFactory } from "./runtime/mcp/client.js";
 import { nodeRuntimePlatform } from "./runtime/platform-node.js";
 import type {
   CompiledBundle,
@@ -22,6 +23,11 @@ setSandboxRuntimeLoader(async () => {
   return import(modulePath) as Promise<
     typeof import("./runtime/actions/sandbox.js")
   >;
+});
+setMcpClientFactory(async (server, credentials) => {
+  const modulePath = "./runtime/mcp/node-client.js";
+  const { createNodeMcpClient } = await import(modulePath);
+  return createNodeMcpClient(server, credentials);
 });
 
 export const orcha = createOrcha(

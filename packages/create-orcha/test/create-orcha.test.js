@@ -95,7 +95,9 @@ test("ships the complete canonical Orcha project guide", async () => {
   const match = source.match(/^export const AGENTS_MD = `([\s\S]*)`;\s*$/);
   assert.ok(match, "Expected to find AGENTS_MD in cli-agents-template.ts");
 
-  const canonicalGuide = match[1].replaceAll("\\`", "`");
+  const canonicalGuide = match[1]
+    .replaceAll("\\`", "`")
+    .replaceAll("\\${", "${");
   const shippedGuide = await readFile(
     join(packageDirectory, "template", "orcha", "AGENTS.md"),
     "utf8",

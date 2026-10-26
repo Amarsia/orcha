@@ -536,6 +536,11 @@ function testWarnings(
   const mocked = new Set(Object.keys(configuration.actions ?? {}));
   const actions = Object.keys(manifest.actions)
     .filter((name) => !mocked.has(name))
+    .concat(
+      Object.keys(manifest.mcpServers ?? {}).map(
+        (name) => `mcp:${name}`,
+      ),
+    )
     .sort();
   if (actions.length === 0) {
     return [];

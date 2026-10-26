@@ -69,17 +69,30 @@ export type ProviderInitConfigurations = {
 export interface ProjectConfiguration {
   providers: ResolvedProviderConfigurations;
   actions?: LocalActionRuntimeConfiguration;
+  mcp?: {
+    credentials?: Record<string, string | undefined>;
+  };
   storage?: {
     strategy?: "node-jsonl" | "sqlite" | "indexeddb" | "react-native";
     directory?: string;
   };
 }
 
+export type McpRegistration = Record<string, string>;
+
+export type SubagentRegistration =
+  | string
+  | {
+      path: string;
+      mcp?: McpRegistration;
+    };
+
 export type AgentRegistration =
   | string
   | {
       path: string;
-      subagents?: Record<string, string>;
+      mcp?: McpRegistration;
+      subagents?: Record<string, SubagentRegistration>;
     };
 
 export interface OrchaInitConfiguration {
@@ -92,6 +105,7 @@ export interface OrchaInitConfiguration {
     endpoint?: string;
   };
   actions?: LocalActionRuntimeConfiguration;
+  mcp?: ProjectConfiguration["mcp"];
   storage?: ProjectConfiguration["storage"];
   root?: string;
 }
@@ -284,6 +298,33 @@ export interface LocalActionRuntimeConfiguration {
   };
 }
 
+export interface McpHttpServerConfiguration {
+  transport: "streamable-http";
+  url: string;
+  headers?: Record<string, string>;
+  credentials?: RequestCredentials;
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+}
+
+export interface McpStdioServerConfiguration {
+  transport: "stdio";
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+}
+
+export type McpServerConfiguration =
+  | McpHttpServerConfiguration
+  | McpStdioServerConfiguration;
+
+export type CompiledMcpServerManifest = McpServerConfiguration & {
+  key: string;
+  directoryName: string;
+};
+
 export interface CompiledAgentManifest
   extends Omit<AgentConfiguration, "provider" | "subagents"> {
   key: string;
@@ -293,6 +334,7 @@ export interface CompiledAgentManifest
   actions: Record<string, CompiledActionManifest>;
   skills: Record<string, CompiledSkillManifest>;
   evaluations: Record<string, CompiledEvaluationManifest>;
+  mcpServers: Record<string, CompiledMcpServerManifest>;
   subagentPolicy?: SubagentConfiguration;
   subagents: Record<string, CompiledAgentManifest>;
 }
