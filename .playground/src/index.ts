@@ -68,6 +68,33 @@ console.log(
   `\nSession log: .orcha/sessions/supportBot/${supportResult.sessionId}.jsonl`,
 );
 
+const mcpResult = await orcha.mcpTester.run({
+  content: [
+    "Run the complete MCP knowledge-graph lifecycle now.",
+    "Use test entities ORCHA-MCP-CUSTOMER-001,",
+    "ORCHA-MCP-PREFERENCE-001, and ORCHA-MCP-TICKET-001.",
+    "Exercise every available memory MCP tool, verify the graph before",
+    "cleanup, delete all test data, and verify the final graph is clean.",
+  ].join(" "),
+  name: "Memory MCP full lifecycle",
+  metadata: {
+    category: "mcp-integration-test",
+    fixture: "memory-full-lifecycle",
+  },
+}).result;
+
+logHistory(
+  "mcpTester",
+  await orcha.mcpTester.history(mcpResult.sessionId, {
+    page: 1,
+    pageSize: 200,
+  }),
+);
+console.log("[mcpTester] Result:", JSON.stringify(mcpResult, null, 2));
+console.log(
+  `\nSession log: .orcha/sessions/mcpTester/${mcpResult.sessionId}.jsonl`,
+);
+
 const fulfillmentResult = await orcha.fulfillmentBot.run({
   content:
     "Order ORD-4821 was due today, but it has not arrived. Find out what happened and tell me the next step.",

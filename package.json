@@ -130,11 +130,13 @@
     "@aws-sdk/client-bedrock-runtime": ">=3.864.0 <4",
     "@google/genai": ">=2.22.0 <3",
     "@jitl/quickjs-singlefile-cjs-release-sync": ">=0.32.0 <0.33",
+    "@modelcontextprotocol/sdk": ">=1.32.1 <2",
     "better-sqlite3": ">=11.10.0 <12",
     "chokidar": ">=4 <5",
     "dotenv": ">=16 <17",
     "esbuild": ">=0.25 <0.26",
-    "quickjs-emscripten-core": ">=0.32.0 <0.33"
+    "quickjs-emscripten-core": ">=0.32.0 <0.33",
+    "zod": ">=3.25 <5"
   },
   "peerDependenciesMeta": {
     "@orchajs/playground-ui": {
@@ -152,6 +154,9 @@
     "@jitl/quickjs-singlefile-cjs-release-sync": {
       "optional": true
     },
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
     "better-sqlite3": {
       "optional": true
     },
@@ -166,6 +171,9 @@
     },
     "quickjs-emscripten-core": {
       "optional": true
+    },
+    "zod": {
+      "optional": true
     }
   },
   "devDependencies": {
@@ -174,6 +182,7 @@
     "@changesets/cli": "^2.31.1",
     "@google/genai": "2.22.0",
     "@jitl/quickjs-singlefile-cjs-release-sync": "0.32.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@types/node": "18.19.130",
     "@types/react": "^18.3.24",
     "@types/react-dom": "^18.3.7",
@@ -189,7 +198,8 @@
     "quickjs-emscripten-core": "0.32.0",
     "styletron-engine-atomic": "^1.6.2",
     "styletron-react": "^6.1.1",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "zod": "3.25.76"
   },
   "overrides": {
     "@types/react": "$@types/react",

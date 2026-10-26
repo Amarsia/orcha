@@ -6,7 +6,10 @@ import { build as bundleEntry } from "esbuild";
 import { compileRegistry } from "./compiler/compile.js";
 import { loadProjectEnvironment } from "./env.js";
 import { orcha } from "./orcha.js";
-import { ensureCompiledProviderDependencies } from "./providers/dependencies.js";
+import {
+  ensureCompiledMcpDependencies,
+  ensureCompiledProviderDependencies,
+} from "./providers/dependencies.js";
 import { setRegistryCompiler } from "./runtime/compiler-hook.js";
 
 export async function loadProject(projectRoot: string): Promise<void> {
@@ -64,6 +67,10 @@ export async function loadProject(projectRoot: string): Promise<void> {
       );
     }
     await ensureCompiledProviderDependencies(
+      orcha.getCompiledBundle(),
+      projectRoot,
+    );
+    await ensureCompiledMcpDependencies(
       orcha.getCompiledBundle(),
       projectRoot,
     );

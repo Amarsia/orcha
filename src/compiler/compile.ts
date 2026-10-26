@@ -16,9 +16,13 @@ import type {
   CompiledAgentManifest,
   CompiledBundle,
   CompiledEvaluationManifest,
+  CompiledMcpServerManifest,
   CompiledSkillManifest,
   EvaluationConfiguration,
+  McpRegistration,
+  McpServerConfiguration,
   SkillConfiguration,
+  SubagentRegistration,
 } from "../types.js";
 
 export function compileRegistry(
@@ -45,15 +49,21 @@ export function compileRegistry(
     }
     const normalized = normalizeAgentRegistration(key, registration);
     const subagents: Record<string, CompiledAgentManifest> = {};
-    for (const [subagentKey, registeredPath] of Object.entries(
+    for (const [subagentKey, registration] of Object.entries(
       normalized.subagents,
     )) {
       if (!subagentKey.trim()) {
         throw new Error(`Agent "${key}" has an empty subagent name.`);
       }
+      const subagent = normalizeSubagentRegistration(
+        key,
+        subagentKey,
+        registration,
+      );
       subagents[subagentKey] = compileAgent(
         subagentKey,
-        registeredPath,
+        subagent.path,
+        subagent.mcp,
         registryRoot,
         actionRuntime,
         target,
@@ -62,6 +72,7 @@ export function compileRegistry(
     const parent = compileAgent(
       key,
       normalized.path,
+      normalized.mcp,
       registryRoot,
       actionRuntime,
       target,
@@ -93,12 +104,16 @@ export function compileRegistry(
 function normalizeAgentRegistration(
   key: string,
   registration: AgentRegistration,
-): { path: string; subagents: Record<string, string> } {
+): {
+  path: string;
+  mcp: McpRegistration;
+  subagents: Record<string, SubagentRegistration>;
+} {
   if (typeof registration === "string") {
     if (!registration.trim()) {
       throw new Error(`Agent "${key}" must register a folder path.`);
     }
-    return { path: registration, subagents: {} };
+    return { path: registration, mcp: {}, subagents: {} };
   }
   if (!registration || typeof registration !== "object") {
     throw new Error(`Agent "${key}" must register a folder path.`);
@@ -112,26 +127,79 @@ function normalizeAgentRegistration(
       typeof registration.subagents !== "object" ||
       Array.isArray(registration.subagents))
   ) {
-    throw new Error(`Agent "${key}" subagents must be an object of folder paths.`);
+    throw new Error(
+      `Agent "${key}" subagents must be an object of named registrations.`,
+    );
   }
-  for (const [subagentKey, registeredPath] of Object.entries(
-    registration.subagents ?? {},
-  )) {
-    if (typeof registeredPath !== "string" || !registeredPath.trim()) {
+  validateMcpRegistration(`Agent "${key}"`, registration.mcp);
+  return {
+    path: registration.path,
+    mcp: registration.mcp ?? {},
+    subagents: registration.subagents ?? {},
+  };
+}
+
+function normalizeSubagentRegistration(
+  parentKey: string,
+  key: string,
+  registration: SubagentRegistration,
+): { path: string; mcp: McpRegistration } {
+  if (typeof registration === "string") {
+    if (!registration.trim()) {
       throw new Error(
-        `Subagent "${key}/${subagentKey}" must register a folder path.`,
+        `Subagent "${parentKey}/${key}" must register a folder path.`,
+      );
+    }
+    return { path: registration, mcp: {} };
+  }
+  if (
+    !registration ||
+    typeof registration !== "object" ||
+    typeof registration.path !== "string" ||
+    !registration.path.trim()
+  ) {
+    throw new Error(
+      `Subagent "${parentKey}/${key}" must register a folder path.`,
+    );
+  }
+  validateMcpRegistration(
+    `Subagent "${parentKey}/${key}"`,
+    registration.mcp,
+  );
+  return {
+    path: registration.path,
+    mcp: registration.mcp ?? {},
+  };
+}
+
+function validateMcpRegistration(
+  owner: string,
+  registration: McpRegistration | undefined,
+): void {
+  if (
+    registration !== undefined &&
+    (!registration ||
+      typeof registration !== "object" ||
+      Array.isArray(registration))
+  ) {
+    throw new Error(`${owner} mcp must be an object of named folder paths.`);
+  }
+  for (const [key, path] of Object.entries(registration ?? {})) {
+    if (!/^[a-zA-Z0-9_-]{1,32}$/.test(key)) {
+      throw new Error(`${owner} has invalid MCP name "${key}".`);
+    }
+    if (typeof path !== "string" || !path.trim()) {
+      throw new Error(
+        `${owner} MCP "${key}" must register a folder path.`,
       );
     }
   }
-  return {
-    path: registration.path,
-    subagents: registration.subagents ?? {},
-  };
 }
 
 function compileAgent(
   key: string,
   registeredPath: string,
+  mcpRegistration: McpRegistration,
   registryRoot: string,
   actionRuntime: "native" | "sandbox",
   target: "node" | "browser" | "react-native",
@@ -253,11 +321,149 @@ function compileAgent(
       ),
       skills: compileSkills(name, sourceDirectory),
       evaluations: compileEvaluations(name, sourceDirectory),
+      mcpServers: compileMcpServers(
+        name,
+        mcpRegistration,
+        registryRoot,
+        target,
+      ),
       subagentPolicy: configuration.subagents
         ? Object.freeze({ ...configuration.subagents })
         : undefined,
       subagents: Object.freeze({}),
     });
+}
+
+function compileMcpServers(
+  agentName: string,
+  registration: McpRegistration,
+  registryRoot: string,
+  target: "node" | "browser" | "react-native",
+): Record<string, CompiledMcpServerManifest> {
+  const servers: Record<string, CompiledMcpServerManifest> = {};
+  for (const [key, registeredPath] of Object.entries(registration)) {
+    const directory = resolve(registryRoot, registeredPath);
+    const configurationPath = resolve(directory, "index.json");
+    let configuration: McpServerConfiguration;
+    try {
+      configuration = JSON.parse(
+        readFileSync(configurationPath, "utf8"),
+      ) as McpServerConfiguration;
+    } catch (error) {
+      throw new Error(
+        `MCP server "${agentName}/${key}" is missing a valid index.json at ${configurationPath}.`,
+        { cause: error },
+      );
+    }
+    validateMcpServerConfiguration(agentName, key, configuration, target);
+    servers[key] = Object.freeze({
+      ...configuration,
+      key,
+      directoryName: registeredPath,
+    });
+  }
+  return Object.freeze(servers);
+}
+
+function validateMcpServerConfiguration(
+  agentName: string,
+  key: string,
+  configuration: McpServerConfiguration,
+  target: "node" | "browser" | "react-native",
+): void {
+  const label = `MCP server "${agentName}/${key}"`;
+  if (
+    !configuration ||
+    typeof configuration !== "object" ||
+    !["streamable-http", "stdio"].includes(configuration.transport)
+  ) {
+    throw new Error(
+      `${label} transport must be "streamable-http" or "stdio".`,
+    );
+  }
+  if (configuration.transport === "streamable-http") {
+    let url: URL;
+    try {
+      url = new URL(configuration.url);
+    } catch {
+      throw new Error(`${label} requires a valid URL.`);
+    }
+    if (!["https:", "http:"].includes(url.protocol)) {
+      throw new Error(`${label} URL must use HTTP or HTTPS.`);
+    }
+    if (
+      url.protocol === "http:" &&
+      !["localhost", "127.0.0.1", "::1"].includes(url.hostname)
+    ) {
+      throw new Error(
+        `${label} must use HTTPS unless it connects to localhost.`,
+      );
+    }
+    if (
+      configuration.headers !== undefined &&
+      (!configuration.headers ||
+        typeof configuration.headers !== "object" ||
+        Array.isArray(configuration.headers) ||
+        Object.values(configuration.headers).some(
+          (value) => typeof value !== "string",
+        ))
+    ) {
+      throw new Error(`${label} headers must contain string values.`);
+    }
+    if (
+      configuration.credentials !== undefined &&
+      !["omit", "same-origin", "include"].includes(
+        configuration.credentials,
+      )
+    ) {
+      throw new Error(`${label} has invalid credentials.`);
+    }
+  } else {
+    if (target !== "node") {
+      throw new Error(
+        `${label} uses stdio, which is only available for the node target.`,
+      );
+    }
+    if (
+      typeof configuration.command !== "string" ||
+      !configuration.command.trim()
+    ) {
+      throw new Error(`${label} requires a command.`);
+    }
+    if (
+      configuration.args !== undefined &&
+      (!Array.isArray(configuration.args) ||
+        configuration.args.some((value) => typeof value !== "string"))
+    ) {
+      throw new Error(`${label} args must be an array of strings.`);
+    }
+    if (
+      configuration.env !== undefined &&
+      (!configuration.env ||
+        typeof configuration.env !== "object" ||
+        Array.isArray(configuration.env) ||
+        Object.values(configuration.env).some(
+          (value) => typeof value !== "string",
+        ))
+    ) {
+      throw new Error(`${label} env must contain string values.`);
+    }
+  }
+  validateNumber(label, "timeoutMs", configuration.timeoutMs, {
+    integer: true,
+    minimum: 1,
+    maximum: 300_000,
+  });
+  validateNumber(
+    label,
+    "maxOutputBytes",
+    configuration.maxOutputBytes,
+    {
+      integer: true,
+      minimum: 1,
+      maximum: 10_000_000,
+    },
+  );
 }
 
 function compileActions(

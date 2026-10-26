@@ -187,11 +187,13 @@ async function checkCleanInstall() {
     "@aws-sdk/client-bedrock-runtime",
     "@google/genai",
     "@jitl/quickjs-singlefile-cjs-release-sync",
+    "@modelcontextprotocol/sdk",
     "better-sqlite3",
     "chokidar",
     "dotenv",
     "esbuild",
     "quickjs-emscripten-core",
+    "zod",
   ];
   for (const packageName of unexpectedPackages) {
     try {
@@ -276,6 +278,7 @@ async function checkUniversalRuntimeBundle(
     "node_modules/chokidar/",
     "node_modules/dotenv/",
     "node_modules/esbuild/",
+    "node_modules/@modelcontextprotocol/sdk/",
     ...providerBundles.map((provider) => provider.source),
     ...targetExclusions,
   ]);

@@ -319,6 +319,78 @@ npm install quickjs-emscripten-core @jitl/quickjs-singlefile-cjs-release-sync
 
 ---
 
+## MCP connections
+
+Assign named MCP connections directly to agents and subagents:
+
+```js
+orcha.init({
+  providers: {
+    anthropic: process.env.ANTHROPIC_API_KEY,
+  },
+  mcp: {
+    credentials: {
+      GITHUB_MCP_TOKEN: process.env.GITHUB_MCP_TOKEN,
+    },
+  },
+  agents: {
+    coordinator: {
+      path: "./coordinator",
+      mcp: {
+        github: "./mcp/github",
+      },
+      subagents: {
+        researcher: {
+          path: "./researcher",
+          mcp: {
+            docs: "./mcp/docs",
+          },
+        },
+      },
+    },
+  },
+});
+```
+
+Each path contains an `index.json`. Streamable HTTP works in Node.js,
+browsers, Expo, and React Native:
+
+```json
+{
+  "transport": "streamable-http",
+  "url": "https://mcp.example.com",
+  "headers": {
+    "Authorization": "Bearer ${GITHUB_MCP_TOKEN}"
+  },
+  "timeoutMs": 30000
+}
+```
+
+Node.js also supports local stdio servers:
+
+```json
+{
+  "transport": "stdio",
+  "command": "npx",
+  "args": ["-y", "@example/mcp-server"],
+  "env": {
+    "API_TOKEN": "${EXAMPLE_MCP_TOKEN}"
+  }
+}
+```
+
+Orcha discovers every server tool lazily and exposes it as
+`<connection>__<tool>`, for example `github__get_issue`. Tool calls and
+results use the durable action event timeline. Credential placeholders resolve
+from `orcha.init().mcp.credentials`; Node.js additionally resolves them from
+`process.env`. Never put secret values directly in MCP JSON files.
+
+The optional MCP SDK is installed automatically when an agent uses MCP.
+Projects without MCP do not install or bundle it. Browser and React Native
+targets reject stdio connections during compilation.
+
+---
+
 ## Quick start
 
 ```bash
@@ -329,22 +401,14 @@ This installs `orchajs` and its development tooling in the current project,
 then creates the starter agent files.
 
 The default installation includes the compiler, CLI, native actions, JSONL
-storage, and fetch-based Anthropic, DeepSeek, and OpenAI adapters. Install an
-optional integration only in applications that use it:
+storage, and fetch-based Anthropic, DeepSeek, and OpenAI adapters. Orcha
+automatically installs the Bedrock, Google, or MCP SDK only when a compiled
+agent selects that integration. Other optional integrations remain explicit:
 
 ```bash
-# Amazon Bedrock
-npm install @aws-sdk/client-bedrock-runtime
-
-# Google GenAI or Vertex AI (Node.js 20+)
-npm install @google/genai
-
 # SQLite session storage
 npm install better-sqlite3
 ```
-
-Selecting an integration without its package produces an error that names the
-dependency to install.
 
 Install the OrchaJS skill to give supported coding agents version-aware Orcha
 workflows:

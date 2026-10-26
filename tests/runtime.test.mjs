@@ -17,6 +17,7 @@ import { generateBedrockContent } from "../dist/providers/bedrock.js";
 import { generateProviderResponse } from "../dist/providers/index.js";
 import { createLocalActionContext } from "../dist/runtime/actions/context.js";
 import { createOrcha as createRuntimeOrcha } from "../dist/runtime/create-orcha.js";
+import { setMcpClientFactory } from "../dist/runtime/mcp/client.js";
 import { nodeRuntimePlatform } from "../dist/runtime/platform-node.js";
 import {
   migrateSessionStore,
@@ -749,6 +750,198 @@ test("compiles explicitly registered private subagents", async () => {
     );
     assert.equal(bundle.agents.coordinator.subagentPolicy.maxPerRun, 10);
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("compiles named MCP connections for agents and subagents", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-mcp-"));
+  try {
+    await writeProjectFiles(root, {
+      "coordinator/index.json": JSON.stringify({
+        name: "Coordinator",
+        provider: "anthropic",
+        model: "claude-test",
+      }),
+      "coordinator/instructions.md": "Coordinate the response.",
+      "researcher/index.json": JSON.stringify({
+        name: "Researcher",
+        provider: "openai",
+        model: "gpt-test",
+      }),
+      "researcher/instructions.md": "Research the request.",
+      "mcp/github/index.json": JSON.stringify({
+        transport: "streamable-http",
+        url: "https://mcp.example.com",
+        headers: {
+          Authorization: "Bearer ${GITHUB_MCP_TOKEN}",
+        },
+      }),
+      "mcp/local/index.json": JSON.stringify({
+        transport: "stdio",
+        command: "node",
+        args: ["server.mjs"],
+      }),
+    });
+
+    const bundle = compileRegistry(
+      {
+        coordinator: {
+          path: "./coordinator",
+          mcp: { github: "./mcp/github" },
+          subagents: {
+            researcher: {
+              path: "./researcher",
+              mcp: { github: "./mcp/github" },
+            },
+          },
+        },
+      },
+      root,
+      "native",
+      "browser",
+    );
+
+    assert.equal(
+      bundle.agents.coordinator.mcpServers.github.url,
+      "https://mcp.example.com",
+    );
+    assert.equal(
+      bundle.agents.coordinator.subagents.researcher.mcpServers.github.key,
+      "github",
+    );
+    assert.throws(
+      () =>
+        compileRegistry(
+          {
+            coordinator: {
+              path: "./coordinator",
+              mcp: { local: "./mcp/local" },
+            },
+          },
+          root,
+          "native",
+          "react-native",
+        ),
+      /stdio.*only available for the node target/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("discovers and executes MCP tools through the provider tool loop", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-mcp-runtime-"));
+  const mcpCalls = [];
+  const providerRequests = [];
+  setMcpClientFactory(async (_server, credentials) => {
+    assert.equal(credentials.MCP_TOKEN, "secret");
+    return {
+      async listTools() {
+        return [
+          {
+            name: "get_issue",
+            description: "Get one issue.",
+            inputSchema: {
+              type: "object",
+              properties: { key: { type: "string" } },
+              required: ["key"],
+            },
+          },
+        ];
+      },
+      async callTool(name, arguments_) {
+        mcpCalls.push({ name, arguments: arguments_ });
+        return { output: { title: "Fix MCP" } };
+      },
+      async close() {},
+    };
+  });
+  const usage = {
+    inputTokens: 1,
+    outputTokens: 1,
+    reasoningTokens: null,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  };
+  let round = 0;
+  const client = createOrcha(
+    () => ({
+      schemaVersion: 1,
+      agents: {
+        support: {
+          key: "support",
+          name: "Support",
+          provider: "anthropic",
+          model: "test-model",
+          systemPrompt: "Use available tools.",
+          outputType: "text",
+          actions: {},
+          skills: {},
+          evaluations: {},
+          mcpServers: {
+            github: {
+              key: "github",
+              directoryName: "./mcp/github",
+              transport: "streamable-http",
+              url: "https://mcp.example.com",
+            },
+          },
+          subagents: {},
+        },
+      },
+    }),
+    async (_provider, _configuration, request) => {
+      providerRequests.push(request);
+      round += 1;
+      if (round === 1) {
+        const toolCall = {
+          type: "tool_call",
+          callId: "mcp_1",
+          name: "github__get_issue",
+          arguments: { key: "ORC-1" },
+        };
+        return {
+          output: "",
+          stopReason: "tool_call",
+          content: [toolCall],
+          toolCalls: [toolCall],
+          usage,
+        };
+      }
+      return {
+        output: "Issue loaded.",
+        stopReason: "end_turn",
+        content: [{ type: "text", text: "Issue loaded." }],
+        toolCalls: [],
+        usage,
+      };
+    },
+  );
+  client.init({
+    root,
+    providers: { anthropic: "test-key" },
+    agents: { support: "./support" },
+    mcp: { credentials: { MCP_TOKEN: "secret" } },
+  });
+
+  try {
+    const result = await client.support.run("Load ORC-1").result;
+    assert.equal(result.status, "completed");
+    assert.equal(providerRequests[0].tools[0].name, "github__get_issue");
+    assert.deepEqual(mcpCalls, [
+      { name: "get_issue", arguments: { key: "ORC-1" } },
+    ]);
+    const events = await client.support.events(result.sessionId);
+    assert.ok(
+      events.events.some(
+        (event) =>
+          event.type === "action.completed" &&
+          event.data.source === "mcp",
+      ),
+    );
+  } finally {
+    await client.support._close?.();
     await rm(root, { recursive: true, force: true });
   }
 });

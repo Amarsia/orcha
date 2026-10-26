@@ -10,7 +10,10 @@ import {
   builtInProviderCatalog,
   isBuiltInProvider,
 } from "../providers/catalog.js";
-import { ensureProviderDependencies } from "../providers/dependencies.js";
+import {
+  ensureCompiledMcpDependencies,
+  ensureProviderDependencies,
+} from "../providers/dependencies.js";
 import type {
   CompiledAgentManifest,
   CompiledBundle,
@@ -138,6 +141,13 @@ export async function buildProject(
     const providerRuntimeSource =
       createProviderRuntimeSource(includedProviders, target);
     await ensureProviderDependencies(includedProviders, projectRoot);
+    const hasMcp = allCompiledAgents(compiledBundle.agents).some(
+      (agent) => Object.keys(agent.mcpServers ?? {}).length > 0,
+    );
+    await ensureCompiledMcpDependencies(compiledBundle, projectRoot);
+    const mcpRuntimeSource = hasMcp
+      ? createMcpRuntimeSource(target)
+      : "";
     const needsNodeRequire =
       compiledBundle.actionRuntime === "sandbox" ||
       includedProviders.includes("vertexai") ||
@@ -153,6 +163,7 @@ export async function buildProject(
         nodeStorageExports,
         providerRuntimeSource,
         platformActionRuntimeSource,
+        mcpRuntimeSource,
         sandboxRuntimeSource,
         `const compiledBundle = ${JSON.stringify(compiledBundle)};`,
         "const generateProviderResponse = createProviderResponseGenerator(includedProviders);",
@@ -269,6 +280,30 @@ function createPlatformActionRuntimeSource(
     `import { setNativeRuntimeLoader } from ${JSON.stringify(executePath)};`,
     `import { executeNativeAction } from ${JSON.stringify(nativePath)};`,
     "setNativeRuntimeLoader(async () => ({ executeNativeAction }));",
+    "",
+  ].join("\n");
+}
+
+function createMcpRuntimeSource(
+  target: "node" | "browser" | "react-native",
+): string {
+  const runtimeDirectory = dirname(fileURLToPath(import.meta.url));
+  const clientPath = resolve(
+    runtimeDirectory,
+    "../runtime/mcp/client.js",
+  ).replaceAll("\\", "/");
+  const implementationPath = resolve(
+    runtimeDirectory,
+    target === "node"
+      ? "../runtime/mcp/node-client.js"
+      : "../runtime/mcp/http-client.js",
+  ).replaceAll("\\", "/");
+  const factoryName =
+    target === "node" ? "createNodeMcpClient" : "createHttpMcpClient";
+  return [
+    `import { setMcpClientFactory } from ${JSON.stringify(clientPath)};`,
+    `import { ${factoryName} } from ${JSON.stringify(implementationPath)};`,
+    `setMcpClientFactory(${factoryName});`,
     "",
   ].join("\n");
 }

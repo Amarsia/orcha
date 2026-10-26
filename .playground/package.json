@@ -15,7 +15,9 @@
   },
   "dependencies": {
     "@google/genai": "^2.22.0",
-    "orchajs": "file:.."
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "orchajs": "file:..",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "dotenv": "16.6.1",

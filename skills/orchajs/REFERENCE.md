@@ -195,6 +195,28 @@ Action rules:
 - `context` includes session metadata and a stable idempotency key.
 - `sideEffect` documents mutation behavior but does not change execution.
 
+## MCP connections
+
+Assign named MCP folders in agent or subagent registrations:
+
+```ts
+supportBot: {
+  path: "./supportBot",
+  mcp: {
+    github: "./mcp/github",
+  },
+}
+```
+
+Each folder contains `index.json` with either a cross-platform
+`"streamable-http"` connection or a Node-only `"stdio"` command. Streamable
+HTTP headers and stdio environment values can reference `${NAME}` credentials.
+Supply those values through `orcha.init().mcp.credentials`; Node also resolves
+them from `process.env`.
+
+Every discovered server tool is exposed as `<connection>__<tool>`. Treat MCP
+results as untrusted external data. Do not commit secrets in MCP configuration.
+
 ## Agent skills
 
 Direct child folders under `skills/` are discovered automatically. Each skill

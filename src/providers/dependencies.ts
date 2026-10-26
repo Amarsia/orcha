@@ -26,6 +26,17 @@ const providerDependencies = {
   },
 } as const;
 
+const mcpDependencies = [
+  {
+    packageName: "@modelcontextprotocol/sdk",
+    installSpec: "@modelcontextprotocol/sdk@1.32.1",
+  },
+  {
+    packageName: "zod",
+    installSpec: "zod@3.25.76",
+  },
+] as const;
+
 const installations = new Map<string, Promise<void>>();
 
 export function ensureCompiledProviderDependencies(
@@ -68,7 +79,39 @@ export async function ensureProviderDependencies(
   if (dependencies.length === 0) {
     return;
   }
+  return ensureDependencies(dependencies, projectRoot, "provider");
+}
 
+export async function ensureCompiledMcpDependencies(
+  bundle: CompiledBundle,
+  projectRoot: string,
+): Promise<void> {
+  const hasMcp = allCompiledAgents(bundle.agents).some(
+    (agent) => Object.keys(agent.mcpServers ?? {}).length > 0,
+  );
+  if (!hasMcp) {
+    return;
+  }
+  const declaredPackages = await readDeclaredPackages(projectRoot);
+  const missing = mcpDependencies.filter(
+    (dependency) =>
+      !declaredPackages.has(dependency.packageName) ||
+      !isInstalled(dependency.packageName, projectRoot),
+  );
+  if (missing.length === 0) {
+    return;
+  }
+  return ensureDependencies(missing, projectRoot, "MCP");
+}
+
+async function ensureDependencies(
+  dependencies: ReadonlyArray<{
+    packageName: string;
+    installSpec: string;
+  }>,
+  projectRoot: string,
+  kind: "provider" | "MCP",
+): Promise<void> {
   const key = `${projectRoot}:${dependencies
     .map((dependency) => dependency.packageName)
     .sort()
@@ -78,9 +121,10 @@ export async function ensureProviderDependencies(
     return existing;
   }
 
-  const installation = installProviderDependencies(
+  const installation = installDependencies(
     dependencies,
     projectRoot,
+    kind,
   ).finally(() => installations.delete(key));
   installations.set(key, installation);
   return installation;
@@ -136,12 +180,13 @@ function isInstalled(
   }
 }
 
-async function installProviderDependencies(
+async function installDependencies(
   dependencies: ReadonlyArray<{
     packageName: string;
     installSpec: string;
   }>,
   projectRoot: string,
+  kind: "provider" | "MCP",
 ): Promise<void> {
   const packageManager = detectPackageManager(projectRoot);
   const packageNames = dependencies.map(
@@ -153,7 +198,7 @@ async function installProviderDependencies(
     false,
   );
   console.log(
-    `[orcha] Installing required provider ${packageNames.length === 1 ? "dependency" : "dependencies"} with ${packageManager}: ${packageNames.join(", ")}`,
+    `[orcha] Installing required ${kind} ${packageNames.length === 1 ? "dependency" : "dependencies"} with ${packageManager}: ${packageNames.join(", ")}`,
   );
   const exitCode = await runPackageManager(
     command.command,
@@ -162,7 +207,7 @@ async function installProviderDependencies(
   );
   if (exitCode !== 0) {
     throw new Error(
-      `Failed to install required provider ${packageNames.length === 1 ? "dependency" : "dependencies"}: ${packageNames.join(", ")}`,
+      `Failed to install required ${kind} ${packageNames.length === 1 ? "dependency" : "dependencies"}: ${packageNames.join(", ")}`,
     );
   }
 }

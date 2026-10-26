@@ -1,0 +1,7 @@
+{
+  "transport": "stdio",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-memory"],
+  "timeoutMs": 30000,
+  "maxOutputBytes": 1000000
+}
