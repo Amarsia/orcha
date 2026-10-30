@@ -63,13 +63,15 @@ export async function loadProject(projectRoot: string): Promise<void> {
       orcha.getCompiledBundle() === previousBundle
     ) {
       throw new Error(
-        '"orcha/index.ts" must call orcha.init({ providers, agents }).',
+        '"orcha/index.ts" must call orcha.init({ agents, ... }).',
       );
     }
-    await ensureCompiledProviderDependencies(
-      orcha.getCompiledBundle(),
-      projectRoot,
-    );
+    if (!orcha.isInferenceEnabled()) {
+      await ensureCompiledProviderDependencies(
+        orcha.getCompiledBundle(),
+        projectRoot,
+      );
+    }
     await ensureCompiledMcpDependencies(
       orcha.getCompiledBundle(),
       projectRoot,

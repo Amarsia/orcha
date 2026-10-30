@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createAmarsiaInferenceGenerator } from "./amarsia/inference.js";
 import { generateProviderResponse } from "./providers/index.js";
 import {
   setNativeRuntimeLoader,
@@ -9,7 +10,12 @@ import { executeNativeAction } from "./runtime/actions/native.js";
 import { getRegistryCompiler } from "./runtime/compiler-hook.js";
 import { createOrcha } from "./runtime/create-orcha.js";
 import { setMcpClientFactory } from "./runtime/mcp/client.js";
+import {
+  setCloudSessionStoreFactory,
+  setInferenceGeneratorFactory,
+} from "./runtime/optional-features.js";
 import { nodeRuntimePlatform } from "./runtime/platform-node.js";
+import { CloudSessionStore } from "./storage/cloud.js";
 import type {
   CompiledBundle,
   OrchaInitConfiguration,
@@ -29,6 +35,8 @@ setMcpClientFactory(async (server, credentials) => {
   const { createNodeMcpClient } = await import(modulePath);
   return createNodeMcpClient(server, credentials);
 });
+setInferenceGeneratorFactory(createAmarsiaInferenceGenerator);
+setCloudSessionStoreFactory((options) => new CloudSessionStore(options));
 
 export const orcha = createOrcha(
   (configuration) => {

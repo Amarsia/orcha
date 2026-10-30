@@ -231,10 +231,11 @@ export class RuntimeAgent implements AgentRuntime {
       "sessionId" in normalized
     ) {
       return this.#createExecution(sessionId, async () =>
-        failure(
-            sessionId,
-            "invalid_input",
-            "run() always creates a new session and does not accept sessionId.",
+        this.#recordRejectedRun(
+          sessionId,
+          "run() always creates a new session and does not accept sessionId.",
+          true,
+          lineage,
         ),
       );
     }
@@ -295,10 +296,10 @@ export class RuntimeAgent implements AgentRuntime {
     }
     if (!input || typeof input !== "object") {
       return this.#createExecution(sessionId, async () =>
-        failure(
-            sessionId,
-            "invalid_input",
-            "resume() requires content or toolResults.",
+        this.#recordRejectedRun(
+          sessionId,
+          "resume() requires content or toolResults.",
+          false,
         ),
       );
     }
@@ -306,10 +307,10 @@ export class RuntimeAgent implements AgentRuntime {
     const hasToolResults = "toolResults" in input;
     if (hasMessage === hasToolResults) {
       return this.#createExecution(sessionId, async () =>
-        failure(
-            sessionId,
-            "invalid_input",
-            "resume() requires either content or toolResults, but not both.",
+        this.#recordRejectedRun(
+          sessionId,
+          "resume() requires either content or toolResults, but not both.",
+          false,
         ),
       );
     }
@@ -352,6 +353,78 @@ export class RuntimeAgent implements AgentRuntime {
       const task = this.#evaluationTasks.get(sessionId);
       this.#evaluationTasks.delete(sessionId);
       return task ? task : [];
+    });
+  }
+
+  async #recordRejectedRun(
+    sessionId: string,
+    message: string,
+    createSession: boolean,
+    lineage?: SessionLineage,
+  ): Promise<RunResult> {
+    return this.#withSessionExecutionLock(sessionId, async () => {
+      const events = await this.#readSession(sessionId);
+      if (!createSession && events.length === 0) {
+        return failure(
+          sessionId,
+          "session_not_found",
+          `Session "${sessionId}" does not exist.`,
+        );
+      }
+      if (events.length > 0) {
+        try {
+          this.#assertOwnedSession(sessionId, events);
+        } catch {
+          return failure(
+            sessionId,
+            "session_not_found",
+            `Session "${sessionId}" was not created by this agent.`,
+          );
+        }
+      }
+
+      const writer = new SessionEventWriter(sessionId, events);
+      const rejectedEvents: SessionEvent[] = [];
+      if (events.length === 0) {
+        rejectedEvents.push(
+          writer.create(
+            "session.created",
+            {
+              schemaVersion: 1,
+              sessionId,
+              agent: this.#agentKey,
+              status: "active",
+              metadata: {},
+              variables: {},
+              ...(lineage ? { lineage } : {}),
+            },
+            "session",
+          ),
+        );
+      }
+      rejectedEvents.push(
+        writer.create("run.started", {
+          status: "running",
+          agent: this.#agentKey,
+          provider: this.#manifest.provider,
+          model: this.#manifest.model,
+          region: this.#manifest.region ?? "provider_managed",
+          reasoningLevel: this.#manifest.reasoningLevel,
+          outputType: this.#manifest.outputType,
+          clientCapabilities: [],
+        }),
+        writer.create("run.failed", {
+          status: "failed",
+          durationMs: 0,
+          error: {
+            code: "invalid_input",
+            message,
+            retryable: false,
+          },
+        }),
+      );
+      await this.#store.append(sessionId, rejectedEvents);
+      return failure(sessionId, "invalid_input", message);
     });
   }
 
@@ -752,17 +825,19 @@ export class RuntimeAgent implements AgentRuntime {
     try {
       content = normalizeContent(input.content, this.#projectRoot);
     } catch (error) {
-      return failure(
+      return this.#recordRejectedRun(
         sessionId,
-        "invalid_input",
         error instanceof Error ? error.message : String(error),
+        createSession,
+        lineage,
       );
     }
     if (!content) {
-      return failure(
+      return this.#recordRejectedRun(
         sessionId,
-        "invalid_input",
         "Agent content must contain at least one valid item.",
+        createSession,
+        lineage,
       );
     }
     let initialName: string | undefined;
@@ -775,7 +850,12 @@ export class RuntimeAgent implements AgentRuntime {
         initialVariables = normalizeVariables(input.variables);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return failure(sessionId, "invalid_input", message);
+        return this.#recordRejectedRun(
+          sessionId,
+          message,
+          createSession,
+          lineage,
+        );
       }
     }
 
@@ -783,20 +863,22 @@ export class RuntimeAgent implements AgentRuntime {
       input.clientCapabilities ?? [],
     );
     if (!capabilities) {
-      return failure(
+      return this.#recordRejectedRun(
         sessionId,
-        "invalid_input",
         "clientCapabilities must contain tool names or client tool definitions.",
+        createSession,
+        lineage,
       );
     }
     const unknownCapabilities = capabilities.filter(
       (name) => !(this.#manifest.actions ?? {})[name],
     );
     if (unknownCapabilities.length > 0) {
-      return failure(
+      return this.#recordRejectedRun(
         sessionId,
-        "invalid_input",
         `Unknown client capabilities: ${unknownCapabilities.join(", ")}.`,
+        createSession,
+        lineage,
       );
     }
 
@@ -1143,12 +1225,17 @@ export class RuntimeAgent implements AgentRuntime {
                 publishOutput?.(output);
               },
               signal,
+              trace: {
+                agentExternalId: this.#agentKey,
+                sessionId,
+              },
             }),
           signal,
         );
       } catch (error) {
         if (this.#sessionControls.get(sessionId)?.pauseRequested) {
           const pausedEvents: SessionEvent[] = [];
+          const usage = usageForRun(previousEvents, writer.run);
           if (streamedOutput) {
             pausedEvents.push(
               writer.create("message.created", {
@@ -1167,6 +1254,7 @@ export class RuntimeAgent implements AgentRuntime {
             writer.create("run.paused", {
               status: "paused",
               output: streamedOutput,
+              usage,
               durationMs: elapsedRunDuration(previousEvents, writer.run),
             }),
             writer.create(
@@ -1411,10 +1499,12 @@ export class RuntimeAgent implements AgentRuntime {
         error instanceof OrchaError ? error.details : undefined;
       const retryable =
         error instanceof OrchaError ? error.retryable : false;
+      const usage = usageForRun(previousEvents, writer.run);
       await this.#store.append(sessionId, [
         writer.create("run.failed", {
           status: "failed",
           durationMs: elapsedRunDuration(previousEvents, writer.run),
+          usage,
           error: {
             code,
             message,
@@ -1454,7 +1544,7 @@ export class RuntimeAgent implements AgentRuntime {
 
     const task = Promise.all(
       evaluations.map((evaluation) =>
-        this.#runEvaluation(evaluation, events),
+        this.#runEvaluation(evaluation, events, sessionId),
       ),
     ).then((results) =>
       this.#persistEvaluationResults(
@@ -1481,6 +1571,7 @@ export class RuntimeAgent implements AgentRuntime {
   async #runEvaluation(
     evaluation: CompiledEvaluationManifest,
     events: SessionEvent[],
+    sessionId: string,
   ): Promise<EvaluationResult> {
     const startedAt = performance.now();
     try {
@@ -1493,7 +1584,12 @@ export class RuntimeAgent implements AgentRuntime {
       const response = await this.#generateProviderResponse(
         evaluation.provider,
         provider,
-        createEvaluationRequest(evaluation, events),
+        createEvaluationRequest(
+          evaluation,
+          events,
+          this.#agentKey,
+          sessionId,
+        ),
       );
       const metrics = normalizeEvaluationMetrics(
         evaluation,
@@ -2724,6 +2820,10 @@ function normalizeContent(
   }
   const normalized: MessageContent[] = [];
   for (const item of items) {
+    const record =
+      item && typeof item === "object"
+        ? item as unknown as Record<string, unknown>
+        : {};
     if (
       item &&
       "type" in item &&
@@ -2767,6 +2867,29 @@ function normalizeContent(
       );
       continue;
     }
+    const remoteUri =
+      typeof record.fileUri === "string"
+        ? record.fileUri
+        : typeof record.file_uri === "string"
+          ? record.file_uri
+          : undefined;
+    const remoteMimeType =
+      typeof record.mimeType === "string"
+        ? record.mimeType
+        : typeof record.mime_type === "string"
+          ? record.mime_type
+          : undefined;
+    if (
+      remoteUri?.trim() &&
+      (record.type === "url" ||
+        record.type === "document" ||
+        record.type === "file")
+    ) {
+      normalized.push(
+        normalizeUrlContent(remoteUri, remoteMimeType),
+      );
+      continue;
+    }
     if (
       item &&
       "type" in item &&
@@ -2784,7 +2907,16 @@ function normalizeContent(
     }
     return undefined;
   }
-  return normalized;
+  if (normalized.some((item) => item.type === "text")) {
+    return normalized;
+  }
+  return [
+    {
+      type: "text",
+      text: "Process the attached content according to your agent instructions.",
+    },
+    ...normalized,
+  ];
 }
 
 function normalizeDelegatedInput(
@@ -3152,6 +3284,8 @@ function loadedSkillNames(events: SessionEvent[]): Set<string> {
 function createEvaluationRequest(
   evaluation: CompiledEvaluationManifest,
   events: SessionEvent[],
+  agentExternalId: string,
+  sessionId: string,
 ): ProviderRequest {
   return {
     model: evaluation.model,
@@ -3223,6 +3357,7 @@ function createEvaluationRequest(
       },
     ],
     tools: [],
+    trace: { agentExternalId, sessionId },
   };
 }
 
@@ -3467,7 +3602,9 @@ function projectSessionSnapshot(events: SessionEvent[]): SessionSnapshot {
   const latestUsageEvent = findLast(
     events,
     (event) =>
-      (event.type === "run.completed" || event.type === "run.paused") &&
+      (event.type === "run.completed" ||
+        event.type === "run.failed" ||
+        event.type === "run.paused") &&
       isUsage(event.data.usage),
   );
 

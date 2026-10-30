@@ -3,8 +3,12 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build as bundleEntry } from "esbuild";
+import { loadProjectEnvironment } from "../env.js";
 import { orcha } from "../orcha.js";
-import { setRegistryCompiler } from "../runtime/compiler-hook.js";
+import {
+  setRegistryCompilationActive,
+  setRegistryCompiler,
+} from "../runtime/compiler-hook.js";
 import { compileRegistry } from "./compile.js";
 import {
   builtInProviderCatalog,
@@ -30,6 +34,7 @@ export async function buildProject(
   options: BuildProjectOptions = {},
 ): Promise<string> {
   const projectRoot = resolve(options.projectRoot ?? process.cwd());
+  loadProjectEnvironment(projectRoot);
   const target = options.target ?? "node";
   setRegistryCompiler((configuration, compilerProjectRoot) =>
     compileRegistry(
@@ -58,8 +63,14 @@ export async function buildProject(
     projectRoot,
     ".orcha/dist/manifest.json",
   );
+  if (orcha.isInitialized()) {
+    throw new Error(
+      "Cannot compile an Orcha project while the shared development runtime is initialized. Await orcha.close() first.",
+    );
+  }
   await mkdir(temporaryDirectory, { recursive: true });
   await mkdir(dirname(outputPath), { recursive: true });
+  let compilationRuntimeCreated = false;
 
   try {
     await bundleEntry({
@@ -77,11 +88,14 @@ export async function buildProject(
     const previousProjectRoot = process.env.ORCHA_PROJECT_ROOT;
     process.env.ORCHA_COMPILING = "1";
     process.env.ORCHA_PROJECT_ROOT = projectRoot;
+    setRegistryCompilationActive(true);
     try {
       await import(
         `${pathToFileURL(registryBundlePath).href}?build=${Date.now()}-${registryImportSequence++}`
       );
     } finally {
+      compilationRuntimeCreated = orcha.isInitialized();
+      setRegistryCompilationActive(false);
       if (previousCompiling === undefined) {
         delete process.env.ORCHA_COMPILING;
       } else {
@@ -94,6 +108,10 @@ export async function buildProject(
       }
     }
     const compiledBundle = orcha.getCompiledBundle();
+    const inferenceEnabled = orcha.isInferenceEnabled();
+    const cloudStorageEnabled = orcha.isCloudStorageEnabled();
+    await orcha.close();
+    compilationRuntimeCreated = false;
     if (
       target !== "node" &&
       compiledBundle.actionRuntime === "sandbox"
@@ -126,21 +144,25 @@ export async function buildProject(
       createPlatformActionRuntimeSource(target);
     const nodeStorageExports =
       target === "node" ? createNodeStorageExports() : "";
-    const includedProviders = [
-      ...new Set(
-        allCompiledAgents(compiledBundle.agents).flatMap(
-          (agent) => [
-            agent.provider,
-            ...Object.values(agent.evaluations ?? {})
-              .filter((evaluation) => evaluation.enabled !== false)
-              .map((evaluation) => evaluation.provider),
-          ],
-        ),
-      ),
-    ];
+    const includedProviders = inferenceEnabled
+      ? []
+      : [
+          ...new Set(
+            allCompiledAgents(compiledBundle.agents).flatMap(
+              (agent) => [
+                agent.provider,
+                ...Object.values(agent.evaluations ?? {})
+                  .filter((evaluation) => evaluation.enabled !== false)
+                  .map((evaluation) => evaluation.provider),
+              ],
+            ),
+          ),
+        ];
     const providerRuntimeSource =
       createProviderRuntimeSource(includedProviders, target);
-    await ensureProviderDependencies(includedProviders, projectRoot);
+    if (!inferenceEnabled) {
+      await ensureProviderDependencies(includedProviders, projectRoot);
+    }
     const hasMcp = allCompiledAgents(compiledBundle.agents).some(
       (agent) => Object.keys(agent.mcpServers ?? {}).length > 0,
     );
@@ -148,11 +170,11 @@ export async function buildProject(
     const mcpRuntimeSource = hasMcp
       ? createMcpRuntimeSource(target)
       : "";
-    const needsNodeRequire =
-      compiledBundle.actionRuntime === "sandbox" ||
-      includedProviders.includes("vertexai") ||
-      includedProviders.includes("bedrock");
-
+    const optionalFeatureRuntimeSource =
+      createOptionalFeatureRuntimeSource({
+        inference: inferenceEnabled,
+        cloudStorage: cloudStorageEnabled,
+      });
     await writeFile(
       productionEntryPath,
       [
@@ -164,6 +186,7 @@ export async function buildProject(
         providerRuntimeSource,
         platformActionRuntimeSource,
         mcpRuntimeSource,
+        optionalFeatureRuntimeSource,
         sandboxRuntimeSource,
         `const compiledBundle = ${JSON.stringify(compiledBundle)};`,
         "const generateProviderResponse = createProviderResponseGenerator(includedProviders);",
@@ -192,7 +215,7 @@ export async function buildProject(
           compiledBundle.actionRuntime === "sandbox" ? "1" : "0",
         ),
       },
-      ...(needsNodeRequire && target === "node"
+      ...(target === "node"
         ? {
             banner: {
               js: [
@@ -219,6 +242,10 @@ export async function buildProject(
 
     return outputPath;
   } finally {
+    setRegistryCompilationActive(false);
+    if (compilationRuntimeCreated && orcha.isInitialized()) {
+      await orcha.close();
+    }
     await rm(temporaryDirectory, {
       recursive: true,
       force: true,
@@ -306,6 +333,49 @@ function createMcpRuntimeSource(
     `setMcpClientFactory(${factoryName});`,
     "",
   ].join("\n");
+}
+
+function createOptionalFeatureRuntimeSource(options: {
+  inference: boolean;
+  cloudStorage: boolean;
+}): string {
+  if (!options.inference && !options.cloudStorage) {
+    return "";
+  }
+  const sourceRoot = dirname(fileURLToPath(import.meta.url));
+  const hooksPath = resolve(
+    sourceRoot,
+    "../runtime/optional-features.js",
+  ).replaceAll("\\", "/");
+  const imports: string[] = [];
+  const registrations: string[] = [];
+  if (options.inference) {
+    const inferencePath = resolve(
+      sourceRoot,
+      "../amarsia/inference.js",
+    ).replaceAll("\\", "/");
+    imports.push(
+      `import { createAmarsiaInferenceGenerator } from ${JSON.stringify(inferencePath)};`,
+      `import { setInferenceGeneratorFactory } from ${JSON.stringify(hooksPath)};`,
+    );
+    registrations.push(
+      "setInferenceGeneratorFactory(createAmarsiaInferenceGenerator);",
+    );
+  }
+  if (options.cloudStorage) {
+    const cloudPath = resolve(
+      sourceRoot,
+      "../storage/cloud.js",
+    ).replaceAll("\\", "/");
+    imports.push(
+      `import { CloudSessionStore } from ${JSON.stringify(cloudPath)};`,
+      `import { setCloudSessionStoreFactory } from ${JSON.stringify(hooksPath)};`,
+    );
+    registrations.push(
+      "setCloudSessionStoreFactory((options) => new CloudSessionStore(options));",
+    );
+  }
+  return [...imports, ...registrations, ""].join("\n");
 }
 
 function createNodeStorageExports(): string {

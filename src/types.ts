@@ -73,7 +73,12 @@ export interface ProjectConfiguration {
     credentials?: Record<string, string | undefined>;
   };
   storage?: {
-    strategy?: "node-jsonl" | "sqlite" | "indexeddb" | "react-native";
+    strategy?:
+      | "node-jsonl"
+      | "sqlite"
+      | "indexeddb"
+      | "react-native"
+      | "cloud";
     directory?: string;
   };
 }
@@ -96,13 +101,14 @@ export type AgentRegistration =
     };
 
 export interface OrchaInitConfiguration {
-  providers: ProviderInitConfigurations;
+  providers?: ProviderInitConfigurations;
   agents: Record<string, AgentRegistration>;
   /** Precompiled registry used by browser, React Native, and custom runtimes. */
   bundle?: CompiledBundle;
   amarsia?: {
     key: string;
     endpoint?: string;
+    inference?: boolean;
   };
   actions?: LocalActionRuntimeConfiguration;
   mcp?: ProjectConfiguration["mcp"];
@@ -556,8 +562,29 @@ export interface SessionEvent<TData = Record<string, unknown>> {
 
 export interface SessionStore {
   read(sessionId: string): Promise<SessionEvent[]>;
+  /** Reads a bounded contiguous local tail without materializing prior events. */
+  readAfterSequence?(
+    sessionId: string,
+    afterSequence: number,
+    limit: number,
+  ): Promise<SessionEvent[]>;
   append(sessionId: string, events: SessionEvent[]): Promise<void>;
   listSessionIds(): Promise<string[]>;
+  /** Durable cloud delivery checkpoint owned by the local store. */
+  getCloudAcknowledgement?(sessionId: string): Promise<number>;
+  /** Advances the durable cloud delivery checkpoint for a session. */
+  setCloudAcknowledgement?(
+    sessionId: string,
+    sequence: number,
+  ): Promise<void>;
+  /** Number of sessions with local events not yet acknowledged by cloud. */
+  readonly cloudStoragePendingCount?: number | undefined;
+  /** Most recent background cloud delivery error. */
+  readonly cloudStorageLastError?: Error | undefined;
+  /** Explicitly reconciles a warm local session with cloud storage. */
+  refreshCloudSession?(sessionId: string): Promise<void>;
+  flushCloudStorage?(options?: { timeoutMs?: number }): Promise<void>;
+  closeCloudStorage?(options?: { timeoutMs?: number }): Promise<void>;
   subscribe?(
     sessionId: string,
     listener: (events: SessionEvent[]) => void,

@@ -150,6 +150,88 @@ test("SQLite session storage scopes events by agent", {
   }
 });
 
+test("JSONL storage persists cloud acknowledgements across instances", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orcha-jsonl-ack-"));
+  try {
+    const first = new NodeJsonlSessionStore(
+      ".orcha/sessions",
+      root,
+      "support",
+    );
+    await first.setCloudAcknowledgement("ses_ack", 7);
+    await first.setCloudAcknowledgement("ses_ack", 3);
+    const restarted = new NodeJsonlSessionStore(
+      ".orcha/sessions",
+      root,
+      "support",
+    );
+    await Promise.all([
+      first.setCloudAcknowledgement("ses_ack", 9),
+      restarted.setCloudAcknowledgement("ses_ack", 8),
+    ]);
+    assert.equal(await restarted.getCloudAcknowledgement("ses_ack"), 9);
+    assert.deepEqual(await restarted.listSessionIds(), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("JSONL storage seeks bounded event tails through a durable index", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orcha-jsonl-tail-"));
+  try {
+    const store = new NodeJsonlSessionStore(
+      ".orcha/sessions",
+      root,
+      "support",
+    );
+    const events = Array.from({ length: 250 }, (_, index) => ({
+      sequence: index + 1,
+      type: "message.created",
+      timestamp: "2026-09-30T00:00:00.000Z",
+      data: { index },
+    }));
+    await store.append("ses_tail", events);
+    const path = await store.describeLocation("ses_tail");
+    const source = await readFile(path, "utf8");
+    await writeFile(path, `!${source.slice(1)}`, "utf8");
+    const restarted = new NodeJsonlSessionStore(
+      ".orcha/sessions",
+      root,
+      "support",
+    );
+    assert.deepEqual(
+      await restarted.readAfterSequence("ses_tail", 200, 25),
+      events.slice(200, 225),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SQLite storage persists agent-scoped cloud acknowledgements", {
+  skip: sqliteAvailable ? false : "better-sqlite3 is not installed",
+}, async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orcha-sqlite-ack-"));
+  try {
+    const alpha = new NodeSqliteSessionStore(
+      ".orcha/sessions",
+      root,
+      "alpha",
+    );
+    const beta = new NodeSqliteSessionStore(
+      ".orcha/sessions",
+      root,
+      "beta",
+    );
+    await alpha.setCloudAcknowledgement("ses_ack", 4);
+    await alpha.setCloudAcknowledgement("ses_ack", 2);
+    assert.equal(await alpha.getCloudAcknowledgement("ses_ack"), 4);
+    assert.equal(await beta.getCloudAcknowledgement("ses_ack"), 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("session storage migration is idempotent in both directions", {
   skip: sqliteAvailable ? false : "better-sqlite3 is not installed",
 }, async () => {
@@ -1709,6 +1791,41 @@ test("loads project .env values without overriding process environment", async (
   }
 });
 
+test("loads project .env before compiling the registry", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-build-env-"));
+  const keyName = `ORCHA_BUILD_KEY_${Date.now()}`;
+  delete process.env[keyName];
+  try {
+    await writeFixtureProject(root, "https://example.com");
+    await writeFile(
+      resolve(root, ".env"),
+      `${keyName}=project-key\n`,
+      "utf8",
+    );
+    await writeFile(
+      resolve(root, "orcha/index.ts"),
+      [
+        'import { orcha } from "orchajs";',
+        "orcha.init({",
+        `  amarsia: { key: process.env.${keyName} ?? "", inference: true },`,
+        '  agents: { testAgent: "./testAgent" },',
+        "});",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await mkdir(resolve(root, "node_modules"), { recursive: true });
+    await symlink(repositoryRoot, resolve(root, "node_modules/orchajs"), "dir");
+
+    await buildProject({ projectRoot: root });
+
+    assert.equal(process.env[keyName], "project-key");
+  } finally {
+    delete process.env[keyName];
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("streams cumulative model snapshots and preserves the final result", async () => {
   const fixture = await createRuntimeFixture(() => ({
     streamText: ["Hello", " world"],
@@ -2749,8 +2866,13 @@ test(
     client.init(configuration);
     const first = await client.testAgent.run("First message.").result;
     assert.equal(first.status, "completed");
+    assert.throws(
+      () => client.init(configuration),
+      /already initialized/,
+    );
 
     provider = "openai";
+    await client.close();
     client.init(configuration);
     const second = await client.testAgent.resume(first.sessionId, {
       content: "Second message.",
@@ -2776,6 +2898,7 @@ test(
     ]);
 
     provider = "googlegenai";
+    await client.close();
     client.init(configuration);
     const third = await client.testAgent.resume(first.sessionId, {
       content: "Third message.",
@@ -2805,6 +2928,7 @@ test(
         parts: [{ text: "Third message." }],
       },
     ]);
+    await client.close();
   } finally {
     await anthropic.close();
     await openai.close();
@@ -3537,6 +3661,7 @@ test("executes the production application without a runtime orchajs import", asy
 
     const applicationBundle = await readFile(outputPath, "utf8");
     assert.doesNotMatch(applicationBundle, /from\s*["']orchajs["']/);
+    assert.match(applicationBundle, /node:module/);
     assert.doesNotMatch(applicationBundle, /compileRegistry/);
     assert.doesNotMatch(
       applicationBundle,
