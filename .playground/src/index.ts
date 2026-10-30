@@ -87,7 +87,7 @@ logHistory(
   "mcpTester",
   await orcha.mcpTester.history(mcpResult.sessionId, {
     page: 1,
-    pageSize: 200,
+    pageSize: 100,
   }),
 );
 console.log("[mcpTester] Result:", JSON.stringify(mcpResult, null, 2));
@@ -264,6 +264,8 @@ for (const item of operationsHistory.items) {
     `Child session log: .orcha/sessions/${item.name}/${item.childSessionId}.jsonl`,
   );
 }
+
+await orcha.close();
 
 function logHistory(
   agentName: string,

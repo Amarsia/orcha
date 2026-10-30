@@ -1,7 +1,9 @@
 import type { SessionEvent, SessionStore } from "../types.js";
 
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 3;
 const EVENT_STORE = "events";
+const CLOUD_ACK_STORE = "cloud-acknowledgements";
+const SESSION_SEQUENCE_INDEX = "session-sequence";
 
 interface StoredEvent {
   id: string;
@@ -40,6 +42,31 @@ export class BrowserIndexedDbSessionStore implements SessionStore {
       .map((record) => record.event);
   }
 
+  async readAfterSequence(
+    sessionId: string,
+    afterSequence: number,
+    limit: number,
+  ): Promise<SessionEvent[]> {
+    validateTailArguments(afterSequence, limit);
+    const database = await this.#open();
+    const transaction = database.transaction(EVENT_STORE, "readonly");
+    const index = transaction
+      .objectStore(EVENT_STORE)
+      .index(SESSION_SEQUENCE_INDEX);
+    const records = await request<StoredEvent[]>(
+      index.getAll(
+        IDBKeyRange.bound(
+          [this.#namespace, sessionId, afterSequence],
+          [this.#namespace, sessionId, Number.MAX_SAFE_INTEGER],
+          true,
+        ),
+        limit,
+      ),
+    );
+    await transactionComplete(transaction);
+    return records.map((record) => record.event);
+  }
+
   async append(sessionId: string, events: SessionEvent[]): Promise<void> {
     if (events.length === 0) {
       return;
@@ -70,6 +97,44 @@ export class BrowserIndexedDbSessionStore implements SessionStore {
     );
     await transactionComplete(transaction);
     return [...new Set(records.map((record) => record.sessionId))].sort();
+  }
+
+  async getCloudAcknowledgement(sessionId: string): Promise<number> {
+    const database = await this.#open();
+    const transaction = database.transaction(CLOUD_ACK_STORE, "readonly");
+    const value = await request<number | undefined>(
+      transaction.objectStore(CLOUD_ACK_STORE).get(
+        acknowledgementId(this.#namespace, sessionId),
+      ),
+    );
+    await transactionComplete(transaction);
+    return typeof value === "number" &&
+      Number.isInteger(value) &&
+      value >= 0
+      ? value
+      : 0;
+  }
+
+  async setCloudAcknowledgement(
+    sessionId: string,
+    sequence: number,
+  ): Promise<void> {
+    if (!Number.isInteger(sequence) || sequence < 0) {
+      throw new Error("Invalid cloud acknowledgement sequence.");
+    }
+    const database = await this.#open();
+    const transaction = database.transaction(CLOUD_ACK_STORE, "readwrite");
+    const store = transaction.objectStore(CLOUD_ACK_STORE);
+    const id = acknowledgementId(this.#namespace, sessionId);
+    const current = await request<number | undefined>(store.get(id));
+    if (
+      typeof current !== "number" ||
+      !Number.isInteger(current) ||
+      current < sequence
+    ) {
+      store.put(sequence, id);
+    }
+    await transactionComplete(transaction);
   }
 
   subscribe(
@@ -106,14 +171,26 @@ export class BrowserIndexedDbSessionStore implements SessionStore {
       const openRequest = indexedDB.open(this.#databaseName, DATABASE_VERSION);
       openRequest.onupgradeneeded = () => {
         const database = openRequest.result;
-        if (database.objectStoreNames.contains(EVENT_STORE)) {
-          return;
+        let eventStore: IDBObjectStore;
+        if (!database.objectStoreNames.contains(EVENT_STORE)) {
+          eventStore = database.createObjectStore(EVENT_STORE, {
+            keyPath: "id",
+          });
+          eventStore.createIndex("session", ["namespace", "sessionId"]);
+          eventStore.createIndex("namespace", "namespace");
+        } else {
+          eventStore = openRequest.transaction!.objectStore(EVENT_STORE);
         }
-        const store = database.createObjectStore(EVENT_STORE, {
-          keyPath: "id",
-        });
-        store.createIndex("session", ["namespace", "sessionId"]);
-        store.createIndex("namespace", "namespace");
+        if (!eventStore.indexNames.contains(SESSION_SEQUENCE_INDEX)) {
+          eventStore.createIndex(SESSION_SEQUENCE_INDEX, [
+            "namespace",
+            "sessionId",
+            "sequence",
+          ]);
+        }
+        if (!database.objectStoreNames.contains(CLOUD_ACK_STORE)) {
+          database.createObjectStore(CLOUD_ACK_STORE);
+        }
       };
       openRequest.onsuccess = () => resolve(openRequest.result);
       openRequest.onerror = () => reject(openRequest.error);
@@ -121,6 +198,10 @@ export class BrowserIndexedDbSessionStore implements SessionStore {
         reject(new Error("Opening the Orcha IndexedDB database was blocked."));
     });
   }
+}
+
+function acknowledgementId(namespace: string, sessionId: string): string {
+  return `${namespace}\u0000${sessionId}`;
 }
 
 function eventId(
@@ -147,4 +228,15 @@ function transactionComplete(transaction: IDBTransaction): Promise<void> {
     transaction.onabort = () =>
       reject(transaction.error ?? new Error("IndexedDB transaction aborted."));
   });
+}
+
+function validateTailArguments(afterSequence: number, limit: number): void {
+  if (
+    !Number.isInteger(afterSequence) ||
+    afterSequence < 0 ||
+    !Number.isInteger(limit) ||
+    limit <= 0
+  ) {
+    throw new Error("Invalid session event tail range.");
+  }
 }

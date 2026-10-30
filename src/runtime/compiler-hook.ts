@@ -9,6 +9,7 @@ export type RegistryCompiler = (
 ) => CompiledBundle;
 
 let registryCompiler: RegistryCompiler | undefined;
+let registryCompilationActive = false;
 
 /** @internal Installed by Node development tooling, never by runtime bundles. */
 export function setRegistryCompiler(compiler: RegistryCompiler): void {
@@ -17,4 +18,14 @@ export function setRegistryCompiler(compiler: RegistryCompiler): void {
 
 export function getRegistryCompiler(): RegistryCompiler | undefined {
   return registryCompiler;
+}
+
+/** @internal Prevents registry evaluation from starting runtime resources. */
+export function setRegistryCompilationActive(active: boolean): void {
+  registryCompilationActive = active;
+}
+
+/** @internal True only while development tooling evaluates a registry. */
+export function isRegistryCompilationActive(): boolean {
+  return registryCompilationActive;
 }

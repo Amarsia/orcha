@@ -66,24 +66,29 @@ export class NodeSqliteSessionStore implements SessionStore {
       order by sequence asc
     `).all(this.agentName, sessionId) as SessionEventRow[];
 
-    return rows.map((row) => {
-      let data: Record<string, unknown>;
-      try {
-        data = JSON.parse(row.data) as Record<string, unknown>;
-      } catch (error) {
-        throw new Error(
-          `Corrupt SQLite event in session "${sessionId}" at sequence ${row.sequence}.`,
-          { cause: error },
-        );
-      }
-      return {
-        sequence: row.sequence,
-        type: row.type,
-        timestamp: row.timestamp,
-        ...(row.run === null ? {} : { run: row.run }),
-        data,
-      };
-    });
+    return rows.map((row) => eventFromRow(row, sessionId));
+  }
+
+  async readAfterSequence(
+    sessionId: string,
+    afterSequence: number,
+    limit: number,
+  ): Promise<SessionEvent[]> {
+    validateSessionId(sessionId);
+    validateTailArguments(afterSequence, limit);
+    const rows = this.#database.prepare(`
+      select sequence, run, type, timestamp, data
+      from session_events
+      where agent_name = ? and session_id = ? and sequence > ?
+      order by sequence asc
+      limit ?
+    `).all(
+      this.agentName,
+      sessionId,
+      afterSequence,
+      limit,
+    ) as SessionEventRow[];
+    return rows.map((row) => eventFromRow(row, sessionId));
   }
 
   async append(sessionId: string, events: SessionEvent[]): Promise<void> {
@@ -130,6 +135,32 @@ export class NodeSqliteSessionStore implements SessionStore {
       order by session_id asc
     `).all(this.agentName) as Array<{ session_id: string }>;
     return rows.map((row) => row.session_id);
+  }
+
+  async getCloudAcknowledgement(sessionId: string): Promise<number> {
+    validateSessionId(sessionId);
+    const rows = this.#database.prepare(`
+      select sequence
+      from cloud_acknowledgements
+      where agent_name = ? and session_id = ?
+    `).all(this.agentName, sessionId) as Array<{ sequence: number }>;
+    return rows[0]?.sequence ?? 0;
+  }
+
+  async setCloudAcknowledgement(
+    sessionId: string,
+    sequence: number,
+  ): Promise<void> {
+    validateSessionId(sessionId);
+    if (!Number.isInteger(sequence) || sequence < 0) {
+      throw new Error("Invalid cloud acknowledgement sequence.");
+    }
+    this.#database.prepare(`
+      insert into cloud_acknowledgements (agent_name, session_id, sequence)
+      values (?, ?, ?)
+      on conflict(agent_name, session_id) do update set sequence = excluded.sequence
+      where excluded.sequence > cloud_acknowledgements.sequence
+    `).run(this.agentName, sessionId, sequence);
   }
 
   subscribe(
@@ -195,7 +226,14 @@ function openDatabase(path: string): SqliteDatabase {
       primary key (agent_name, session_id, sequence)
     );
 
-    pragma user_version = 1;
+    create table if not exists cloud_acknowledgements (
+      agent_name text not null,
+      session_id text not null,
+      sequence integer not null,
+      primary key (agent_name, session_id)
+    );
+
+    pragma user_version = 2;
   `);
   databases.set(path, database);
   return database;
@@ -219,6 +257,39 @@ function validateSessionId(sessionId: string): void {
   if (!/^[A-Za-z0-9_:-]+$/.test(sessionId)) {
     throw new Error("Invalid session ID.");
   }
+}
+
+function validateTailArguments(afterSequence: number, limit: number): void {
+  if (
+    !Number.isInteger(afterSequence) ||
+    afterSequence < 0 ||
+    !Number.isInteger(limit) ||
+    limit <= 0
+  ) {
+    throw new Error("Invalid session event tail range.");
+  }
+}
+
+function eventFromRow(
+  row: SessionEventRow,
+  sessionId: string,
+): SessionEvent {
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(row.data) as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(
+      `Corrupt SQLite event in session "${sessionId}" at sequence ${row.sequence}.`,
+      { cause: error },
+    );
+  }
+  return {
+    sequence: row.sequence,
+    type: row.type,
+    timestamp: row.timestamp,
+    ...(row.run === null ? {} : { run: row.run }),
+    data,
+  };
 }
 
 function safelyNotify(notify: () => void): void {

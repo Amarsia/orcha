@@ -223,8 +223,23 @@ export function withAmarsiaTelemetry(options: {
   const projections = new Map<string, SessionProjection>();
   const pending = new Map<string, Promise<void>>();
   return {
+    get cloudStoragePendingCount() {
+      return store.cloudStoragePendingCount;
+    },
+    get cloudStorageLastError() {
+      return store.cloudStorageLastError;
+    },
     read: (sessionId) => store.read(sessionId),
+    readAfterSequence:
+      store.readAfterSequence?.bind(store),
     listSessionIds: () => store.listSessionIds(),
+    getCloudAcknowledgement:
+      store.getCloudAcknowledgement?.bind(store),
+    setCloudAcknowledgement:
+      store.setCloudAcknowledgement?.bind(store),
+    refreshCloudSession: store.refreshCloudSession?.bind(store),
+    flushCloudStorage: store.flushCloudStorage?.bind(store),
+    closeCloudStorage: store.closeCloudStorage?.bind(store),
     describeLocation: store.describeLocation?.bind(store),
     subscribe: store.subscribe?.bind(store),
     subscribeAll: store.subscribeAll?.bind(store),

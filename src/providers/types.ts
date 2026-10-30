@@ -74,6 +74,10 @@ export interface ProviderRequest {
   tools: ProviderToolDefinition[];
   publishOutput?: (output: string) => void;
   signal?: AbortSignal;
+  trace?: {
+    agentExternalId: string;
+    sessionId: string;
+  };
 }
 
 export type ProviderStopReason =

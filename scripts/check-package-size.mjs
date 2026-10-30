@@ -30,6 +30,10 @@ const limits = {
     raw: 300 * kilobyte,
     gzip: 75 * kilobyte,
   },
+  inferenceGateway: {
+    raw: 100 * kilobyte,
+    gzip: 25 * kilobyte,
+  },
 };
 
 const providerBundles = [
@@ -88,12 +92,44 @@ try {
   await Promise.all([
     checkCleanInstall(),
     checkUniversalRuntimeBundles(),
+    checkInferenceGateway(),
     checkProviderBundles(),
     checkSandboxBundle(),
   ]);
   console.log("All package and bundle size checks passed.");
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
+}
+
+async function checkInferenceGateway() {
+  const result = await build({
+    stdin: {
+      contents:
+        'export { createAmarsiaInferenceGenerator } from "./src/amarsia/inference.ts";',
+      resolveDir: root,
+      sourcefile: "amarsia-inference-size-entry.ts",
+      loader: "ts",
+    },
+    bundle: true,
+    minify: true,
+    platform: "browser",
+    target: ["chrome110", "firefox110", "safari16"],
+    format: "esm",
+    metafile: true,
+    write: false,
+    legalComments: "none",
+  });
+  assertExcludedInputs("Amarsia inference gateway", result.metafile, [
+    ...providerBundles.map((provider) => provider.source),
+    "node_modules/@aws-sdk/",
+    "node_modules/@google/genai/",
+    "node_modules/@modelcontextprotocol/sdk/",
+  ]);
+  checkBundle(
+    "Amarsia inference gateway",
+    result.outputFiles,
+    limits.inferenceGateway,
+  );
 }
 
 async function checkPublishedPackage() {
@@ -272,6 +308,8 @@ async function checkUniversalRuntimeBundle(
     "src/playground/",
     "src/runtime/actions/native.ts",
     "src/runtime/platform-node.ts",
+    "src/amarsia/inference.ts",
+    "src/storage/cloud.ts",
     "src/storage/node-jsonl.ts",
     "src/storage/node-sqlite.ts",
     "node_modules/@orchajs/playground-ui/",

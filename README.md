@@ -319,15 +319,41 @@ npm install quickjs-emscripten-core @jitl/quickjs-singlefile-cjs-release-sync
 
 ---
 
+## Amarsia inference
+
+Set `amarsia.inference: true` to route every model round through Amarsia:
+
+```js
+orcha.init({
+  amarsia: {
+    key: process.env.AMARSIA_PROJECT_KEY,
+    inference: true,
+    // endpoint: "https://api.amarsia.com",
+  },
+  agents: {
+    coordinator: "./coordinator",
+  },
+});
+```
+
+The provider and model remain in each agent or evaluation `index.json`.
+Amarsia inference supports `openai`, `anthropic`, `googlegenai`, and
+`deepseek`. Infrastructure-specific `bedrock` and `vertexai` providers remain
+available only for direct inference. Inference uses
+`POST /v3/model/v1/responses`, requires no local provider keys, and covers
+normal runs, streaming, tool loops, MCP, subagents, tests, evaluations, replay,
+structured output, and abort signals. Amarsia uses the workspace owner's
+configured BYOK provider key first and falls back to managed credit billing.
+When `inference` is absent or false, direct-provider behavior is unchanged.
+
+---
+
 ## MCP connections
 
 Assign named MCP connections directly to agents and subagents:
 
 ```js
 orcha.init({
-  providers: {
-    anthropic: process.env.ANTHROPIC_API_KEY,
-  },
   mcp: {
     credentials: {
       GITHUB_MCP_TOKEN: process.env.GITHUB_MCP_TOKEN,
@@ -454,6 +480,27 @@ JSONL by default at
 shared `.orcha/sessions/orcha-sqlite.db` store, set
 `storage: { strategy: "sqlite" }` in `orcha.init()` and install
 `better-sqlite3`.
+Use `storage: { strategy: "cloud" }` with `amarsia.key` for local-first cloud
+storage. Node.js keeps JSONL locally, browsers use IndexedDB, and React
+Native/Expo use AsyncStorage. Existing `list`, `get`, `history`, `events`, and
+`resume` calls remain unchanged. Every append commits locally first and returns
+without waiting for cloud latency. Delivery continues in bounded background
+batches and is recovered from the durable local acknowledgement after restart.
+Warm local reads return immediately and safely refresh an already-synchronized
+tail in the background; unsent local tails are never overwritten. Permanent
+delivery failures are parked to avoid retry loops and are retried by a new
+append or an explicit `orcha.flushCloudStorage()`.
+
+`flushCloudStorage({ timeoutMs })` resolves only when every outbox is empty and
+throws if data remains pending. `orcha.close({ timeoutMs })` flushes, aborts and
+joins in-flight cloud requests, and likewise throws on an incomplete flush.
+Close establishes a storage lifecycle barrier: appends already writing locally
+are included in the final outbox scan, while later appends are rejected.
+Local events remain durable in either case. JSONL-backed cloud stores maintain
+recoverable tail indexes so bounded delivery batches do not repeatedly parse
+the full session history. Immutable-prefix conflicts preserve both sides and
+surface as `storage_error`. Call and await `orcha.close()` before calling
+synchronous `orcha.init()` again; overlapping initialized runtimes are rejected.
 Client-action pause/resume, compiled local actions, and cumulative output
 streaming are supported.
 `run()` always starts a new session; `resume()` continues one with either a new

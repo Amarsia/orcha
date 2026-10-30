@@ -68,6 +68,23 @@ orcha.init({
 });
 ```
 
+For Amarsia inference, the registry contains only project routing and agent
+paths; provider and model selection stay in each agent `index.json`. Supported
+providers are `openai`, `anthropic`, `googlegenai`, and `deepseek`; `bedrock`
+and `vertexai` are direct-inference providers only:
+
+```ts
+orcha.init({
+  amarsia: {
+    key: process.env.AMARSIA_PROJECT_KEY ?? "",
+    inference: true,
+  },
+  agents: {
+    supportBot: "./supportBot",
+  },
+});
+```
+
 Only registered agents are compiled. Agent keys become runtime properties
 such as `orcha.supportBot`. Local actions use the native Node.js runtime by
 default. Set `actions.runtime: "sandbox"` only when isolated execution is
@@ -75,22 +92,29 @@ required.
 
 `orcha.init()` fields:
 
-- `providers` (required): provider configurations keyed by built-in provider
-  name.
+- `providers` (required for direct inference): provider configurations keyed
+  by built-in provider name. Omit it when `amarsia.inference` is true.
 - `agents` (required): runtime property names mapped to folders relative to
   `orcha/`. At least one agent is required.
 - `amarsia.key` (optional): project connection key generated in Amarsia.
-  When set, Orcha syncs structural project and agent metadata only. It never
-  uploads provider credentials, environment values, prompts, instructions,
-  test inputs, or action source.
+  By itself, it syncs structural project and agent metadata only. Enabling
+  inference sends model requests through Amarsia, and cloud storage syncs
+  session events. Provider credentials, environment values, and action source
+  are never included.
 - `amarsia.endpoint` (optional): Amarsia API URL for project sync. Defaults to
   `AMARSIA_API_URL` and then `https://api.amarsia.com`.
+- `amarsia.inference` (optional): routes all model calls through Amarsia while
+  preserving the provider and model in each manifest. It reuses `amarsia.key`;
+  local provider credentials are not required.
 - `actions` (optional): overrides the native local-action runtime or configures
   its environment and sandbox settings.
 - `mcp.credentials` (optional): runtime-only values used to resolve
   `${NAME}` placeholders in MCP headers or stdio environment values.
-- `storage.strategy` (optional): `"node-jsonl"` (default) or `"sqlite"`.
-  The SQLite driver ships as an internal optional Orcha dependency.
+- `storage.strategy` (optional): `"node-jsonl"` (default), `"sqlite"`, or
+  local-first `"cloud"`. Cloud requires `amarsia.key`, keeps a native local
+  cache, commits appends locally without cloud latency, and delivers durable
+  bounded outbox batches in the background. Await `orcha.close()` before
+  reinitializing; close reports any cloud tail that could not be flushed.
 - `storage.directory` (optional): session directory relative to project
   root; defaults to `.orcha/sessions`.
 - `root` (optional): absolute or working-directory-relative project root;
