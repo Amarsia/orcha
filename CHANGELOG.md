@@ -1,5 +1,25 @@
 # orchajs
 
+## 0.25.0
+
+### Minor Changes
+
+- [#122](https://github.com/Amarsia/orcha/pull/122) [`a4d2b91`](https://github.com/Amarsia/orcha/commit/a4d2b9170f419dd0146e208b9b50bc4aba090afc) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Add Amarsia-managed inference and durable local-first cloud session storage
+  across Node.js, browser, Expo, and React Native runtimes.
+
+  - Route model requests through the Amarsia Responses gateway with native
+    streaming, structured output, tool calls, reasoning replay, usage metering,
+    and build-time provider pruning.
+  - Persist cloud sessions through an encrypted, retryable outbox with ordered
+    conflict reconciliation, acknowledgement tracking, lifecycle flush APIs, and
+    platform-specific durable queues.
+  - Record run lifecycle telemetry from invocation start through completion,
+    pause, or failure, preserving accumulated usage and actionable errors.
+  - Normalize local and remote multimodal files, including PDF-only requests,
+    across supported providers.
+  - Keep runtime credentials optional during compilation so production builds can
+    receive secrets only when the generated application starts.
+
 ## 0.24.0
 
 ### Minor Changes
