@@ -1,5 +1,22 @@
 # orchajs
 
+## 0.26.0
+
+### Minor Changes
+
+- [#124](https://github.com/Amarsia/orcha/pull/124) [`fe3d3e3`](https://github.com/Amarsia/orcha/commit/fe3d3e3969dc9ce814ceb55a08286cfced6c486f) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Add multimodal tool result contents for local and client actions.
+
+  - Local actions can return `{ output, contents }` so structured JSON stays
+    schema-validated while media and other content items are forwarded to the
+    model.
+  - Client action resumes accept optional `contents` alongside `output`, with the
+    same envelope persisted in session events and provider adapters.
+  - Propagate multimodal tool contents through Amarsia-managed inference for
+    OpenAI, Anthropic, and Google, and surface a clear
+    `unsupported_content_type` error when DeepSeek receives non-text contents.
+  - Update AGENTS.md guidance and the playground `visualInspector` agent so the
+    multimodal envelope is easy to exercise end to end.
+
 ## 0.25.0
 
 ### Minor Changes
