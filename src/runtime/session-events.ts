@@ -1,4 +1,5 @@
 import type {
+  MessageContent,
   ProviderName,
   SessionEvent,
   SessionEventType,
@@ -214,9 +215,13 @@ export function normalizePersistedToolResults(
       return undefined;
     }
     if (typeof item.callId === "string" && "output" in item) {
+      const contents = Array.isArray(item.contents)
+        ? item.contents.filter(isPersistedMessageContent)
+        : undefined;
       results.push({
         callId: item.callId,
         output: item.output,
+        ...(contents && contents.length > 0 ? { contents } : {}),
         ...(item.isError === true ? { isError: true } : {}),
       });
       continue;
@@ -240,6 +245,26 @@ export function normalizePersistedToolResults(
     return undefined;
   }
   return results;
+}
+
+function isPersistedMessageContent(value: unknown): value is MessageContent {
+  if (!isRecord(value) || typeof value.type !== "string") {
+    return false;
+  }
+  if (value.type === "text") {
+    return typeof value.text === "string";
+  }
+  if (value.type === "file") {
+    return (
+      typeof value.mimeType === "string" &&
+      typeof value.filePath === "string"
+    );
+  }
+  return (
+    ["image", "video", "audio", "url"].includes(value.type) &&
+    typeof value.mimeType === "string" &&
+    typeof value.fileUri === "string"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

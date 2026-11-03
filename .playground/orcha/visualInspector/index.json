@@ -1,0 +1,9 @@
+{
+  "name": "Visual Inspector Bot",
+  "description": "Inspect receipts and visual assets returned as multimodal content from actions.",
+  "provider": "deepseek",
+  "model": "deepseek-reasoner",
+  "region": "provider_managed",
+  "maxTokens": 512,
+  "outputType": "text"
+}

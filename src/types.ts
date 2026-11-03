@@ -511,6 +511,7 @@ export interface ClientToolCall {
 export interface ToolResult {
   callId: string;
   output: unknown;
+  contents?: AgentContentInput;
   isError?: boolean;
 }
 
@@ -519,7 +520,7 @@ export interface ToolResumeInput {
 }
 
 export type ResumeInput =
-  | string
+  | AgentContentInput
   | AgentContinueInput
   | ToolResumeInput;
 
@@ -701,7 +702,7 @@ export interface SessionUpdate {
 
 export interface AgentRuntime {
   readonly clientTools: CompiledActionManifest[];
-  run(input: AgentInput | string): Execution;
+  run(input: AgentInput | AgentContentInput): Execution;
   resume(sessionId: string, input?: ResumeInput): Execution;
   pause(sessionId: string): Promise<SessionSnapshot>;
   subagentHistory(
@@ -730,6 +731,7 @@ export interface AgentRuntime {
 
 export interface AgentTestActionResponse {
   output: unknown;
+  contents?: AgentContentInput;
   isError?: boolean;
 }
 

@@ -38,6 +38,7 @@ export type ProviderAssistantBlock =
 export interface ProviderToolResult {
   callId: string;
   output: unknown;
+  contents?: MessageContent[];
   isError?: boolean;
 }
 

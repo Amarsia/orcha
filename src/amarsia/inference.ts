@@ -54,6 +54,8 @@ const SUPPORTED_AMARSIA_PROVIDERS = new Set<ProviderName>([
   "deepseek",
 ]);
 
+const TEXT_ONLY_AMARSIA_PROVIDERS = new Set<ProviderName>(["deepseek"]);
+
 export function createAmarsiaInferenceGenerator(
   configuration: AmarsiaInferenceConfiguration,
 ): ProviderResponseGenerator {
@@ -85,6 +87,7 @@ async function generateThroughAmarsia(
       `Amarsia Responses does not support "${request.outputType}" as a direct agent output.`,
     );
   }
+  assertProviderSupportsMessageContent(provider, request.messages);
 
   const gatewayProvider =
     provider === "vertexai" ? "googlegenai" : provider;
@@ -144,10 +147,7 @@ async function generateThroughAmarsia(
   });
   if (!response.ok) {
     const message = await responseError(response);
-    throw new Error(
-      message ??
-        `Amarsia inference request failed with HTTP ${response.status}.`,
-    );
+    throw gatewayRequestError(message, response.status);
   }
 
   const responseBody = response.headers
@@ -156,6 +156,53 @@ async function generateThroughAmarsia(
     ? await readGatewayStream(response, request.publishOutput)
     : ((await response.json()) as GatewayResponse);
   return toProviderResponse(request, responseBody);
+}
+
+function assertProviderSupportsMessageContent(
+  provider: ProviderName,
+  messages: ProviderMessage[],
+): void {
+  if (!TEXT_ONLY_AMARSIA_PROVIDERS.has(provider)) {
+    return;
+  }
+  for (const message of messages) {
+    if (message.role === "user" && Array.isArray(message.content)) {
+      for (const block of message.content) {
+        if (block.type !== "text") {
+          throw deepSeekMultimodalError(block.type);
+        }
+      }
+    }
+    if (message.role === "tool") {
+      for (const result of message.results) {
+        for (const block of result.contents ?? []) {
+          if (block.type !== "text") {
+            throw deepSeekMultimodalError(block.type);
+          }
+        }
+      }
+    }
+  }
+}
+
+function deepSeekMultimodalError(contentType: string): OrchaError {
+  return new OrchaError(
+    "unsupported_content_type",
+    `DeepSeek does not support multimodal content (received "${contentType}"). DeepSeek is text-only and cannot accept images, PDFs, or other file attachments.`,
+  );
+}
+
+function gatewayRequestError(
+  message: string | undefined,
+  statusCode: number,
+): Error {
+  const detail =
+    message?.trim() ||
+    `Amarsia inference request failed with HTTP ${statusCode}.`;
+  if (/does not support multimodal|text-only/i.test(detail)) {
+    return new OrchaError("unsupported_content_type", detail);
+  }
+  return new Error(detail);
 }
 
 async function toResponsesInput(
@@ -177,10 +224,14 @@ async function toResponsesInput(
     }
     if (message.role === "tool") {
       for (const result of message.results) {
+        const contents = result.contents?.length
+          ? await Promise.all(result.contents.map(toResponsesUserContent))
+          : undefined;
         input.push({
           type: "function_call_output",
           call_id: result.callId,
           output: JSON.stringify(result.output ?? null),
+          ...(contents ? { contents } : {}),
           ...(result.isError ? { is_error: true } : {}),
         });
       }
@@ -288,11 +339,11 @@ async function readGatewayStream(
       event.type === "error"
     ) {
       const error = isRecord(event.error) ? event.error : event;
-      throw new Error(
+      const message =
         typeof error.message === "string"
           ? error.message
-          : "Amarsia inference streaming request failed.",
-      );
+          : "Amarsia inference streaming request failed.";
+      throw gatewayRequestError(message, 500);
     }
   }
   if (!terminal) {
@@ -460,8 +511,11 @@ async function responseError(response: Response): Promise<string | undefined> {
     const body = (await response.json()) as {
       error?: { message?: string };
       message?: string;
+      detail?: string;
     };
-    return body.error?.message ?? body.message;
+    return body.error?.message ?? body.message ?? (
+      typeof body.detail === "string" ? body.detail : undefined
+    );
   } catch {
     return undefined;
   }

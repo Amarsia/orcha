@@ -46,6 +46,61 @@ logHistory(
 console.log("[invoiceBot] Result:", JSON.stringify(result, null, 2));
 console.log(`\nSession log: .orcha/sessions/invoiceBot/${result.sessionId}.jsonl`);
 
+let visualResult = await orcha.visualInspector.run({
+  content:
+    "Inspect receipt RCP-9042, extract the vendor, total paid, and approval code from the attached PDF, then request the countersigned copy and confirm everything matches.",
+  name: "Multimodal receipt inspection RCP-9042",
+  metadata: {
+    receiptId: "RCP-9042",
+    customerId: "cus_playground",
+  },
+  clientCapabilities: orcha.visualInspector.clientTools,
+}).result;
+
+while (visualResult.status === "waiting_for_client_action") {
+  const toolResults = visualResult.clientToolCalls.map((call) => {
+    if (call.name !== "request_countersigned_copy") {
+      throw new Error(`No playground handler for "${call.name}".`);
+    }
+    console.log(
+      "[visualInspector] Countersigned copy requested:",
+      call.arguments,
+    );
+    return {
+      callId: call.callId,
+      output: {
+        countersignedBy: "finance-director@example.com",
+        verified: true,
+      },
+      contents: [
+        {
+          type: "text",
+          text: "Countersigned copy attached for final verification.",
+        },
+        {
+          filePath: "./orcha/visualInspector/sample-receipt.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    };
+  });
+  visualResult = await orcha.visualInspector.resume(visualResult.sessionId, {
+    toolResults,
+  }).result;
+}
+
+logHistory(
+  "visualInspector",
+  await orcha.visualInspector.history(visualResult.sessionId, {
+    page: 1,
+    pageSize: 100,
+  }),
+);
+console.log("[visualInspector] Result:", JSON.stringify(visualResult, null, 2));
+console.log(
+  `\nSession log: .orcha/sessions/visualInspector/${visualResult.sessionId}.jsonl`,
+);
+
 const supportResult = await orcha.supportBot.run({
   content:
     "Account cus_playground upgraded its subscription this morning, but the dashboard still shows the old plan. What should I do?",
@@ -296,8 +351,12 @@ function logHistory(
     ) {
       const duration =
         item.durationMs === undefined ? "" : ` (${item.durationMs}ms)`;
+      const attached =
+        item.contents && item.contents.length > 0
+          ? ` [contents: ${item.contents.length}]`
+          : "";
       console.log(
-        `TOOL: ${item.name} — ${item.status}${duration}`,
+        `TOOL: ${item.name} — ${item.status}${duration}${attached}`,
       );
     } else if (item.type === "skill") {
       console.log(`SKILL: ${item.summary}`);
