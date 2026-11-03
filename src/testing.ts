@@ -594,6 +594,9 @@ async function runTestCase(
       toolResults.push({
         callId: call.callId,
         output: response.output,
+        ...(response.contents !== undefined
+          ? { contents: response.contents }
+          : {}),
         ...(response.isError === true ? { isError: true } : {}),
       });
     }

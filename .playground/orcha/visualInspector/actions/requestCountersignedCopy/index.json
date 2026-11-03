@@ -1,0 +1,23 @@
+{
+  "name": "request_countersigned_copy",
+  "description": "Request the countersigned receipt attachment from the client.",
+  "execution": "client",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "receiptId": { "type": "string" },
+      "approvalCode": { "type": "string" }
+    },
+    "required": ["receiptId", "approvalCode"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "countersignedBy": { "type": "string" },
+      "verified": { "type": "boolean" }
+    },
+    "required": ["countersignedBy", "verified"],
+    "additionalProperties": false
+  }
+}

@@ -7,6 +7,7 @@ import {
   type DocumentFormat,
   type Message,
   type TokenUsage,
+  type ToolResultContentBlock,
 } from "@aws-sdk/client-bedrock-runtime";
 import { createHash } from "node:crypto";
 import { basename, extname } from "node:path";
@@ -207,15 +208,25 @@ async function toBedrockMessages(
     if (message.role === "tool") {
       output.push({
         role: "user",
-        content: message.results.map((result) => ({
-          toolResult: {
-            toolUseId: result.callId,
-            content: [
-              { json: toBedrockDocument(result.output) },
-            ],
-            ...(result.isError ? { status: "error" as const } : {}),
-          },
-        })),
+        content: await Promise.all(
+          message.results.map(async (result) => {
+            const extraBlocks = result.contents?.length
+              ? ((await Promise.all(
+                  result.contents.map(toBedrockUserBlock),
+                )) as ToolResultContentBlock[])
+              : [];
+            return {
+              toolResult: {
+                toolUseId: result.callId,
+                content: [
+                  { json: toBedrockDocument(result.output) },
+                  ...extraBlocks,
+                ],
+                ...(result.isError ? { status: "error" as const } : {}),
+              },
+            };
+          }),
+        ),
       });
       continue;
     }

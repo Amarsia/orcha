@@ -169,10 +169,17 @@ function toDeepSeekMessages(messages: ProviderMessage[]): unknown[] {
     }
     if (message.role === "tool") {
       for (const result of message.results) {
+        let text = JSON.stringify(result.output ?? null);
+        if (result.contents && result.contents.length > 0) {
+          const extraText = textOnlyContent(result.contents);
+          if (extraText) {
+            text = `${text}\n${extraText}`;
+          }
+        }
         output.push({
           role: "tool",
           tool_call_id: result.callId,
-          content: JSON.stringify(result.output ?? null),
+          content: text,
         });
       }
       continue;
@@ -220,7 +227,7 @@ function textOnlyContent(content: MessageContent[]): string {
     if (block.type !== "text") {
       throw new OrchaError(
         "unsupported_content_type",
-        `DeepSeek does not support "${block.type}" message content.`,
+        `DeepSeek does not support multimodal content (received "${block.type}"). DeepSeek is text-only and cannot accept images, PDFs, or other file attachments.`,
       );
     }
     text.push(block.text);

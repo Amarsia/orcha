@@ -4,10 +4,27 @@ orcha.init({
   amarsia: {
     key: process.env.AMARSIA_PROJECT_KEY ?? "",
     endpoint: "http://0.0.0.0:8000",
-    inference: true,
   },
   storage: {
     strategy: "cloud",
+  },
+  providers: {
+    anthropic: process.env.ANTHROPIC_API_KEY ?? "",
+    bedrock: {
+      region: process.env.AWS_REGION ?? "us-east-1",
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? "",
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? "",
+        sessionToken: process.env.AWS_SESSION_TOKEN ?? "",
+      },
+    },
+    deepseek: process.env.DEEPSEEK_API_KEY ?? "",
+    googlegenai: process.env.GOOGLE_API_KEY ?? "",
+    openai: process.env.OPENAI_API_KEY ?? "",
+    vertexai: {
+      project: process.env.GOOGLE_CLOUD_PROJECT ?? "",
+      location: process.env.GOOGLE_CLOUD_LOCATION ?? "us-central1",
+    },
   },
   agents: {
     invoiceBot: "./invoiceBot",
@@ -25,6 +42,7 @@ orcha.init({
     },
     riskBot: "./riskBot",
     supportBot: "./supportBot",
+    visualInspector: "./visualInspector",
     mcpTester: {
       path: "./mcpTester",
       mcp: {

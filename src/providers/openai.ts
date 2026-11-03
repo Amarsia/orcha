@@ -163,6 +163,14 @@ async function toOpenAIInput(
           call_id: result.callId,
           output: JSON.stringify(result.output ?? null),
         });
+        if (result.contents && result.contents.length > 0) {
+          input.push({
+            role: "user",
+            content: await Promise.all(
+              result.contents.map(toOpenAIUserContent),
+            ),
+          });
+        }
       }
       continue;
     }

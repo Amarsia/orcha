@@ -23,6 +23,7 @@ import {
 import { sessionAgentDirectoryName } from "./storage/node-jsonl.js";
 import { runTests } from "./testing.js";
 import type {
+  AgentContentInput,
   AgentInput,
   AgentRuntime,
   CompiledAgentManifest,
@@ -496,7 +497,7 @@ function parseArguments(
 async function readAgentInput(
   parsed: ParsedArguments,
   projectRoot: string,
-): Promise<AgentInput | string> {
+): Promise<AgentInput | AgentContentInput> {
   const inline = parsed.values.get("--input");
   const inputFile = parsed.values.get("--input-file");
   if (inline && inputFile) {
@@ -522,31 +523,46 @@ async function readAgentInput(
   );
 }
 
-function parseInput(value: string): AgentInput | string {
+function parseInput(value: string): AgentInput | AgentContentInput {
   const trimmed = value.trim();
   if (!trimmed) {
     throw new Error("Agent input cannot be empty.");
   }
-  if (!trimmed.startsWith("{")) {
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
     return trimmed;
   }
   const parsed: unknown = JSON.parse(trimmed);
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    !("content" in parsed)
-  ) {
-    throw new Error('Structured input must be an object with "content".');
+  if (Array.isArray(parsed)) {
+    return parsed as AgentContentInput;
   }
-  return parsed as AgentInput;
+  if (parsed && typeof parsed === "object") {
+    if ("content" in parsed) {
+      return parsed as AgentInput;
+    }
+    if (
+      "filePath" in parsed ||
+      "url" in parsed ||
+      "fileUri" in parsed ||
+      "file_uri" in parsed ||
+      "type" in parsed
+    ) {
+      return parsed as AgentContentInput;
+    }
+  }
+  throw new Error(
+    'Structured input must be a content item/array or an object with "content".',
+  );
 }
 
 function normalizeResumeInput(
-  input: AgentInput | string,
-): string | { content: AgentInput["content"] } {
-  return typeof input === "string"
-    ? input
-    : { content: input.content };
+  input: AgentInput | AgentContentInput,
+): AgentContentInput | { content: AgentInput["content"] } {
+  return typeof input === "object" &&
+    input !== null &&
+    !Array.isArray(input) &&
+    "content" in input
+    ? { content: input.content }
+    : input;
 }
 
 async function readToolResults(path: string): Promise<ToolResult[]> {

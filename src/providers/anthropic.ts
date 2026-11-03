@@ -1,4 +1,5 @@
 import type {
+  MessageContent,
   ProviderConfiguration,
   Usage,
 } from "../types.js";
@@ -433,11 +434,20 @@ async function toAnthropicMessages(
     if (message.role === "tool") {
       return {
         role: "user",
-        content: message.results.map((result) => ({
-          type: "tool_result",
-          tool_use_id: result.callId,
-          content: JSON.stringify(result.output ?? null),
-          ...(result.isError ? { is_error: true } : {}),
+        content: await Promise.all(message.results.map(async (result) => {
+          const serializedOutput = JSON.stringify(result.output ?? null);
+          const extraBlocks = result.contents?.length
+            ? await Promise.all(result.contents.map(toAnthropicUserBlock))
+            : [];
+          return {
+            type: "tool_result",
+            tool_use_id: result.callId,
+            content:
+              extraBlocks.length > 0
+                ? [{ type: "text", text: serializedOutput }, ...extraBlocks]
+                : serializedOutput,
+            ...(result.isError ? { is_error: true } : {}),
+          };
         })),
       };
     }
@@ -446,73 +456,73 @@ async function toAnthropicMessages(
     }
     return {
       role: "user",
-      content: await Promise.all(message.content.map(async (block) => {
-        if (!isRecord(block) || typeof block.type !== "string") {
-          throw new OrchaError(
-            "invalid_input",
-            "Anthropic message content contains an invalid block.",
-          );
-        }
-        if (
-          block.type === "text"
-        ) {
-          return block;
-        }
-        if (block.type === "file") {
-          const file = await readLocalFileContent(block);
-          if (block.mimeType.startsWith("image/")) {
-            return {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: block.mimeType,
-                data: file.base64,
-              },
-            };
-          }
-          if (block.mimeType === "application/pdf") {
-            return {
-              type: "document",
-              source: {
-                type: "base64",
-                media_type: block.mimeType,
-                data: file.base64,
-              },
-            };
-          }
-        }
-        if (
-          block.type === "image" &&
-          typeof block.fileUri === "string"
-        ) {
-          return {
-            type: "image",
-            source: {
-              type: "url",
-              url: block.fileUri,
-            },
-          };
-        }
-        if (
-          block.type === "url" &&
-          typeof block.fileUri === "string" &&
-          block.mimeType === "application/pdf"
-        ) {
-          return {
-            type: "document",
-            source: {
-              type: "url",
-              url: block.fileUri,
-            },
-          };
-        }
-        throw new OrchaError(
-          "unsupported_content_type",
-          `Anthropic does not support content type "${block.type}" with MIME type "${String(block.mimeType)}".`,
-        );
-      })),
+      content: await Promise.all(message.content.map(toAnthropicUserBlock)),
     };
   }));
+}
+
+async function toAnthropicUserBlock(block: MessageContent): Promise<unknown> {
+  if (!isRecord(block) || typeof block.type !== "string") {
+    throw new OrchaError(
+      "invalid_input",
+      "Anthropic message content contains an invalid block.",
+    );
+  }
+  if (block.type === "text") {
+    return block;
+  }
+  if (block.type === "file") {
+    const file = await readLocalFileContent(block);
+    if (block.mimeType.startsWith("image/")) {
+      return {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: block.mimeType,
+          data: file.base64,
+        },
+      };
+    }
+    if (block.mimeType === "application/pdf") {
+      return {
+        type: "document",
+        source: {
+          type: "base64",
+          media_type: block.mimeType,
+          data: file.base64,
+        },
+      };
+    }
+  }
+  if (
+    block.type === "image" &&
+    typeof block.fileUri === "string"
+  ) {
+    return {
+      type: "image",
+      source: {
+        type: "url",
+        url: block.fileUri,
+      },
+    };
+  }
+  if (
+    block.type === "url" &&
+    typeof block.fileUri === "string" &&
+    block.mimeType === "application/pdf"
+  ) {
+    return {
+      type: "document",
+      source: {
+        type: "url",
+        url: block.fileUri,
+      },
+    };
+  }
+  throw new OrchaError(
+    "unsupported_content_type",
+    `Anthropic does not support content type "${block.type}" with MIME type "${String(block.mimeType)}".`,
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

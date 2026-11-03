@@ -370,28 +370,35 @@ async function toGoogleContents(
       continue;
     }
 
+    const parts: GooglePart[] = [];
+    for (const result of message.results) {
+      const call = previousCalls.get(result.callId);
+      if (!call) {
+        throw new Error(
+          `Google Gemini could not match tool result "${result.callId}" to a prior function call.`,
+        );
+      }
+      parts.push({
+        functionResponse: {
+          name: call.name,
+          ...(call.providerCallId
+            ? { id: call.providerCallId }
+            : {}),
+          response: normalizeFunctionResponse(
+            result.output,
+            result.isError,
+          ),
+        },
+      });
+      if (result.contents && result.contents.length > 0) {
+        parts.push(
+          ...(await Promise.all(result.contents.map(toGoogleUserPart))),
+        );
+      }
+    }
     contents.push({
       role: "user",
-      parts: message.results.map((result) => {
-        const call = previousCalls.get(result.callId);
-        if (!call) {
-          throw new Error(
-            `Google Gemini could not match tool result "${result.callId}" to a prior function call.`,
-          );
-        }
-        return {
-          functionResponse: {
-            name: call.name,
-            ...(call.providerCallId
-              ? { id: call.providerCallId }
-              : {}),
-            response: normalizeFunctionResponse(
-              result.output,
-              result.isError,
-            ),
-          },
-        };
-      }),
+      parts,
     });
   }
   return contents;

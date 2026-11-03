@@ -364,7 +364,7 @@ environment. The complete pause/continue flow is:
    }
 5. Application executes every requested action.
 6. Application calls agent.resume(sessionId, {
-     toolResults: [{ callId, output, isError? }]
+     toolResults: [{ callId, output, contents?, isError? }]
    }).
 7. Orcha validates every callId and output, stores the results, and continues
    the same paused run from its prior model context.
@@ -404,9 +404,9 @@ const result = await execution.result;
 const evaluations = await execution.evaluations;
 ```
 
-`run()` input fields:
+`run()` and conversational `resume()` accept either a direct `AgentContentInput` (a string, a single content item, or an array of content items) or an object with `content` and optional fields:
 
-- `content` (required): a non-empty string, one content item, or an array.
+- `content` (required when passing an options object): a non-empty string, one content item, or an array.
   Use `{ filePath: "./document.pdf" }` for a local file or
   `{ url: "https://example.com/document.pdf" }` for a remote file.
   `mimeType` is optional when it can be inferred from the extension. Durable
@@ -436,7 +436,11 @@ client actions in the application and submit every result:
 ```ts
 orcha.supportBot.resume(sessionId, {
   toolResults: [
-    { callId: "call_123", output: { approved: true } }
+    {
+      callId: "call_123",
+      output: { approved: true },
+      contents: [{ filePath: "./signed-approval.pdf" }], // optional media/content items
+    }
   ],
 });
 ```
@@ -543,6 +547,11 @@ The local action signature is
 `(parameters, context) => output | Promise<output>`. Context contains
 `sessionId`, immutable session `metadata`, a stable `idempotencyKey`,
 allowlisted `env`, guarded `fetch`, and prefixed `log`.
+
+Actions can also return media or multimodal content back to the model alongside
+their structured JSON output by returning `{ output: jsonOutput, contents: [...] }`.
+`contents` accepts any `AgentContentInput` (such as `{ filePath }`,
+`{ url }`, or content items). `outputSchema` validates `output` directly.
 
 ## Skills
 

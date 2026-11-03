@@ -1,0 +1,24 @@
+{
+  "name": "fetch_receipt_document",
+  "description": "Fetch a receipt record along with its original PDF document attachment as multimodal content.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "receiptId": { "type": "string" }
+    },
+    "required": ["receiptId"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "receiptId": { "type": "string" },
+      "status": { "type": "string" },
+      "attachmentName": { "type": "string" }
+    },
+    "required": ["receiptId", "status", "attachmentName"],
+    "additionalProperties": false
+  },
+  "timeoutMs": 5000,
+  "sideEffect": false
+}

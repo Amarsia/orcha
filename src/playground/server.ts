@@ -791,6 +791,9 @@ function parseToolResults(value: unknown): ToolResult[] {
     return {
       callId: result.callId as string,
       output: result.output,
+      ...(result.contents !== undefined
+        ? { contents: parseContent(result.contents) }
+        : {}),
       ...(result.isError === true ? { isError: true } : {}),
     };
   });
