@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type {
   CompiledActionManifest,
   CompiledAgentManifest,
@@ -88,13 +88,14 @@ export function createAmarsiaProjectMetadata(
     packageName: packageInfo.name,
     rootPath: projectRoot,
   }).slice(0, 32);
+  const sanitizedRootPath = sanitizeRootPath(projectRoot);
   const agents = flattenAgents(bundle.agents);
   const content = {
     project: {
       external_id: projectExternalId,
       name: packageInfo.name ?? "Orcha project",
       description: packageInfo.description,
-      root_path: projectRoot,
+      root_path: sanitizedRootPath,
       package_name: packageInfo.name,
       repository_url: packageInfo.repositoryUrl,
       metadata: {
@@ -111,6 +112,15 @@ export function createAmarsiaProjectMetadata(
     content_hash: hashStable(content),
     ...content,
   };
+}
+
+function sanitizeRootPath(projectRoot: string): string {
+  const trimmed = projectRoot.trim();
+  if (!trimmed || trimmed === "/" || trimmed === ".") {
+    return ".";
+  }
+  const folderName = basename(resolve(trimmed));
+  return folderName || ".";
 }
 
 function flattenAgents(
@@ -309,11 +319,17 @@ function resolveGitConfigPath(projectRoot: string): string | undefined {
   }
 }
 
-function normalizeRepositoryUrl(url: string | undefined): string | undefined {
-  return url
-    ?.replace(/^git\+/, "")
-    .replace(/^git@github\.com:/, "https://github.com/")
+export function normalizeRepositoryUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const cleaned = url
+    .trim()
+    .replace(/^git\+/, "")
+    .replace(/^git@([^:]+):/, "https://$1/")
+    .replace(/^ssh:\/\/(?:[^@]+@)?([^/]+)\//, "https://$1/")
+    .replace(/^(https?:\/\/)[^/@]+@/i, "$1")
+    .replace(/[?#].*$/, "")
     .replace(/\.git$/, "");
+  return cleaned || undefined;
 }
 
 function hashStable(value: unknown): string {

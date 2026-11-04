@@ -535,9 +535,9 @@ test("evaluates every completed run against registered model-graded metrics", as
                   name: "groundedness",
                   score: 0.95,
                   reasoning:
-                    "The response labels the status as confirmed.",
+                    "The response labels the status as confirmed for client@example.com ($12,500.00).",
                   evidence: [
-                    "The confirmed status is processing.",
+                    "The confirmed status is processing for SSN 123-45-6789.",
                   ],
                 },
               ],
@@ -597,9 +597,21 @@ test("evaluates every completed run against registered model-graded metrics", as
     assert.equal(evaluations[0].status, "passed");
     assert.equal(evaluations[0].metrics[0].score, 0.95);
     assert.equal(evaluations[0].metrics[0].passed, true);
+    assert.doesNotMatch(
+      evaluations[0].metrics[0].reasoning,
+      /client@example\.com|12,500/,
+    );
+    assert.doesNotMatch(
+      evaluations[0].metrics[0].evidence[0],
+      /123-45-6789/,
+    );
     assert.match(
       fixture.requests[1].system,
       /impartial evaluator/,
+    );
+    assert.match(
+      fixture.requests[1].system,
+      /Never expose, repeat, or quote any sensitive information in reasoning or evidence/,
     );
     assert.match(
       JSON.stringify(fixture.requests[1].messages),

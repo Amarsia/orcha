@@ -3,11 +3,15 @@ import test from "node:test";
 
 import {
   AmarsiaTelemetryClient,
+  sanitizeErrorMessage,
   withAmarsiaTelemetry,
 } from "../dist/amarsia/analytics.js";
-import { createAmarsiaProjectMetadata } from "../dist/amarsia/metadata.js";
+import {
+  createAmarsiaProjectMetadata,
+  normalizeRepositoryUrl,
+} from "../dist/amarsia/metadata.js";
 
-test("Amarsia project metadata emits reusable agents once", () => {
+test("Amarsia project metadata emits reusable agents once and sanitizes host paths", () => {
   const specialist = {
     key: "documentParser",
     name: "Document Parser",
@@ -39,12 +43,20 @@ test("Amarsia project metadata emits reusable agents once", () => {
         sCorpTester: coordinator,
       },
     },
-    process.cwd(),
+    "/Users/alice/private-repos/tax-axis-service",
   );
 
   assert.deepEqual(
     metadata.agents.map((agent) => agent.external_id),
     ["documentParser", "sCorpTester"],
+  );
+  assert.equal(metadata.project.root_path, "tax-axis-service");
+  assert.doesNotMatch(metadata.project.root_path, /\/Users\/alice/);
+  assert.equal(
+    normalizeRepositoryUrl(
+      "https://x-access-token:ghp_secret1234567890@github.com/org/repo.git?token=abc",
+    ),
+    "https://github.com/org/repo",
   );
   assert.equal(
     metadata.agents.find((agent) => agent.external_id === "documentParser")
@@ -105,7 +117,8 @@ test("Amarsia telemetry is redacted and idempotent within a batch", async () => 
         durationMs: 3000,
         error: {
           code: "provider_error",
-          message: "Authorization: Bearer secret-token-value",
+          message:
+            "Authorization: Bearer secret-token-value for SSN 123-45-6789, EIN 12-3456789, email john.doe@example.com, net income of $450,230.50 at /Users/john/secrets/tax.json",
           retryable: true,
         },
       },
@@ -144,11 +157,36 @@ test("Amarsia telemetry is redacted and idempotent within a batch", async () => 
     assert.equal(requests[0].schema_version, 1);
     assert.equal(requests[0].runs.length, 1);
     const serialized = JSON.stringify(requests[0]);
-    assert.doesNotMatch(serialized, /private prompt|do-not-send|secret-token-value/);
+    assert.doesNotMatch(
+      serialized,
+      /private prompt|do-not-send|secret-token-value|123-45-6789|12-3456789|john\.doe@example\.com|450,230\.50|\/Users\/john/,
+    );
     assert.match(serialized, /\[redacted\]/);
+    assert.match(serialized, /\[redacted-ssn\]/);
+    assert.match(serialized, /\[redacted-tin\]/);
+    assert.match(serialized, /\[redacted-email\]/);
+    assert.match(serialized, /\[redacted-amount\]/);
+    assert.match(serialized, /\[redacted-path\]/);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("sanitizeErrorMessage redacts financial figures, tax IDs, PII, and credentials in evaluation reasoning and evidence", () => {
+  const sample =
+    "Officer salary is 185000 and distribution of $145,230.00 (USD 50,000 bonus, 12,500 shares) for TIN: 98-7654321, SSN 111-22-3333, phone (415) 555-0199, card 4111 2222 3333 4444, postgres://admin:supersecret@db.internal:5432/tax.";
+  const sanitized = sanitizeErrorMessage(sample);
+  assert.doesNotMatch(
+    sanitized,
+    /185000|145,230|50,000|12,500|98-7654321|111-22-3333|555-0199|4111 2222|supersecret/,
+  );
+  assert.match(sanitized, /\[redacted-figure\]/);
+  assert.match(sanitized, /\[redacted-amount\]/);
+  assert.match(sanitized, /\[redacted-tin\]/);
+  assert.match(sanitized, /\[redacted-ssn\]/);
+  assert.match(sanitized, /\[redacted-phone\]/);
+  assert.match(sanitized, /\[redacted-card\]/);
+  assert.match(sanitized, /postgres:\/\/\[redacted\]@/);
 });
 
 test("Amarsia telemetry normalizes internal pause reasons", async () => {
