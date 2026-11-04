@@ -1,13 +1,24 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createAmarsiaInferenceGenerator } from "./amarsia/inference.js";
+import { compileRegistry } from "./compiler/compile.js";
 import { generateProviderResponse } from "./providers/index.js";
 import {
   setNativeRuntimeLoader,
   setSandboxRuntimeLoader,
 } from "./runtime/actions/execute.js";
 import { executeNativeAction } from "./runtime/actions/native.js";
-import { getRegistryCompiler } from "./runtime/compiler-hook.js";
+import {
+  getRegistryCompiler,
+  setGlobalCompiledManifest,
+} from "./runtime/compiler-hook.js";
 import {
   createOrcha,
   type Orcha,
@@ -42,7 +53,7 @@ setMcpClientFactory(async (server, credentials) => {
 setInferenceGeneratorFactory(createAmarsiaInferenceGenerator);
 setCloudSessionStoreFactory((options) => new CloudSessionStore(options));
 
-const NODE_ORCHA_SINGLETON_KEY = Symbol.for("orchajs.nodeOrchaSingleton");
+const NODE_ORCHA_SINGLETON_KEY = Symbol.for("orchajs.runtime");
 
 function getSharedNodeOrcha(): OrchaClient {
   const globalRecord = globalThis as Record<
@@ -61,14 +72,24 @@ function getSharedNodeOrcha(): OrchaClient {
         if (process.env.ORCHA_COMPILING === "1" && compiler) {
           return compiler(configuration, projectRoot);
         }
-        if (
-          isPrecompiledRuntime() ||
-          existsSync(compiledManifestPath(projectRoot))
-        ) {
+        const precompiled = isPrecompiledRuntime();
+        const manifestFile = compiledManifestPath(projectRoot);
+        if (precompiled || existsSync(manifestFile)) {
           return loadCompiledManifest(projectRoot, configuration);
         }
+        const registryRoot = resolve(projectRoot, "orcha");
+        if (existsSync(registryRoot)) {
+          const compiled = compileRegistry(
+            configuration.agents,
+            registryRoot,
+            configuration.actions?.runtime ?? "native",
+            "node",
+          );
+          persistDevManifest(projectRoot, manifestFile, compiled);
+          return compiled;
+        }
         throw new Error(
-          'Orcha agents must be compiled before runtime initialization. Run "npx orchajs dev" during development or "npx orchajs build" before starting the application.',
+          'Orcha agents could not be found in "orcha/" and no precompiled manifest exists at ".orcha/dist/manifest.json". Run "npx orchajs init" or "npx orchajs build".',
         );
       },
       generateProviderResponse,
@@ -89,14 +110,76 @@ function isPrecompiledRuntime(): boolean {
   );
 }
 
+function persistDevManifest(
+  projectRoot: string,
+  manifestPath: string,
+  bundle: CompiledBundle,
+): void {
+  setGlobalCompiledManifest(bundle);
+  try {
+    mkdirSync(dirname(manifestPath), { recursive: true });
+    writeFileSync(manifestPath, `${JSON.stringify(bundle)}\n`, "utf8");
+  } catch {
+    // Best-effort cache write in development environments.
+  }
+  try {
+    const ownPackageRoot = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+    );
+    const consumerPackageRoot = resolve(projectRoot, "node_modules/orchajs");
+    if (
+      existsSync(consumerPackageRoot) &&
+      realpathSync(consumerPackageRoot) !== realpathSync(ownPackageRoot)
+    ) {
+      const serialized = JSON.stringify(bundle);
+      const esmTarget = resolve(
+        consumerPackageRoot,
+        "dist/runtime/compiled-manifest.js",
+      );
+      const cjsTarget = resolve(
+        consumerPackageRoot,
+        "dist-cjs/runtime/compiled-manifest.js",
+      );
+      if (existsSync(dirname(esmTarget))) {
+        writeFileSync(
+          esmTarget,
+          `export const compiledManifest = ${serialized};\n`,
+          "utf8",
+        );
+      }
+      if (existsSync(dirname(cjsTarget))) {
+        writeFileSync(
+          cjsTarget,
+          `"use strict";\nexports.compiledManifest = ${serialized};\n`,
+          "utf8",
+        );
+      }
+    }
+  } catch {
+    // Best-effort package manifest sync in development environments.
+  }
+}
+
 function loadCompiledManifest(
   projectRoot: string,
   configuration: OrchaInitConfiguration,
 ): CompiledBundle {
   const manifestPath = compiledManifestPath(projectRoot);
   if (!existsSync(manifestPath)) {
+    const registryRoot = resolve(projectRoot, "orcha");
+    if (existsSync(registryRoot)) {
+      const compiled = compileRegistry(
+        configuration.agents,
+        registryRoot,
+        configuration.actions?.runtime ?? "native",
+        "node",
+      );
+      persistDevManifest(projectRoot, manifestPath, compiled);
+      return compiled;
+    }
     throw new Error(
-      `ORCHA_PRODUCTION_BUNDLE_MISSING: "${manifestPath}" was not found. Run "npx orchajs build" before packaging, include ".orcha/dist" in the deployment, or configure the Orcha build integration.`,
+      `ORCHA_PRODUCTION_BUNDLE_MISSING: "${manifestPath}" was not found. Run "npx orchajs build" before packaging, include ".orcha/dist" in the deployment, or keep the "orcha/" directory available at runtime.`,
     );
   }
 
@@ -133,6 +216,17 @@ function loadCompiledManifest(
       (name, index) => name !== compiledAgents[index],
     )
   ) {
+    const registryRoot = resolve(projectRoot, "orcha");
+    if (!isPrecompiledRuntime() && existsSync(registryRoot)) {
+      const recompiled = compileRegistry(
+        configuration.agents,
+        registryRoot,
+        configuration.actions?.runtime ?? "native",
+        "node",
+      );
+      persistDevManifest(projectRoot, manifestPath, recompiled);
+      return recompiled;
+    }
     throw new Error(
       `Orcha compiled manifest does not match the registered agents. Run "npx orchajs build" again. Expected [${registeredAgents.join(", ")}], found [${compiledAgents.join(", ")}].`,
     );

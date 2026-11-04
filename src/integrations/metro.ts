@@ -7,6 +7,7 @@ import {
 
 export interface OrchaMetroOptions {
   projectRoot?: string;
+  watch?: boolean;
 }
 
 interface MetroResolverContext {
@@ -31,7 +32,7 @@ export async function withOrchaMetro<T extends MetroConfiguration>(
 ): Promise<T> {
   const projectRoot = resolve(options.projectRoot ?? process.cwd());
   await queueRuntimeBuild(projectRoot, "react-native");
-  if (process.env.NODE_ENV !== "production") {
+  if (options.watch !== false && process.env.NODE_ENV !== "production") {
     watchRuntimeTargets(projectRoot, ["react-native"]);
   }
   const existingResolver = configuration.resolver?.resolveRequest;

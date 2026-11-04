@@ -11,6 +11,7 @@ export type RegistryCompiler = (
 interface CompilerHookGlobalState {
   registryCompiler: RegistryCompiler | undefined;
   registryCompilationActive: boolean;
+  compiledManifest: CompiledBundle | undefined;
 }
 
 const COMPILER_HOOK_STATE_KEY = Symbol.for("orchajs.compilerHookState");
@@ -24,6 +25,7 @@ function getCompilerHookState(): CompilerHookGlobalState {
     globalRecord[COMPILER_HOOK_STATE_KEY] = {
       registryCompiler: undefined,
       registryCompilationActive: false,
+      compiledManifest: undefined,
     };
   }
   return globalRecord[COMPILER_HOOK_STATE_KEY];
@@ -46,4 +48,14 @@ export function setRegistryCompilationActive(active: boolean): void {
 /** @internal True only while development tooling evaluates a registry. */
 export function isRegistryCompilationActive(): boolean {
   return getCompilerHookState().registryCompilationActive;
+}
+
+/** @internal Registers a precompiled manifest on globalThis for browser / React Native runtimes. */
+export function setGlobalCompiledManifest(bundle: CompiledBundle): void {
+  getCompilerHookState().compiledManifest = bundle;
+}
+
+/** @internal Reads a precompiled manifest registered on globalThis or inside the package. */
+export function getGlobalCompiledManifest(): CompiledBundle | undefined {
+  return getCompilerHookState().compiledManifest;
 }

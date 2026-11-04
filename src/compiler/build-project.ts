@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -6,6 +6,7 @@ import { build as bundleEntry } from "esbuild";
 import { loadProjectEnvironment } from "../env.js";
 import { orcha } from "../orcha.js";
 import {
+  setGlobalCompiledManifest,
   setRegistryCompilationActive,
   setRegistryCompiler,
 } from "../runtime/compiler-hook.js";
@@ -240,6 +241,7 @@ export async function buildProject(
       `${JSON.stringify(compiledBundle)}\n`,
       "utf8",
     );
+    await syncPackageCompiledManifest(projectRoot, compiledBundle);
 
     return outputPath;
   } finally {
@@ -251,6 +253,41 @@ export async function buildProject(
       recursive: true,
       force: true,
     });
+  }
+}
+
+async function syncPackageCompiledManifest(
+  projectRoot: string,
+  bundle: CompiledBundle,
+): Promise<void> {
+  setGlobalCompiledManifest(bundle);
+  try {
+    const ownPackageRoot = resolve(esmCompilerDirectory(), "../..");
+    const consumerPackageRoot = resolve(projectRoot, "node_modules/orchajs");
+    if (
+      existsSync(consumerPackageRoot) &&
+      realpathSync(consumerPackageRoot) !== realpathSync(ownPackageRoot)
+    ) {
+      const serialized = JSON.stringify(bundle);
+      const esmContents = `export const compiledManifest = ${serialized};\n`;
+      const cjsContents = `"use strict";\nexports.compiledManifest = ${serialized};\n`;
+      const esmTarget = resolve(
+        consumerPackageRoot,
+        "dist/runtime/compiled-manifest.js",
+      );
+      const cjsTarget = resolve(
+        consumerPackageRoot,
+        "dist-cjs/runtime/compiled-manifest.js",
+      );
+      if (existsSync(dirname(esmTarget))) {
+        await writeFile(esmTarget, esmContents, "utf8").catch(() => undefined);
+      }
+      if (existsSync(dirname(cjsTarget))) {
+        await writeFile(cjsTarget, cjsContents, "utf8").catch(() => undefined);
+      }
+    }
+  } catch {
+    // Best-effort package manifest sync.
   }
 }
 

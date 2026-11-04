@@ -1,5 +1,53 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { SessionEvent, SessionStore } from "../types.js";
+
+interface AsyncStorageDriver {
+  getItem(key: string): Promise<string | null>;
+  setItem(key: string, value: string): Promise<void>;
+  removeItem(key: string): Promise<void>;
+  getAllKeys(): Promise<readonly string[]>;
+  multiSet(keyValuePairs: ReadonlyArray<readonly [string, string]>): Promise<void>;
+}
+
+const fallbackMemoryMap = new Map<string, string>();
+const fallbackMemoryStorage: AsyncStorageDriver = {
+  async getItem(key) {
+    return fallbackMemoryMap.get(key) ?? null;
+  },
+  async setItem(key, value) {
+    fallbackMemoryMap.set(key, value);
+  },
+  async removeItem(key) {
+    fallbackMemoryMap.delete(key);
+  },
+  async getAllKeys() {
+    return [...fallbackMemoryMap.keys()];
+  },
+  async multiSet(keyValuePairs) {
+    for (const [key, value] of keyValuePairs) {
+      fallbackMemoryMap.set(key, value);
+    }
+  },
+};
+
+let resolvedAsyncStoragePromise: Promise<AsyncStorageDriver> | undefined;
+
+function getAsyncStorage(): Promise<AsyncStorageDriver> {
+  if (!resolvedAsyncStoragePromise) {
+    const moduleSpecifier = "@react-native-async-storage/async-storage";
+    resolvedAsyncStoragePromise = import(moduleSpecifier)
+      .then((loaded: { default?: AsyncStorageDriver } & Partial<AsyncStorageDriver>) => {
+        if (loaded?.default && typeof loaded.default.getItem === "function") {
+          return loaded.default;
+        }
+        if (typeof loaded?.getItem === "function") {
+          return loaded as AsyncStorageDriver;
+        }
+        return fallbackMemoryStorage;
+      })
+      .catch(() => fallbackMemoryStorage);
+  }
+  return resolvedAsyncStoragePromise;
+}
 
 const writes = new Map<string, Promise<void>>();
 const tailIndexes = new Map<string, TailIndex>();
@@ -34,7 +82,8 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
   }
 
   async read(sessionId: string): Promise<SessionEvent[]> {
-    const contents = await AsyncStorage.getItem(this.#key(sessionId));
+    const storage = await getAsyncStorage();
+    const contents = await storage.getItem(this.#key(sessionId));
     if (!contents) {
       return [];
     }
@@ -57,6 +106,7 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
     ) {
       throw new Error("Invalid session event tail range.");
     }
+    const storage = await getAsyncStorage();
     await writes.get(this.#key(sessionId))?.catch(() => undefined);
     const index = await this.#ensureTailIndex(sessionId);
     const relevant = index.chunks.filter(
@@ -64,7 +114,7 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
     );
     const events: SessionEvent[] = [];
     for (const chunk of relevant) {
-      const contents = await AsyncStorage.getItem(chunk.key);
+      const contents = await storage.getItem(chunk.key);
       if (contents === null) {
         tailIndexes.delete(this.#tailIndexKey(sessionId));
         return this.#readTailFromCanonical(
@@ -89,17 +139,18 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
     const key = this.#key(sessionId);
     const previous = writes.get(key) ?? Promise.resolve();
     const write = previous.then(async () => {
+      const storage = await getAsyncStorage();
       const index = await this.#ensureTailIndex(sessionId);
-      await AsyncStorage.setItem(this.#tailPendingKey(sessionId), "1");
-      const existing = await AsyncStorage.getItem(key);
+      await storage.setItem(this.#tailPendingKey(sessionId), "1");
+      const existing = await storage.getItem(key);
       const appended = events.map((event) => JSON.stringify(event)).join("\n");
-      await AsyncStorage.setItem(
+      await storage.setItem(
         key,
         `${existing ? `${existing.replace(/\n*$/, "")}\n` : ""}${appended}\n`,
       );
       try {
         await this.#appendTailIndex(sessionId, index, events);
-        await AsyncStorage.removeItem(this.#tailPendingKey(sessionId));
+        await storage.removeItem(this.#tailPendingKey(sessionId));
       } catch {
         tailIndexes.delete(this.#tailIndexKey(sessionId));
         // Canonical JSONL is already durable. A pending marker makes the
@@ -119,16 +170,18 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
   }
 
   async listSessionIds(): Promise<string[]> {
+    const storage = await getAsyncStorage();
     const prefix = `@orchajs:${this.#namespace}:`;
-    return (await AsyncStorage.getAllKeys())
+    return (await storage.getAllKeys())
       .filter((key) => key.startsWith(prefix))
       .map((key) => key.slice(prefix.length))
       .sort();
   }
 
   async getCloudAcknowledgement(sessionId: string): Promise<number> {
+    const storage = await getAsyncStorage();
     const value = Number(
-      await AsyncStorage.getItem(this.#acknowledgementKey(sessionId)),
+      await storage.getItem(this.#acknowledgementKey(sessionId)),
     );
     return Number.isInteger(value) && value >= 0 ? value : 0;
   }
@@ -143,9 +196,10 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
     const key = this.#acknowledgementKey(sessionId);
     const previous = writes.get(key) ?? Promise.resolve();
     const write = previous.then(async () => {
-      const current = Number(await AsyncStorage.getItem(key));
+      const storage = await getAsyncStorage();
+      const current = Number(await storage.getItem(key));
       if (!Number.isInteger(current) || current < sequence) {
-        await AsyncStorage.setItem(key, String(sequence));
+        await storage.setItem(key, String(sequence));
       }
     });
     writes.set(key, write);
@@ -204,14 +258,15 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
   }
 
   async #ensureTailIndex(sessionId: string): Promise<TailIndex> {
+    const storage = await getAsyncStorage();
     const indexKey = this.#tailIndexKey(sessionId);
-    const pending = await AsyncStorage.getItem(
+    const pending = await storage.getItem(
       this.#tailPendingKey(sessionId),
     );
     if (!pending) {
       const cached = tailIndexes.get(indexKey);
       if (cached) return cached;
-      const stored = await AsyncStorage.getItem(indexKey);
+      const stored = await storage.getItem(indexKey);
       if (stored) {
         try {
           const parsed = parseTailIndex(stored);
@@ -226,6 +281,7 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
   }
 
   async #rebuildTailIndex(sessionId: string): Promise<TailIndex> {
+    const storage = await getAsyncStorage();
     const events = await this.read(sessionId);
     const chunks: TailChunk[] = [];
     const writes: Array<[string, string]> = [];
@@ -241,8 +297,8 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
       chunks,
     };
     writes.push([this.#tailIndexKey(sessionId), JSON.stringify(index)]);
-    if (writes.length > 0) await AsyncStorage.multiSet(writes);
-    await AsyncStorage.removeItem(this.#tailPendingKey(sessionId));
+    if (writes.length > 0) await storage.multiSet(writes);
+    await storage.removeItem(this.#tailPendingKey(sessionId));
     tailIndexes.set(this.#tailIndexKey(sessionId), index);
     return index;
   }
@@ -252,13 +308,14 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
     current: TailIndex,
     events: SessionEvent[],
   ): Promise<void> {
+    const storage = await getAsyncStorage();
     const chunks = [...current.chunks];
     const replacements: Array<[string, string]> = [];
     const obsolete: string[] = [];
     let remaining = [...events];
     const last = chunks.at(-1);
     if (last && last.count < TAIL_CHUNK_SIZE) {
-      const stored = await AsyncStorage.getItem(last.key);
+      const stored = await storage.getItem(last.key);
       if (stored === null) throw new Error("Missing tail index chunk.");
       const retained = parseEvents(stored).slice(0, last.count);
       const added = remaining.splice(
@@ -286,10 +343,10 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
       this.#tailIndexKey(sessionId),
       JSON.stringify(index),
     ]);
-    await AsyncStorage.multiSet(replacements);
+    await storage.multiSet(replacements);
     tailIndexes.set(this.#tailIndexKey(sessionId), index);
     await Promise.all(
-      obsolete.map((key) => AsyncStorage.removeItem(key)),
+      obsolete.map((key) => storage.removeItem(key)),
     );
   }
 
@@ -298,11 +355,12 @@ export class ReactNativeJsonlSessionStore implements SessionStore {
     afterSequence: number,
     limit: number,
   ): Promise<SessionEvent[]> {
+    const storage = await getAsyncStorage();
     const index = await this.#rebuildTailIndex(sessionId);
     const events: SessionEvent[] = [];
     for (const chunk of index.chunks) {
       if (chunk.lastSequence <= afterSequence) continue;
-      const contents = await AsyncStorage.getItem(chunk.key);
+      const contents = await storage.getItem(chunk.key);
       if (!contents) continue;
       for (const event of parseEvents(contents).slice(0, chunk.count)) {
         if (event.sequence > afterSequence) events.push(event);

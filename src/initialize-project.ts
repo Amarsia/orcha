@@ -6,6 +6,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { buildProject } from "./compiler/build-project.js";
 import { AGENTS_MD } from "./cli-agents-template.js";
 
 export async function initializeProject(projectRoot: string): Promise<void> {
@@ -61,9 +62,66 @@ export async function initializeProject(projectRoot: string): Promise<void> {
   }
 
   await ensureGitignore(projectRoot);
+  await ensurePackageScripts(projectRoot);
+  await buildProject({ projectRoot }).catch(() => undefined);
   console.log(
     '\nRun "orchajs dev" to validate changes or "orchajs run exampleAgent --input \\"Hello\\"" to execute the agent.',
   );
+}
+
+async function ensurePackageScripts(projectRoot: string): Promise<void> {
+  const packagePath = resolve(projectRoot, "package.json");
+  if (!existsSync(packagePath)) {
+    return;
+  }
+  try {
+    const raw = await readFile(packagePath, "utf8");
+    const parsed = JSON.parse(raw) as {
+      scripts?: Record<string, string>;
+      [key: string]: unknown;
+    };
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return;
+    }
+    const scripts = { ...(parsed.scripts ?? {}) };
+    let changed = false;
+
+    if (!scripts.build) {
+      scripts.build = "orchajs build";
+      changed = true;
+    } else if (!scripts.build.includes("orchajs build")) {
+      if (!scripts.prebuild) {
+        scripts.prebuild = "orchajs build";
+        changed = true;
+      } else if (!scripts.prebuild.includes("orchajs build")) {
+        scripts.prebuild = `orchajs build && ${scripts.prebuild}`;
+        changed = true;
+      }
+    }
+
+    if (
+      scripts.dev &&
+      !scripts.dev.includes("orchajs") &&
+      !scripts.predev?.includes("orchajs build")
+    ) {
+      scripts.predev = scripts.predev
+        ? `orchajs build && ${scripts.predev}`
+        : "orchajs build";
+      changed = true;
+    }
+
+    if (changed) {
+      parsed.scripts = scripts;
+      await writeFile(
+        packagePath,
+        `${JSON.stringify(parsed, null, 2)}\n`,
+        "utf8",
+      );
+      console.log("Updated package.json scripts");
+    }
+  } catch {
+    // Best-effort package.json script update.
+  }
 }
 
 async function ensureGitignore(projectRoot: string): Promise<void> {
