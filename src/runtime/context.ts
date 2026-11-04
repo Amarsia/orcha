@@ -13,19 +13,33 @@ export interface OrchaRuntimeContext {
   generateProviderResponse: ProviderResponseGenerator;
 }
 
-const contexts = new WeakMap<object, OrchaRuntimeContext>();
+const RUNTIME_CONTEXTS_KEY = Symbol.for("orchajs.runtimeContexts");
+
+function getContextsMap(): WeakMap<object, OrchaRuntimeContext> {
+  const globalRecord = globalThis as Record<
+    symbol,
+    WeakMap<object, OrchaRuntimeContext> | undefined
+  >;
+  if (!globalRecord[RUNTIME_CONTEXTS_KEY]) {
+    globalRecord[RUNTIME_CONTEXTS_KEY] = new WeakMap<
+      object,
+      OrchaRuntimeContext
+    >();
+  }
+  return globalRecord[RUNTIME_CONTEXTS_KEY];
+}
 
 export function setOrchaRuntimeContext(
   client: object,
   context: OrchaRuntimeContext,
 ): void {
-  contexts.set(client, context);
+  getContextsMap().set(client, context);
 }
 
 export function getOrchaRuntimeContext(
   client: object,
 ): OrchaRuntimeContext {
-  const context = contexts.get(client);
+  const context = getContextsMap().get(client);
   if (!context) {
     throw new Error(
       "runTests() requires an initialized Orcha client.",

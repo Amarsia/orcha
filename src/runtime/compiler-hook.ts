@@ -8,24 +8,42 @@ export type RegistryCompiler = (
   projectRoot: string,
 ) => CompiledBundle;
 
-let registryCompiler: RegistryCompiler | undefined;
-let registryCompilationActive = false;
+interface CompilerHookGlobalState {
+  registryCompiler: RegistryCompiler | undefined;
+  registryCompilationActive: boolean;
+}
+
+const COMPILER_HOOK_STATE_KEY = Symbol.for("orchajs.compilerHookState");
+
+function getCompilerHookState(): CompilerHookGlobalState {
+  const globalRecord = globalThis as Record<
+    symbol,
+    CompilerHookGlobalState | undefined
+  >;
+  if (!globalRecord[COMPILER_HOOK_STATE_KEY]) {
+    globalRecord[COMPILER_HOOK_STATE_KEY] = {
+      registryCompiler: undefined,
+      registryCompilationActive: false,
+    };
+  }
+  return globalRecord[COMPILER_HOOK_STATE_KEY];
+}
 
 /** @internal Installed by Node development tooling, never by runtime bundles. */
 export function setRegistryCompiler(compiler: RegistryCompiler): void {
-  registryCompiler = compiler;
+  getCompilerHookState().registryCompiler = compiler;
 }
 
 export function getRegistryCompiler(): RegistryCompiler | undefined {
-  return registryCompiler;
+  return getCompilerHookState().registryCompiler;
 }
 
 /** @internal Prevents registry evaluation from starting runtime resources. */
 export function setRegistryCompilationActive(active: boolean): void {
-  registryCompilationActive = active;
+  getCompilerHookState().registryCompilationActive = active;
 }
 
 /** @internal True only while development tooling evaluates a registry. */
 export function isRegistryCompilationActive(): boolean {
-  return registryCompilationActive;
+  return getCompilerHookState().registryCompilationActive;
 }

@@ -120,20 +120,21 @@ export async function buildProject(
         `The ${target} target supports precompiled native actions only. Set actions.runtime to "native".`,
       );
     }
+    const compilerDirectory = esmCompilerDirectory();
     const runtimeFactoryPath = resolve(
-      dirname(fileURLToPath(import.meta.url)),
+      compilerDirectory,
       "../runtime/create-orcha.js",
     ).replaceAll("\\", "/");
     const runtimePlatformPath = resolve(
-      dirname(fileURLToPath(import.meta.url)),
+      compilerDirectory,
       `../runtime/platform-${target}.js`,
     ).replaceAll("\\", "/");
     const runtimeEntryPath = resolve(
-      dirname(fileURLToPath(import.meta.url)),
+      compilerDirectory,
       "../runtime-entry.js",
     ).replaceAll("\\", "/");
     const providerDispatcherPath = resolve(
-      dirname(fileURLToPath(import.meta.url)),
+      compilerDirectory,
       "../providers/dispatcher.js",
     ).replaceAll("\\", "/");
     const sandboxRuntimeSource =
@@ -253,6 +254,18 @@ export async function buildProject(
   }
 }
 
+function esmCompilerDirectory(): string {
+  const currentDirectory = dirname(fileURLToPath(import.meta.url));
+  const normalized = currentDirectory.replaceAll("\\", "/");
+  if (normalized.endsWith("/dist-cjs/compiler")) {
+    const esmCandidate = resolve(currentDirectory, "../../dist/compiler");
+    if (existsSync(esmCandidate)) {
+      return esmCandidate;
+    }
+  }
+  return currentDirectory;
+}
+
 function bundleFileName(
   target: "node" | "browser" | "react-native",
 ): string {
@@ -272,7 +285,7 @@ function runtimePlatformExport(
 }
 
 function createSandboxRuntimeSource(): string {
-  const runtimeDirectory = dirname(fileURLToPath(import.meta.url));
+  const runtimeDirectory = esmCompilerDirectory();
   const executePath = resolve(
     runtimeDirectory,
     "../runtime/actions/execute.js",
@@ -292,7 +305,7 @@ function createSandboxRuntimeSource(): string {
 function createPlatformActionRuntimeSource(
   target: "node" | "browser" | "react-native",
 ): string {
-  const runtimeDirectory = dirname(fileURLToPath(import.meta.url));
+  const runtimeDirectory = esmCompilerDirectory();
   const executePath = resolve(
     runtimeDirectory,
     "../runtime/actions/execute.js",
@@ -314,7 +327,7 @@ function createPlatformActionRuntimeSource(
 function createMcpRuntimeSource(
   target: "node" | "browser" | "react-native",
 ): string {
-  const runtimeDirectory = dirname(fileURLToPath(import.meta.url));
+  const runtimeDirectory = esmCompilerDirectory();
   const clientPath = resolve(
     runtimeDirectory,
     "../runtime/mcp/client.js",
@@ -342,7 +355,7 @@ function createOptionalFeatureRuntimeSource(options: {
   if (!options.inference && !options.cloudStorage) {
     return "";
   }
-  const sourceRoot = dirname(fileURLToPath(import.meta.url));
+  const sourceRoot = esmCompilerDirectory();
   const hooksPath = resolve(
     sourceRoot,
     "../runtime/optional-features.js",
@@ -379,7 +392,7 @@ function createOptionalFeatureRuntimeSource(options: {
 }
 
 function createNodeStorageExports(): string {
-  const sourceRoot = dirname(fileURLToPath(import.meta.url));
+  const sourceRoot = esmCompilerDirectory();
   const jsonlPath = resolve(
     sourceRoot,
     "../storage/node-jsonl.js",
@@ -409,7 +422,7 @@ function createProviderRuntimeSource(
   target: "node" | "browser" | "react-native",
 ): string {
   const providersDirectory = resolve(
-    dirname(fileURLToPath(import.meta.url)),
+    esmCompilerDirectory(),
     "../providers",
   );
   const imports: string[] = [];
