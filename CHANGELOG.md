@@ -1,5 +1,13 @@
 # orchajs
 
+## 0.27.1
+
+### Patch Changes
+
+- [#130](https://github.com/Amarsia/orcha/pull/130) [`810a6b8`](https://github.com/Amarsia/orcha/commit/810a6b81de5063d196e4016e95d81e979cf8cf42) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Redact sensitive values from evaluation reasoning, telemetry, and project sync.
+
+  Evaluation judges are instructed not to quote personal data, tax identifiers, financial figures, or secrets. Those values are also stripped from evaluation reasoning and evidence, run errors, and telemetry before they are stored or sent. Project sync now sends only the project directory name and removes credentials embedded in repository URLs.
+
 ## 0.27.0
 
 ### Minor Changes
