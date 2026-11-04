@@ -8,7 +8,11 @@ import {
 } from "./runtime/actions/execute.js";
 import { executeNativeAction } from "./runtime/actions/native.js";
 import { getRegistryCompiler } from "./runtime/compiler-hook.js";
-import { createOrcha } from "./runtime/create-orcha.js";
+import {
+  createOrcha,
+  type Orcha,
+  type OrchaClient,
+} from "./runtime/create-orcha.js";
 import { setMcpClientFactory } from "./runtime/mcp/client.js";
 import {
   setCloudSessionStoreFactory,
@@ -21,7 +25,7 @@ import type {
   OrchaInitConfiguration,
 } from "./types.js";
 
-export type { Orcha, OrchaClient } from "./runtime/create-orcha.js";
+export type { Orcha, OrchaClient };
 
 setNativeRuntimeLoader(async () => ({ executeNativeAction }));
 setSandboxRuntimeLoader(async () => {
@@ -38,30 +42,43 @@ setMcpClientFactory(async (server, credentials) => {
 setInferenceGeneratorFactory(createAmarsiaInferenceGenerator);
 setCloudSessionStoreFactory((options) => new CloudSessionStore(options));
 
-export const orcha = createOrcha(
-  (configuration) => {
-    const projectRoot = resolve(
-      configuration.root ??
-        process.env.ORCHA_PROJECT_ROOT ??
-        process.cwd(),
+const NODE_ORCHA_SINGLETON_KEY = Symbol.for("orchajs.nodeOrchaSingleton");
+
+function getSharedNodeOrcha(): OrchaClient {
+  const globalRecord = globalThis as Record<
+    symbol,
+    OrchaClient | undefined
+  >;
+  if (!globalRecord[NODE_ORCHA_SINGLETON_KEY]) {
+    globalRecord[NODE_ORCHA_SINGLETON_KEY] = createOrcha(
+      (configuration) => {
+        const projectRoot = resolve(
+          configuration.root ??
+            process.env.ORCHA_PROJECT_ROOT ??
+            process.cwd(),
+        );
+        const compiler = getRegistryCompiler();
+        if (process.env.ORCHA_COMPILING === "1" && compiler) {
+          return compiler(configuration, projectRoot);
+        }
+        if (
+          isPrecompiledRuntime() ||
+          existsSync(compiledManifestPath(projectRoot))
+        ) {
+          return loadCompiledManifest(projectRoot, configuration);
+        }
+        throw new Error(
+          'Orcha agents must be compiled before runtime initialization. Run "npx orchajs dev" during development or "npx orchajs build" before starting the application.',
+        );
+      },
+      generateProviderResponse,
+      nodeRuntimePlatform,
     );
-    const compiler = getRegistryCompiler();
-    if (process.env.ORCHA_COMPILING === "1" && compiler) {
-      return compiler(configuration, projectRoot);
-    }
-    if (
-      isPrecompiledRuntime() ||
-      existsSync(compiledManifestPath(projectRoot))
-    ) {
-      return loadCompiledManifest(projectRoot, configuration);
-    }
-    throw new Error(
-      'Orcha agents must be compiled before runtime initialization. Run "npx orchajs dev" during development or "npx orchajs build" before starting the application.',
-    );
-  },
-  generateProviderResponse,
-  nodeRuntimePlatform,
-);
+  }
+  return globalRecord[NODE_ORCHA_SINGLETON_KEY];
+}
+
+export const orcha: OrchaClient = getSharedNodeOrcha();
 
 function isPrecompiledRuntime(): boolean {
   return (
