@@ -1,7 +1,10 @@
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
-import { watch } from "chokidar";
 import { buildProject } from "../compiler/build-project.js";
 import { loadProjectEnvironment } from "../env.js";
+
+const require = createRequire(import.meta.url);
 
 export type RuntimeBuildTarget = "node" | "browser" | "react-native";
 
@@ -57,19 +60,33 @@ export function watchRuntimeTargets(
   if (state.watchedTargets.has(key)) {
     return;
   }
+  let watchFn: typeof import("chokidar").watch;
+  try {
+    const chokidarModule = require("chokidar") as typeof import("chokidar");
+    watchFn = chokidarModule.watch;
+  } catch {
+    return;
+  }
   state.watchedTargets.add(key);
   let timer: ReturnType<typeof setTimeout> | undefined;
-  watch(resolve(projectRoot, "orcha"), { ignoreInitial: true }).on(
-    "all",
-    () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        void targets.reduce(
+  const watcher = watchFn(resolve(projectRoot, "orcha"), {
+    ignoreInitial: true,
+    persistent: false,
+  });
+  watcher.on("all", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (!existsSync(resolve(projectRoot, "orcha/index.ts"))) {
+        return;
+      }
+      void targets
+        .reduce(
           (pending, target) =>
             pending.then(() => queueRuntimeBuild(projectRoot, target)),
           Promise.resolve(),
-        );
-      }, 75);
-    },
-  );
+        )
+        .catch(() => undefined);
+    }, 75);
+    timer.unref?.();
+  });
 }

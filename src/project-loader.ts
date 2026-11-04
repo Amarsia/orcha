@@ -33,9 +33,9 @@ export async function loadProject(projectRoot: string): Promise<void> {
   );
   await mkdir(temporaryDirectory, { recursive: true });
   try {
-    const previousBundle = orcha.isInitialized()
-      ? orcha.getCompiledBundle()
-      : undefined;
+    if (orcha.isInitialized()) {
+      await orcha.close();
+    }
     await bundleEntry({
       entryPoints: [registryPath],
       outfile: bundlePath,
@@ -58,10 +58,7 @@ export async function loadProject(projectRoot: string): Promise<void> {
       restoreEnvironment("ORCHA_PROJECT_ROOT", previousRoot);
       restoreEnvironment("ORCHA_COMPILING", previousCompiling);
     }
-    if (
-      !orcha.isInitialized() ||
-      orcha.getCompiledBundle() === previousBundle
-    ) {
+    if (!orcha.isInitialized()) {
       throw new Error(
         '"orcha/index.ts" must call orcha.init({ agents, ... }).',
       );

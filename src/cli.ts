@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { watch } from "chokidar";
@@ -72,13 +72,18 @@ switch (command) {
     );
     if (parsed.positionals.length > 0) {
       throw new Error(
-        "Usage: orchajs build [--target node|browser|react-native]",
+        "Usage: orchajs build [--target node|browser|react-native|all]",
       );
     }
-    const target = parseBuildTarget(parsed.values.get("--target"));
+    const targets = parseBuildTargets(
+      projectRoot,
+      parsed.values.get("--target"),
+    );
     loadProjectEnvironment(projectRoot);
-    const outputPath = await buildProject({ projectRoot, target });
-    console.log(`Built ${relative(projectRoot, outputPath)}`);
+    for (const target of targets) {
+      const outputPath = await buildProject({ projectRoot, target });
+      console.log(`Built ${relative(projectRoot, outputPath)}`);
+    }
     break;
   }
   case "help":
@@ -114,7 +119,14 @@ async function watchProject(
       for (const target of targets) {
         await buildProject({ projectRoot, target });
       }
-      const agents = Object.keys(orcha.getCompiledBundle().agents);
+      const manifestRaw = await readFile(
+        resolve(projectRoot, ".orcha/dist/manifest.json"),
+        "utf8",
+      );
+      const manifest = JSON.parse(manifestRaw) as {
+        agents?: Record<string, unknown>;
+      };
+      const agents = Object.keys(manifest.agents ?? {});
       console.log(
         `[orcha] valid — ${agents.length} agent${agents.length === 1 ? "" : "s"}: ${agents.join(", ") || "none"}`,
       );
@@ -438,11 +450,70 @@ function parseDevTargets(
       "Usage: orchajs dev [--target node|browser|react-native|all]",
     );
   }
-  const target = parsed.values.get("--target") ?? "node";
-  if (target === "all") {
+  return parseBuildTargets(process.cwd(), parsed.values.get("--target"));
+}
+
+function parseBuildTargets(
+  projectRoot: string,
+  value: string | undefined,
+): Array<"node" | "browser" | "react-native"> {
+  if (value === "all") {
     return ["browser", "react-native", "node"];
   }
-  return [parseBuildTarget(target)];
+  if (value !== undefined) {
+    return [parseBuildTarget(value)];
+  }
+  return detectProjectTargets(projectRoot);
+}
+
+function detectProjectTargets(
+  projectRoot: string,
+): Array<"node" | "browser" | "react-native"> {
+  let dependencies: Record<string, unknown> = {};
+  const packagePath = resolve(projectRoot, "package.json");
+  if (existsSync(packagePath)) {
+    try {
+      const pkg = JSON.parse(readFileSync(packagePath, "utf8")) as {
+        dependencies?: Record<string, unknown>;
+        devDependencies?: Record<string, unknown>;
+      };
+      dependencies = {
+        ...(pkg.dependencies ?? {}),
+        ...(pkg.devDependencies ?? {}),
+      };
+    } catch {
+      // ignore invalid package.json
+    }
+  }
+
+  const hasNext =
+    "next" in dependencies ||
+    existsSync(resolve(projectRoot, "next.config.ts")) ||
+    existsSync(resolve(projectRoot, "next.config.mjs")) ||
+    existsSync(resolve(projectRoot, "next.config.js"));
+  const hasBrowserApp =
+    hasNext ||
+    "vite" in dependencies ||
+    "react-dom" in dependencies ||
+    existsSync(resolve(projectRoot, "vite.config.ts")) ||
+    existsSync(resolve(projectRoot, "vite.config.js")) ||
+    existsSync(resolve(projectRoot, "webpack.config.js"));
+  const hasReactNative =
+    "react-native" in dependencies ||
+    "expo" in dependencies ||
+    existsSync(resolve(projectRoot, "metro.config.js"));
+
+  const targets: Array<"node" | "browser" | "react-native"> = [];
+  if (hasBrowserApp) {
+    targets.push("browser");
+  }
+  if (hasReactNative) {
+    targets.push("react-native");
+  }
+  if (hasNext || targets.length === 0) {
+    targets.push("node");
+  }
+  return targets;
 }
 
 function parseBuildTarget(

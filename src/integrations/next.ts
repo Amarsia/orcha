@@ -9,6 +9,7 @@ import { OrchaWebpackPlugin } from "./webpack.js";
 
 export interface OrchaNextOptions {
   projectRoot?: string;
+  watch?: boolean;
 }
 
 interface NextWebpackContext {
@@ -42,7 +43,7 @@ export async function withOrcha<T extends NextConfiguration>(
   const projectRoot = resolve(options.projectRoot ?? process.cwd());
   await queueRuntimeBuild(projectRoot, "browser");
   await queueRuntimeBuild(projectRoot, "node");
-  if (process.env.NODE_ENV !== "production") {
+  if (options.watch !== false && process.env.NODE_ENV !== "production") {
     watchRuntimeTargets(projectRoot, ["browser", "node"]);
   }
   const existingWebpack = configuration.webpack;

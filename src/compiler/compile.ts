@@ -5,8 +5,8 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
-import { buildSync } from "esbuild";
 import { isBuiltInProvider } from "../providers/catalog.js";
 import type {
   AgentConfiguration,
@@ -24,6 +24,8 @@ import type {
   SkillConfiguration,
   SubagentRegistration,
 } from "../types.js";
+
+const require = createRequire(import.meta.url);
 
 export function compileRegistry(
   registrations: Record<string, AgentRegistration>,
@@ -878,6 +880,18 @@ function validateEvaluationConfiguration(
   }
 }
 
+function loadEsbuildSync(): typeof import("esbuild").buildSync {
+  try {
+    const esbuildModule = require("esbuild") as typeof import("esbuild");
+    return esbuildModule.buildSync;
+  } catch (error) {
+    throw new Error(
+      'Compiling local actions on the fly requires "esbuild". Install it with "npm install --save-dev esbuild" or run "npx orchajs build" before deploying.',
+      { cause: error },
+    );
+  }
+}
+
 function compileLocalAction(
   agentName: string,
   directoryName: string,
@@ -892,6 +906,7 @@ function compileLocalAction(
     );
   }
 
+  const buildSync = loadEsbuildSync();
   let output: string;
   try {
     const result = buildSync({
