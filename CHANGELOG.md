@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.26.1
+
+### Patch Changes
+
+- [#126](https://github.com/Amarsia/orcha/pull/126) [`4fe97bb`](https://github.com/Amarsia/orcha/commit/4fe97bbcc0f6f0560a347533844954b29006861e) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Fix CJS/ESM dual-package singleton hazard during `buildProject()` across Next.js (`withOrcha`), Metro/Expo (`withOrchaMetro`), Webpack (`OrchaWebpackPlugin`), and esbuild (`orchaPlugin`) integrations by storing compiler hooks, the shared Node `orcha` singleton, runtime contexts, and build queues on `globalThis` via `Symbol.for(...)`, and resolving generated production runtime entry imports to the ESM `dist/` output when invoked from `dist-cjs/`.
+
 ## 0.26.0
 
 ### Minor Changes
