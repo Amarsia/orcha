@@ -681,17 +681,73 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function sanitizeErrorMessage(value: string): string {
-  return value
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
-    .replace(
-      /\b(authorization|api[-_ ]?key|token|secret|password)\b\s*[:=]\s*[^\s,;]+/gi,
-      "$1=[redacted]",
-    )
-    .replace(
-      /\b(?:sk|pk|amarsia)_[A-Za-z0-9_-]{12,}\b/gi,
-      "[redacted]",
-    )
-    .slice(0, 8000);
+export function sanitizeErrorMessage(value: string): string {
+  return (
+    value
+      // 1. Auth schemes & JWTs
+      .replace(
+        /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/gi,
+        "$1 [redacted]",
+      )
+      .replace(
+        /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
+        "[redacted]",
+      )
+      // 2. URL embedded credentials (e.g. https://user:token@host, postgres://user:pass@host)
+      .replace(
+        /\b([a-z][a-z0-9+.-]*:\/\/)([^/\s:@]+:[^/\s@]+@)/gi,
+        "$1[redacted]@",
+      )
+      // 3. Key-value secrets & credentials
+      .replace(
+        /\b(authorization|api[-_ ]?key|access[-_ ]?key|secret[-_ ]?key|client[-_ ]?secret|private[-_ ]?key|session[-_ ]?token|refresh[-_ ]?token|token|secret|password|passwd|pwd|credential)\b\s*[:=]\s*("[^"]*"|'[^']*'|[^\s,;}]+)/gi,
+        "$1=[redacted]",
+      )
+      // 4. Prefixed API keys & cloud access keys
+      .replace(
+        /\b(?:sk|pk|rk|ak|amarsia|ams_proj|ghp|gho|ghu|ghs|ghr|glpat|xox[baprs])_[A-Za-z0-9_-]{8,}\b/gi,
+        "[redacted]",
+      )
+      .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[redacted]")
+      // 5. Tax IDs (SSN / ITIN / EIN / TIN), payment cards, & bank accounts
+      .replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[redacted-ssn]")
+      .replace(/(?<![\d-])\b\d{2}-\d{7}\b(?![\d-])/g, "[redacted-tin]")
+      .replace(
+        /\b(ssn|itin|ein|tin|tax[-_ ]?id|routing[-_ ]?number|account[-_ ]?number|acct[-_ ]?(?:no|num|#)?|iban|swift)\b(\s*(?:is|#|:|=)?\s*)[A-Z0-9-]{4,34}\b/gi,
+        "$1$2[redacted-id]",
+      )
+      .replace(/\b(?:\d{4}[ -]?){3}\d{1,7}\b/g, "[redacted-card]")
+      // 6. Contact PII (Email addresses & phone numbers)
+      .replace(
+        /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+        "[redacted-email]",
+      )
+      .replace(
+        /(?:\+\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\b\d{3})[\s.-]\d{3}[\s.-]\d{4}\b/g,
+        "[redacted-phone]",
+      )
+      // 7. Client financial figures & currency amounts
+      .replace(
+        /(?:[$€£¥₹]|(?:\b(?:USD|EUR|GBP|CAD|AUD|JPY|INR|CHF)\s*))\s*[-+]?\d[\d,]*(?:\.\d+)?(?:\s*(?:k|m|b|bn|mm|thousand|million|billion))?\b/gi,
+        "[redacted-amount]",
+      )
+      .replace(
+        /\b[-+]?\d[\d,]*(?:\.\d+)?\s*(?:USD|EUR|GBP|CAD|AUD|JPY|INR|CHF|dollars?|cents?|euros?|pounds?)\b/gi,
+        "[redacted-amount]",
+      )
+      .replace(
+        /\b[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?\b/g,
+        "[redacted-figure]",
+      )
+      .replace(
+        /\b(amount|total|subtotal|balance|income|revenue|salary|wages|compensation|distribution|deduction|tax|profit|loss|cost|price|fee|payment|invoice|net|gross|asset|liability|equity|credit|debit)(\s+(?:of|is|was|equals|=|:)\s*)[-+]?\d[\d,]*(?:\.\d+)?%?/gi,
+        "$1$2[redacted-figure]",
+      )
+      // 8. Local user filesystem paths
+      .replace(
+        /(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[^\s,;'")\]}]+/g,
+        "[redacted-path]",
+      )
+      .slice(0, 8000)
+  );
 }
-
