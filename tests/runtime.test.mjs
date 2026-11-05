@@ -2791,6 +2791,82 @@ test("fails safely when a provider exhausts its output-token budget", async () =
   }
 });
 
+test("preserves assistant message and surfaces preceding action failure when a JSON agent returns plain text", async () => {
+  const fixture = await createRuntimeFixture(
+    (_requests, index) => {
+      if (index === 1) {
+        return {
+          stop_reason: "tool_use",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_failing_action",
+              name: "calculate_invoice_total",
+              input: {
+                hours: "invalid-not-a-number",
+                hourlyRate: 100,
+                taxRate: 0.1,
+                currency: "USD",
+              },
+            },
+          ],
+          usage: { input_tokens: 10, output_tokens: 8 },
+        };
+      }
+      return {
+        stop_reason: "end_turn",
+        content: [
+          {
+            type: "text",
+            text: "I could not compute the invoice because the action failed validation.",
+          },
+        ],
+        usage: { input_tokens: 20, output_tokens: 14 },
+      };
+    },
+    {
+      outputType: "json",
+      outputSchema: {
+        type: "object",
+        properties: { total: { type: "number" } },
+        required: ["total"],
+      },
+    },
+  );
+  try {
+    const result = await fixture.client.testAgent.run("Compute invoice.").result;
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.error.code, "provider_error");
+    assert.match(
+      result.error.message,
+      /After action "calculate_invoice_total" failed \(Value failed action "calculate_invoice_total" parameters: \$\.hours must be number\): Model response did not contain a JSON object or array\. Model returned plain text: "I could not compute the invoice because the action failed validation\."/,
+    );
+    assert.equal(result.error.details.reason, "missing_json");
+    assert.equal(
+      result.error.details.responsePreview,
+      "I could not compute the invoice because the action failed validation.",
+    );
+    assert.deepEqual(result.error.details.failedActions, [
+      {
+        kind: "action",
+        name: "calculate_invoice_total",
+        message:
+          'Value failed action "calculate_invoice_total" parameters: $.hours must be number',
+      },
+    ]);
+
+    const events = await readSessionEvents(fixture.root, result.sessionId);
+    assert.equal(events.at(-2).type, "message.created");
+    assert.equal(events.at(-2).data.status, "completed");
+    assert.equal(events.at(-1).type, "run.failed");
+    assert.equal(events.at(-1).data.usage.inputTokens, 14);
+    assert.equal(events.at(-1).data.usage.outputTokens, 6);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test(
   "continues a durable session after switching providers",
   { skip: !googleProvidersAvailable },

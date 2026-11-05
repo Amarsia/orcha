@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { basename, extname } from "node:path";
 import { OrchaError } from "../errors.js";
 import { readLocalFileContent } from "../file-content.js";
-import { parseStructuredOutput } from "../runtime/structured-output.js";
+import { resolveProviderStructuredOutput } from "../runtime/structured-output.js";
 import type {
   BedrockProviderConfiguration,
   MessageContent,
@@ -686,30 +686,26 @@ function toProviderResponse(
       block.type === "tool_call",
   );
   const stopReason = normalizeStopReason(response.stopReason);
-  return {
-    output:
-      request.outputType === "json" &&
-      toolCalls.length === 0 &&
-      stopReason !== "max_tokens"
-        ? parseStructuredOutput(
-            textOutput,
-            request.outputSchema ?? {},
-          )
-        : textOutput,
-    responseId: response.requestId,
-    stopReason,
-    content: response.blocks,
-    toolCalls,
-    usage: {
-      inputTokens: response.usage?.inputTokens ?? 0,
-      outputTokens: response.usage?.outputTokens ?? 0,
-      reasoningTokens: null,
-      cacheReadTokens:
-        response.usage?.cacheReadInputTokens ?? 0,
-      cacheWriteTokens:
-        response.usage?.cacheWriteInputTokens ?? 0,
+  return resolveProviderStructuredOutput(
+    request,
+    {
+      output: textOutput,
+      responseId: response.requestId,
+      stopReason,
+      content: response.blocks,
+      toolCalls,
+      usage: {
+        inputTokens: response.usage?.inputTokens ?? 0,
+        outputTokens: response.usage?.outputTokens ?? 0,
+        reasoningTokens: null,
+        cacheReadTokens:
+          response.usage?.cacheReadInputTokens ?? 0,
+        cacheWriteTokens:
+          response.usage?.cacheWriteInputTokens ?? 0,
+      },
     },
-  };
+    textOutput,
+  );
 }
 
 function normalizeStopReason(

@@ -10,7 +10,7 @@ import type {
   ProviderStopReason,
   ProviderToolCall,
 } from "../providers/types.js";
-import { parseStructuredOutput } from "../runtime/structured-output.js";
+import { resolveProviderStructuredOutput } from "../runtime/structured-output.js";
 import type { MessageContent, ProviderName, Usage } from "../types.js";
 import { resolveAmarsiaEndpoint } from "./endpoint.js";
 
@@ -435,23 +435,21 @@ function toProviderResponse(
       .map((block) => block.text)
       .join("");
   const stopReason = normalizeStopReason(response, toolCalls, refused);
-  const output =
-    request.outputType === "json" &&
-    toolCalls.length === 0 &&
-    stopReason !== "max_tokens"
-      ? parseStructuredOutput(textOutput, request.outputSchema ?? {})
-      : textOutput;
   if (textOutput) {
     request.publishOutput?.(textOutput);
   }
-  return {
-    output,
-    responseId: response.id,
-    stopReason,
-    content,
-    toolCalls,
-    usage: normalizeUsage(response.usage),
-  };
+  return resolveProviderStructuredOutput(
+    request,
+    {
+      output: textOutput,
+      responseId: response.id,
+      stopReason,
+      content,
+      toolCalls,
+      usage: normalizeUsage(response.usage),
+    },
+    textOutput,
+  );
 }
 
 function replay(item: GatewayOutputItem):

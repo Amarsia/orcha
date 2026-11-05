@@ -57,7 +57,10 @@ import {
   normalizePersistedToolResults,
   SessionEventWriter,
 } from "./session-events.js";
-import { validateStructuredValue } from "./structured-output.js";
+import {
+  StructuredOutputError,
+  validateStructuredValue,
+} from "./structured-output.js";
 import { executeLocalAction } from "./actions/execute.js";
 import {
   createExecution,
@@ -1280,6 +1283,67 @@ export class RuntimeAgent implements AgentRuntime {
             output: streamedOutput,
           };
         }
+        if (error instanceof StructuredOutputError && error.response) {
+          const modelDurationMs = Math.round(
+            performance.now() - modelStartedAt,
+          );
+          const usage = aggregateUsage(
+            previousEvents,
+            writer.run,
+            error.response.usage,
+          );
+          const assistantEvent = writer.create("message.created", {
+            status: "completed",
+            provider: this.#manifest.provider,
+            model: this.#manifest.model,
+            responseId: error.response.responseId,
+            stopReason: error.response.stopReason,
+            role: "assistant",
+            content: error.response.content,
+            usage: error.response.usage,
+            durationMs: modelDurationMs,
+          });
+          const failedContext = summarizeRunToolFailures(
+            previousEvents,
+            writer.run,
+          );
+          const message = failedContext.summary
+            ? `After ${failedContext.summary}: ${error.message}`
+            : error.message;
+          const details: Record<string, unknown> = {
+            reason: error.kind,
+            outputType: this.#manifest.outputType,
+            provider: this.#manifest.provider,
+            model: this.#manifest.model,
+            ...(error.responsePreview
+              ? { responsePreview: error.responsePreview }
+              : {}),
+            ...(error.schemaErrors
+              ? { schemaErrors: error.schemaErrors }
+              : {}),
+            ...(failedContext.failures.length > 0
+              ? { failedActions: failedContext.failures }
+              : {}),
+          };
+          await this.#store.append(sessionId, [
+            assistantEvent,
+            writer.create("run.failed", {
+              status: "failed",
+              durationMs: elapsedRunDuration(previousEvents, writer.run),
+              usage,
+              error: {
+                code: "provider_error",
+                message,
+                retryable: true,
+                details,
+              },
+            }),
+          ]);
+          return failure(sessionId, "provider_error", message, {
+            retryable: true,
+            details,
+          });
+        }
         if (error instanceof OrchaError) {
           throw error;
         }
@@ -1288,7 +1352,7 @@ export class RuntimeAgent implements AgentRuntime {
           "provider_error",
           providerError.message,
           {
-            retryable: true,
+            retryable: providerError.retryable,
             cause: error,
             details: {
               provider: this.#manifest.provider,
@@ -1302,7 +1366,8 @@ export class RuntimeAgent implements AgentRuntime {
       const usage = aggregateUsage(previousEvents, writer.run, response.usage);
       const assistantEvent = writer.create("message.created", {
         status:
-          response.stopReason === "max_tokens"
+          response.stopReason === "max_tokens" ||
+          response.stopReason === "content_filter"
             ? "incomplete"
             : "completed",
         provider: this.#manifest.provider,
@@ -1313,7 +1378,8 @@ export class RuntimeAgent implements AgentRuntime {
         content: response.content,
         ...(this.#manifest.outputType === "json" &&
         response.toolCalls.length === 0 &&
-        response.stopReason !== "max_tokens"
+        response.stopReason !== "max_tokens" &&
+        response.stopReason !== "content_filter"
           ? { parsedOutput: response.output }
           : {}),
         usage: response.usage,
@@ -1346,6 +1412,39 @@ export class RuntimeAgent implements AgentRuntime {
           }),
         ]);
         return failure(sessionId, "provider_error", message, { details });
+      }
+
+      if (response.stopReason === "content_filter") {
+        const preview =
+          typeof response.output === "string" && response.output.trim()
+            ? response.output.trim().slice(0, 240)
+            : undefined;
+        const message = preview
+          ? `The model response was blocked by the provider's content filter: ${JSON.stringify(preview)}`
+          : "The model response was blocked by the provider's content filter.";
+        const details: Record<string, unknown> = {
+          reason: "content_filter",
+          outputType: this.#manifest.outputType,
+          ...(preview ? { responsePreview: preview } : {}),
+        };
+        await this.#store.append(sessionId, [
+          assistantEvent,
+          writer.create("run.failed", {
+            status: "failed",
+            durationMs: elapsedRunDuration(previousEvents, writer.run),
+            usage,
+            error: {
+              code: "provider_error",
+              message,
+              retryable: false,
+              details,
+            },
+          }),
+        ]);
+        return failure(sessionId, "provider_error", message, {
+          retryable: false,
+          details,
+        });
       }
 
       if (response.toolCalls.length > 0) {
@@ -1799,7 +1898,11 @@ export class RuntimeAgent implements AgentRuntime {
       const startedAt = performance.now();
 
       try {
-        validateStructuredValue(call.arguments, action.parameters);
+        validateStructuredValue(
+          call.arguments,
+          action.parameters,
+          `action "${action.name}" parameters`,
+        );
         const rawOutput = await executeLocalAction({
           action,
           parameters: call.arguments,
@@ -1814,7 +1917,11 @@ export class RuntimeAgent implements AgentRuntime {
           this.#projectRoot,
         );
         if (action.outputSchema) {
-          validateStructuredValue(output, action.outputSchema);
+          validateStructuredValue(
+            output,
+            action.outputSchema,
+            `action "${action.name}" outputSchema`,
+          );
         }
         const completed = writer.create("action.completed", {
           callId: call.callId,
@@ -1913,7 +2020,11 @@ export class RuntimeAgent implements AgentRuntime {
       const startedAt = performance.now();
 
       try {
-        validateStructuredValue(call.arguments, tool.parameters);
+        validateStructuredValue(
+          call.arguments,
+          tool.parameters,
+          `MCP tool "${call.name}" parameters`,
+        );
         const result = await this.#mcp.callTool(
           call.name,
           call.arguments,
@@ -1921,6 +2032,7 @@ export class RuntimeAgent implements AgentRuntime {
         );
         const serializedOutput = ensureJsonSerializable(result.output);
         if (result.isError) {
+          const errorDetail = extractMcpErrorDetail(serializedOutput);
           const failed = writer.create("action.failed", {
             callId: call.callId,
             name: call.name,
@@ -1931,7 +2043,9 @@ export class RuntimeAgent implements AgentRuntime {
             durationMs: Math.round(performance.now() - startedAt),
             error: {
               code: "mcp_tool_error",
-              message: `MCP tool "${call.name}" returned an error.`,
+              message: errorDetail
+                ? `MCP tool "${call.name}" returned an error: ${errorDetail}`
+                : `MCP tool "${call.name}" returned an error.`,
             },
           });
           await this.#store.append(sessionId, [failed]);
@@ -2421,7 +2535,10 @@ export class RuntimeAgent implements AgentRuntime {
               error instanceof Error ? error.message : String(error),
               { retryable: true, cause: error },
             );
-      return failure(sessionId, normalized.code, normalized.message);
+      return failure(sessionId, normalized.code, normalized.message, {
+        retryable: normalized.retryable,
+        details: normalized.details,
+      });
     } finally {
       this.#sessionControls.delete(sessionId);
       this.#releaseSessionLock(sessionId);
@@ -4389,6 +4506,93 @@ async function withProviderConnectionRetry<T>(
     if (signal?.aborted) throw error;
     return operation();
   }
+}
+
+function summarizeRunToolFailures(
+  events: SessionEvent[],
+  run: number,
+): {
+  summary?: string;
+  failures: Array<{
+    kind: "action" | "subagent";
+    name: string;
+    message: string;
+  }>;
+} {
+  const failures: Array<{
+    kind: "action" | "subagent";
+    name: string;
+    message: string;
+  }> = [];
+
+  for (const event of events) {
+    if (event.run !== run) continue;
+    if (event.type === "action.failed") {
+      const name =
+        typeof event.data.name === "string" ? event.data.name : "action";
+      const errorRecord = isRecord(event.data.error)
+        ? event.data.error
+        : undefined;
+      const message =
+        typeof errorRecord?.message === "string" && errorRecord.message.trim()
+          ? errorRecord.message.trim()
+          : "action execution failed";
+      failures.push({ kind: "action", name, message });
+    } else if (event.type === "subagent.failed") {
+      const name =
+        typeof event.data.agent === "string" ? event.data.agent : "subagent";
+      const errorRecord = isRecord(event.data.error)
+        ? event.data.error
+        : undefined;
+      const message =
+        typeof errorRecord?.message === "string" && errorRecord.message.trim()
+          ? errorRecord.message.trim()
+          : "subagent execution failed";
+      failures.push({ kind: "subagent", name, message });
+    }
+  }
+
+  if (failures.length === 0) {
+    return { failures };
+  }
+
+  const last = failures.at(-1)!;
+  const label = `${last.kind} "${last.name}" failed (${last.message})`;
+  return {
+    summary:
+      failures.length === 1
+        ? label
+        : `${label} (+${failures.length - 1} earlier tool failure${failures.length > 2 ? "s" : ""})`,
+    failures,
+  };
+}
+
+function extractMcpErrorDetail(output: unknown): string | undefined {
+  if (typeof output === "string" && output.trim()) {
+    return output.trim();
+  }
+  if (!isRecord(output)) {
+    return undefined;
+  }
+  if (typeof output.error === "string" && output.error.trim()) {
+    return output.error.trim();
+  }
+  if (typeof output.message === "string" && output.message.trim()) {
+    return output.message.trim();
+  }
+  if (Array.isArray(output.content)) {
+    const texts = output.content
+      .map((item) =>
+        isRecord(item) && typeof item.text === "string"
+          ? item.text.trim()
+          : "",
+      )
+      .filter(Boolean);
+    if (texts.length > 0) {
+      return texts.join(" ");
+    }
+  }
+  return undefined;
 }
 
 function failure(

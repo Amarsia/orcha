@@ -1,3 +1,4 @@
+import { OrchaError } from "./errors.js";
 import type { LocalFileContent } from "./types.js";
 
 const MIME_TYPES: Record<string, string> = {
@@ -71,7 +72,21 @@ export async function readLocalFileContent(
 }> {
   const fsModule = "node:fs/promises";
   const { readFile } = await import(fsModule);
-  const bytes = await readFile(content.filePath);
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(content.filePath);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new OrchaError(
+      "invalid_input",
+      `Failed to read local file "${content.filePath}": ${reason}`,
+      {
+        retryable: false,
+        cause: error,
+        details: { filePath: content.filePath },
+      },
+    );
+  }
   const base64 = bytes.toString("base64");
   return {
     bytes,

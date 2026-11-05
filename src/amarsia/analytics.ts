@@ -17,10 +17,18 @@ const RELEVANT_EVENTS = new Set([
   "evaluation.failed",
 ]);
 
+const PROGRESS_EVENTS = new Set([
+  "message.created",
+  "action.completed",
+  "action.failed",
+  "subagent.completed",
+  "subagent.failed",
+]);
+
 const MAX_BATCH_RUNS = 100;
 const MAX_KEEPALIVE_BYTES = 48 * 1024;
 const HEARTBEAT_INTERVAL_MS = 30_000;
-const EVALUATION_FLUSH_TIMEOUT_MS = 5_000;
+const MAX_CONCURRENT_FLUSHES = 2;
 
 export type AmarsiaRunFact = AmarsiaTelemetryRunV1;
 
@@ -29,11 +37,12 @@ export class AmarsiaTelemetryClient {
   readonly #baseUrl: string;
   readonly #queue = new Map<string, AmarsiaRunFact>();
   readonly #activeRuns = new Map<string, AmarsiaRunFact>();
+  readonly #terminalRuns = new Set<string>();
   readonly #pendingProjections = new Set<Promise<void>>();
+  readonly #inFlightFlushes = new Set<Promise<void>>();
   #timer: ReturnType<typeof setTimeout> | undefined;
   #heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
   #attempt = 0;
-  #flushPromise: Promise<void> | undefined;
 
   constructor(options: { key: string; endpoint?: string }) {
     this.#key = options.key;
@@ -43,24 +52,40 @@ export class AmarsiaTelemetryClient {
   enqueue(fact: AmarsiaRunFact): void {
     this.#queue.set(fact.event_id, fact);
     if (fact.status === "running") {
+      this.#terminalRuns.delete(fact.event_id);
       this.#activeRuns.set(fact.event_id, fact);
       this.#scheduleHeartbeat();
-    } else {
-      this.#activeRuns.delete(fact.event_id);
-      if (this.#activeRuns.size === 0 && this.#heartbeatTimer) {
-        clearTimeout(this.#heartbeatTimer);
-        this.#heartbeatTimer = undefined;
+      if (this.#queue.size >= 20) {
+        void this.#flush();
+        return;
       }
-    }
-    if (fact.status !== "running") {
-      this.#scheduleTerminal();
+      this.#schedule(250);
       return;
     }
-    if (this.#queue.size >= 20) {
-      void this.#flush();
+
+    this.#terminalRuns.add(fact.event_id);
+    this.#activeRuns.delete(fact.event_id);
+    if (this.#activeRuns.size === 0 && this.#heartbeatTimer) {
+      clearTimeout(this.#heartbeatTimer);
+      this.#heartbeatTimer = undefined;
+    }
+    if (this.#timer) {
+      clearTimeout(this.#timer);
+      this.#timer = undefined;
+    }
+    void this.#flush();
+  }
+
+  updateActiveRun(fact: AmarsiaRunFact): void {
+    if (fact.status !== "running" || this.#terminalRuns.has(fact.event_id)) {
       return;
     }
-    this.#schedule(250);
+    if (this.#activeRuns.has(fact.event_id)) {
+      this.#activeRuns.set(fact.event_id, fact);
+    }
+    if (this.#queue.has(fact.event_id)) {
+      this.#queue.set(fact.event_id, fact);
+    }
   }
 
   #schedule(delay: number): void {
@@ -83,20 +108,14 @@ export class AmarsiaTelemetryClient {
     });
   }
 
-  #scheduleTerminal(): void {
-    if (this.#timer) clearTimeout(this.#timer);
-    this.#timer = setTimeout(() => {
-      this.#timer = undefined;
-      void this.#flush();
-    }, 0);
-  }
-
   #scheduleHeartbeat(): void {
     if (this.#heartbeatTimer || this.#activeRuns.size === 0) return;
     this.#heartbeatTimer = setTimeout(() => {
       this.#heartbeatTimer = undefined;
       for (const fact of this.#activeRuns.values()) {
-        this.#queue.set(fact.event_id, fact);
+        if (!this.#terminalRuns.has(fact.event_id)) {
+          this.#queue.set(fact.event_id, fact);
+        }
       }
       void this.#flush();
       this.#scheduleHeartbeat();
@@ -113,7 +132,7 @@ export class AmarsiaTelemetryClient {
     while (
       this.#pendingProjections.size > 0 ||
       this.#queue.size > 0 ||
-      this.#flushPromise
+      this.#inFlightFlushes.size > 0
     ) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) return;
@@ -128,10 +147,19 @@ export class AmarsiaTelemetryClient {
         clearTimeout(this.#timer);
         this.#timer = undefined;
       }
-      await Promise.race([
-        this.#flush(),
-        new Promise<void>((resolve) => setTimeout(resolve, remaining)),
-      ]);
+      if (this.#queue.size > 0) {
+        await Promise.race([
+          this.#flush(),
+          new Promise<void>((resolve) => setTimeout(resolve, remaining)),
+        ]);
+        continue;
+      }
+      if (this.#inFlightFlushes.size > 0) {
+        await Promise.race([
+          Promise.allSettled([...this.#inFlightFlushes]).then(() => undefined),
+          new Promise<void>((resolve) => setTimeout(resolve, remaining)),
+        ]);
+      }
     }
   }
 
@@ -150,20 +178,34 @@ export class AmarsiaTelemetryClient {
   }
 
   async #flush(): Promise<void> {
-    if (this.#flushPromise) return this.#flushPromise;
-    if (this.#queue.size === 0) return;
-    this.#flushPromise = this.#performFlush();
+    if (this.#queue.size === 0) {
+      if (this.#inFlightFlushes.size > 0) {
+        await Promise.allSettled([...this.#inFlightFlushes]);
+      }
+      return;
+    }
+    const hasTerminalFact = [...this.#queue.values()].some(
+      (fact) => fact.status !== "running",
+    );
+    const maxConcurrent = hasTerminalFact ? MAX_CONCURRENT_FLUSHES : 1;
+    if (this.#inFlightFlushes.size >= maxConcurrent) {
+      await Promise.allSettled([...this.#inFlightFlushes]);
+      return;
+    }
+
+    const flushPromise = this.#performFlush();
+    this.#inFlightFlushes.add(flushPromise);
     try {
-      await this.#flushPromise;
+      await flushPromise;
     } finally {
-      this.#flushPromise = undefined;
+      this.#inFlightFlushes.delete(flushPromise);
       if (this.#queue.size > 0 && !this.#timer) {
-        const hasTerminalFact = [...this.#queue.values()].some(
+        const remainingHasTerminal = [...this.#queue.values()].some(
           (fact) => fact.status !== "running",
         );
-        if (hasTerminalFact) {
+        if (remainingHasTerminal) {
           void this.#flush();
-        } else {
+        } else if (this.#inFlightFlushes.size === 0) {
           this.#schedule(250);
         }
       }
@@ -199,6 +241,12 @@ export class AmarsiaTelemetryClient {
       this.#attempt += 1;
       if (this.#attempt <= 6) {
         for (const fact of batch) {
+          if (
+            fact.status === "running" &&
+            this.#terminalRuns.has(fact.event_id)
+          ) {
+            continue;
+          }
           if (!this.#queue.has(fact.event_id)) {
             this.#queue.set(fact.event_id, fact);
           }
@@ -246,24 +294,58 @@ export function withAmarsiaTelemetry(options: {
     async append(sessionId, events) {
       await store.append(sessionId, events);
       const runs = relevantRuns(events);
+      const progressRuns = progressOnlyRuns(events, runs);
+      const hasSessionCreated = events.some(
+        (event) => event.type === "session.created",
+      );
+
       if (
         runs.size === 0 &&
+        progressRuns.size === 0 &&
+        !hasSessionCreated &&
         !projections.has(sessionId) &&
         !pending.has(sessionId)
       ) {
         return;
       }
+
+      if (!pending.has(sessionId)) {
+        let projection = projections.get(sessionId);
+        let hasNewEvents = false;
+        if (!projection && hasSessionCreated) {
+          projection = createProjection(events);
+          projections.set(sessionId, projection);
+          hasNewEvents = projection.seenSequences.size > 0;
+        } else if (projection) {
+          hasNewEvents = appendToProjection(projection, events);
+        }
+        if (projection) {
+          if (projection.isTest || !hasNewEvents) return;
+          for (const run of runs) {
+            const fact = projectRunFact(manifest, sessionId, run, projection);
+            if (fact) client.enqueue(fact);
+          }
+          for (const run of progressRuns) {
+            const fact = projectRunFact(manifest, sessionId, run, projection);
+            if (fact) client.updateActiveRun(fact);
+          }
+          return;
+        }
+      }
+
       const previous = pending.get(sessionId) ?? Promise.resolve();
       const processing = previous
         .then(async () => {
           let projection = projections.get(sessionId);
+          let hasNewEvents = false;
           if (!projection) {
             projection = createProjection(await store.read(sessionId));
             projections.set(sessionId, projection);
+            hasNewEvents = projection.seenSequences.size > 0;
           } else {
-            appendToProjection(projection, events);
+            hasNewEvents = appendToProjection(projection, events);
           }
-          if (projection.isTest) return;
+          if (projection.isTest || !hasNewEvents) return;
           for (const run of runs) {
             const fact = projectRunFact(
               manifest,
@@ -272,6 +354,15 @@ export function withAmarsiaTelemetry(options: {
               projection,
             );
             if (fact) client.enqueue(fact);
+          }
+          for (const run of progressRuns) {
+            const fact = projectRunFact(
+              manifest,
+              sessionId,
+              run,
+              projection,
+            );
+            if (fact) client.updateActiveRun(fact);
           }
         })
         .catch(() => undefined);
@@ -282,23 +373,6 @@ export function withAmarsiaTelemetry(options: {
           pending.delete(sessionId);
         }
       });
-      const hasTerminalRunEvent = events.some(
-        (event) =>
-          event.type === "run.completed" ||
-          event.type === "run.failed" ||
-          event.type === "run.paused",
-      );
-      const hasEvaluationResult = events.some(
-        (event) =>
-          event.type === "evaluation.completed" ||
-          event.type === "evaluation.failed",
-      );
-      if (hasTerminalRunEvent || hasEvaluationResult) {
-        await processing;
-      }
-      if (hasEvaluationResult) {
-        await client.drain({ timeoutMs: EVALUATION_FLUSH_TIMEOUT_MS });
-      }
     },
   };
 }
@@ -323,10 +397,12 @@ function createProjection(events: SessionEvent[]): SessionProjection {
 function appendToProjection(
   projection: SessionProjection,
   events: SessionEvent[],
-): void {
+): boolean {
+  let added = false;
   for (const event of events) {
     if (projection.seenSequences.has(event.sequence)) continue;
     projection.seenSequences.add(event.sequence);
+    added = true;
     if (event.type === "session.created") {
       projection.sessionCreated = event;
       const metadata = asRecord(event.data.metadata);
@@ -340,12 +416,30 @@ function appendToProjection(
       projection.runs.set(event.run, [event]);
     }
   }
+  return added;
 }
 
 function relevantRuns(events: SessionEvent[]): Set<number> {
   const runs = new Set<number>();
   for (const event of events) {
     if (typeof event.run === "number" && RELEVANT_EVENTS.has(event.type)) {
+      runs.add(event.run);
+    }
+  }
+  return runs;
+}
+
+function progressOnlyRuns(
+  events: SessionEvent[],
+  relevant: Set<number>,
+): Set<number> {
+  const runs = new Set<number>();
+  for (const event of events) {
+    if (
+      typeof event.run === "number" &&
+      !relevant.has(event.run) &&
+      PROGRESS_EVENTS.has(event.type)
+    ) {
       runs.add(event.run);
     }
   }

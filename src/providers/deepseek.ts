@@ -1,5 +1,5 @@
-import { OrchaError } from "../errors.js";
-import { parseStructuredOutput } from "../runtime/structured-output.js";
+import { createProviderHttpError, OrchaError } from "../errors.js";
+import { resolveProviderStructuredOutput } from "../runtime/structured-output.js";
 import type {
   MessageContent,
   ProviderConfiguration,
@@ -132,11 +132,7 @@ async function generateDeepSeek(
   );
 
   if (!response.ok) {
-    const error = (await response.json()) as DeepSeekStreamChunk;
-    throw new Error(
-      error.error?.message ??
-        `DeepSeek request failed with HTTP ${response.status}.`,
-    );
+    throw await createProviderHttpError(response, "DeepSeek");
   }
 
   const collected = await collectDeepSeekStream(
@@ -328,24 +324,19 @@ function toProviderResponse(
     (block): block is ProviderToolCall => block.type === "tool_call",
   );
   const stopReason = normalizeStopReason(response.finishReason, toolCalls);
-  const output =
-    request.outputType === "json" &&
-    toolCalls.length === 0 &&
-    stopReason !== "max_tokens"
-      ? parseStructuredOutput(
-          response.content,
-          request.outputSchema ?? {},
-        )
-      : response.content;
 
-  return {
-    output,
-    responseId: response.id,
-    stopReason,
-    content,
-    toolCalls,
-    usage: normalizeUsage(response.usage),
-  };
+  return resolveProviderStructuredOutput(
+    request,
+    {
+      output: response.content,
+      responseId: response.id,
+      stopReason,
+      content,
+      toolCalls,
+      usage: normalizeUsage(response.usage),
+    },
+    response.content,
+  );
 }
 
 function parseToolArguments(

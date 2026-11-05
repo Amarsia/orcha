@@ -1,20 +1,121 @@
+import type {
+  ProviderRequest,
+  ProviderResponse,
+} from "../providers/types.js";
+
+export type StructuredOutputFailureKind =
+  | "missing_json"
+  | "invalid_json"
+  | "schema_mismatch";
+
+export class StructuredOutputError extends Error {
+  readonly kind: StructuredOutputFailureKind;
+  readonly rawText: string;
+  readonly responsePreview?: string;
+  readonly schemaErrors?: string[];
+  response?: ProviderResponse;
+
+  constructor(
+    message: string,
+    options: {
+      kind: StructuredOutputFailureKind;
+      rawText: string;
+      responsePreview?: string;
+      schemaErrors?: string[];
+      cause?: unknown;
+    },
+  ) {
+    super(message, { cause: options.cause });
+    this.name = "StructuredOutputError";
+    this.kind = options.kind;
+    this.rawText = options.rawText;
+    this.responsePreview = options.responsePreview;
+    this.schemaErrors = options.schemaErrors;
+  }
+}
+
+export function resolveProviderStructuredOutput(
+  request: ProviderRequest,
+  baseResponse: ProviderResponse,
+  textOutput: string,
+): ProviderResponse {
+  if (
+    request.outputType !== "json" ||
+    baseResponse.toolCalls.length > 0 ||
+    baseResponse.stopReason === "max_tokens" ||
+    baseResponse.stopReason === "content_filter"
+  ) {
+    return baseResponse;
+  }
+
+  try {
+    return {
+      ...baseResponse,
+      output: parseStructuredOutput(
+        textOutput,
+        request.outputSchema ?? {},
+      ),
+    };
+  } catch (error) {
+    if (error instanceof StructuredOutputError) {
+      error.response = baseResponse;
+    }
+    throw error;
+  }
+}
+
 export function parseStructuredOutput(
   text: string,
   schema: Record<string, unknown>,
 ): unknown {
+  const preview = previewText(text);
   const candidate = extractJsonCandidate(text);
   if (!candidate) {
-    throw new Error("Model response did not contain a JSON object or array.");
+    const suffix = preview
+      ? ` Model returned plain text: ${JSON.stringify(preview)}`
+      : " Model returned an empty response.";
+    throw new StructuredOutputError(
+      `Model response did not contain a JSON object or array.${suffix}`,
+      {
+        kind: "missing_json",
+        rawText: text,
+        responsePreview: preview,
+      },
+    );
   }
 
   let value: unknown;
   try {
     value = JSON.parse(candidate);
   } catch (error) {
-    throw new Error("Model response contained invalid JSON.", { cause: error });
+    const detail = error instanceof Error ? error.message : "Invalid JSON";
+    const suffix = preview
+      ? ` Model returned: ${JSON.stringify(preview)}`
+      : "";
+    throw new StructuredOutputError(
+      `Model response contained invalid JSON (${detail}).${suffix}`,
+      {
+        kind: "invalid_json",
+        rawText: text,
+        responsePreview: preview,
+        cause: error,
+      },
+    );
   }
 
-  validateStructuredValue(value, schema);
+  const errors: string[] = [];
+  validateSchemaValue(value, schema, "$", errors);
+  if (errors.length > 0) {
+    throw new StructuredOutputError(
+      `Value failed outputSchema: ${errors.join("; ")}`,
+      {
+        kind: "schema_mismatch",
+        rawText: text,
+        responsePreview: preview,
+        schemaErrors: errors,
+      },
+    );
+  }
 
   return value;
 }
@@ -22,12 +123,23 @@ export function parseStructuredOutput(
 export function validateStructuredValue(
   value: unknown,
   schema: Record<string, unknown>,
+  label = "outputSchema",
 ): void {
   const errors: string[] = [];
   validateSchemaValue(value, schema, "$", errors);
   if (errors.length > 0) {
-    throw new Error(`Value failed outputSchema: ${errors.join("; ")}`);
+    throw new Error(`Value failed ${label}: ${errors.join("; ")}`);
   }
+}
+
+function previewText(text: string, maxLength = 240): string | undefined {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return undefined;
+  }
+  return compact.length > maxLength
+    ? `${compact.slice(0, maxLength)}...`
+    : compact;
 }
 
 function extractJsonCandidate(text: string): string | undefined {

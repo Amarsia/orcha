@@ -3,9 +3,9 @@ import type {
   ProviderConfiguration,
   Usage,
 } from "../types.js";
-import { OrchaError } from "../errors.js";
+import { createProviderHttpError, OrchaError } from "../errors.js";
 import { readLocalFileContent } from "../file-content.js";
-import { parseStructuredOutput } from "../runtime/structured-output.js";
+import { resolveProviderStructuredOutput } from "../runtime/structured-output.js";
 import { readServerSentEvents } from "./sse.js";
 import type {
   ProviderAdapter,
@@ -110,10 +110,7 @@ async function generateAnthropic(
   );
 
   if (!response.ok) {
-    const body = (await response.json()) as AnthropicResponse;
-    throw new Error(
-      body.error?.message ?? `Anthropic request failed with HTTP ${response.status}.`,
-    );
+    throw await createProviderHttpError(response, "Anthropic");
   }
 
   const body = response.headers
@@ -137,30 +134,28 @@ function toProviderResponse(
     (item): item is ProviderToolCall => item.type === "tool_call",
   );
   const stopReason = normalizeStopReason(body.stop_reason);
-  const output =
-    request.outputType === "json" &&
-    toolCalls.length === 0 &&
-    stopReason !== "max_tokens"
-      ? parseStructuredOutput(textOutput, request.outputSchema ?? {})
-      : textOutput;
   if (textOutput && request.publishOutput) {
     request.publishOutput(textOutput);
   }
 
-  return {
-    output,
-    responseId: body.id,
-    stopReason,
-    content,
-    toolCalls,
-    usage: {
-      inputTokens: body.usage?.input_tokens ?? 0,
-      outputTokens: body.usage?.output_tokens ?? 0,
-      reasoningTokens: null,
-      cacheReadTokens: body.usage?.cache_read_input_tokens ?? 0,
-      cacheWriteTokens: body.usage?.cache_creation_input_tokens ?? 0,
+  return resolveProviderStructuredOutput(
+    request,
+    {
+      output: textOutput,
+      responseId: body.id,
+      stopReason,
+      content,
+      toolCalls,
+      usage: {
+        inputTokens: body.usage?.input_tokens ?? 0,
+        outputTokens: body.usage?.output_tokens ?? 0,
+        reasoningTokens: null,
+        cacheReadTokens: body.usage?.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: body.usage?.cache_creation_input_tokens ?? 0,
+      },
     },
-  };
+    textOutput,
+  );
 }
 
 function normalizeStopReason(
