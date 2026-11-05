@@ -22,27 +22,111 @@ export class OrchaError extends Error {
   }
 }
 
+const NON_RETRYABLE_STATUS_CODES = new Set([400, 401, 403, 404, 413, 422]);
+const NON_RETRYABLE_ERROR_NAMES = new Set([
+  "ValidationException",
+  "AccessDeniedException",
+  "ResourceNotFoundException",
+  "UnrecognizedClientException",
+  "InvalidSignatureException",
+  "ExpiredTokenException",
+]);
+
+export async function createProviderHttpError(
+  response: Response,
+  providerLabel: string,
+): Promise<Error> {
+  const status = response.status;
+  const requestId =
+    response.headers.get("request-id") ??
+    response.headers.get("x-request-id") ??
+    response.headers.get("x-amzn-requestid") ??
+    undefined;
+
+  let rawText = "";
+  try {
+    rawText = (await response.text()).trim();
+  } catch {
+    rawText = "";
+  }
+
+  let parsedMessage: string | undefined;
+  let errorCode: string | number | undefined;
+  if (rawText) {
+    try {
+      const parsed = JSON.parse(rawText) as Record<string, unknown>;
+      const nestedError =
+        typeof parsed.error === "object" && parsed.error !== null
+          ? (parsed.error as Record<string, unknown>)
+          : undefined;
+      if (typeof nestedError?.message === "string" && nestedError.message.trim()) {
+        parsedMessage = nestedError.message.trim();
+      } else if (typeof parsed.message === "string" && parsed.message.trim()) {
+        parsedMessage = parsed.message.trim();
+      } else if (typeof parsed.detail === "string" && parsed.detail.trim()) {
+        parsedMessage = parsed.detail.trim();
+      }
+      errorCode =
+        stringOrNumberField(nestedError, "code") ??
+        stringOrNumberField(nestedError, "type") ??
+        stringOrNumberField(parsed, "code");
+    } catch {
+      const compact = rawText.replace(/\s+/g, " ").trim();
+      if (compact) {
+        parsedMessage =
+          compact.length > 300 ? `${compact.slice(0, 300)}...` : compact;
+      }
+    }
+  }
+
+  const message =
+    parsedMessage ?? `${providerLabel} request failed with HTTP ${status}.`;
+  const error = new Error(message) as Error & {
+    statusCode?: number;
+    requestId?: string;
+    code?: string | number;
+  };
+  error.statusCode = status;
+  if (requestId) {
+    error.requestId = requestId;
+  }
+  if (errorCode !== undefined) {
+    error.code = errorCode;
+  }
+  return error;
+}
+
 export function describeProviderError(error: unknown): {
   message: string;
+  retryable: boolean;
   details?: Record<string, unknown>;
 } {
   const rootMessage = errorMessage(error);
-  const cause = deepestUsefulCause(error);
-  if (!cause) {
-    return { message: rootMessage };
-  }
+  const statusCode = extractStatusCode(error);
+  const requestId = extractRequestId(error);
+  const errorName = extractErrorName(error);
+  const errorCode =
+    stringOrNumberField(error, "code") ??
+    stringOrNumberField(error, "type");
+  const retryable = isProviderErrorRetryable(statusCode, errorName);
 
-  const causeMessage = errorMessage(cause);
-  const causeCode = stringOrNumberField(cause, "code");
-  const syscall = stringField(cause, "syscall");
-  const hostname = stringField(cause, "hostname");
+  const cause = deepestUsefulCause(error);
+  const causeMessage = cause ? errorMessage(cause) : undefined;
+  const causeCode = cause ? stringOrNumberField(cause, "code") : undefined;
+  const syscall = cause ? stringField(cause, "syscall") : undefined;
+  const hostname = cause ? stringField(cause, "hostname") : undefined;
   const explanation =
-    causeMessage !== rootMessage
+    causeMessage && causeMessage !== rootMessage
       ? causeMessage
-      : causeCode
+      : causeCode !== undefined
         ? String(causeCode)
         : undefined;
-  const details = {
+
+  const details: Record<string, unknown> = {
+    ...(statusCode !== undefined ? { statusCode } : {}),
+    ...(requestId ? { requestId } : {}),
+    ...(errorName ? { errorName } : {}),
+    ...(errorCode !== undefined ? { errorCode } : {}),
     ...(causeCode !== undefined ? { causeCode } : {}),
     ...(syscall ? { syscall } : {}),
     ...(hostname ? { hostname } : {}),
@@ -51,6 +135,7 @@ export function describeProviderError(error: unknown): {
 
   return {
     message: explanation ? `${rootMessage}: ${explanation}` : rootMessage,
+    retryable,
     ...(Object.keys(details).length > 0 ? { details } : {}),
   };
 }
@@ -86,6 +171,58 @@ export function isRetryableProviderConnectionError(error: unknown): boolean {
     if (Array.isArray(record.errors)) pending.push(...record.errors);
   }
   return false;
+}
+
+function isProviderErrorRetryable(
+  statusCode: number | undefined,
+  errorName: string | undefined,
+): boolean {
+  if (errorName && NON_RETRYABLE_ERROR_NAMES.has(errorName)) {
+    return false;
+  }
+  if (statusCode !== undefined && NON_RETRYABLE_STATUS_CODES.has(statusCode)) {
+    return false;
+  }
+  return true;
+}
+
+function extractStatusCode(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const record = error as Record<string, unknown>;
+  if (typeof record.statusCode === "number") return record.statusCode;
+  if (typeof record.status === "number") return record.status;
+  const metadata =
+    typeof record.$metadata === "object" && record.$metadata !== null
+      ? (record.$metadata as Record<string, unknown>)
+      : undefined;
+  if (typeof metadata?.httpStatusCode === "number") {
+    return metadata.httpStatusCode;
+  }
+  return undefined;
+}
+
+function extractRequestId(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const record = error as Record<string, unknown>;
+  if (typeof record.requestId === "string" && record.requestId.trim()) {
+    return record.requestId.trim();
+  }
+  const metadata =
+    typeof record.$metadata === "object" && record.$metadata !== null
+      ? (record.$metadata as Record<string, unknown>)
+      : undefined;
+  if (typeof metadata?.requestId === "string" && metadata.requestId.trim()) {
+    return metadata.requestId.trim();
+  }
+  return undefined;
+}
+
+function extractErrorName(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined;
+  if (error.name && error.name !== "Error" && error.name !== "OrchaError") {
+    return error.name;
+  }
+  return undefined;
 }
 
 function deepestUsefulCause(error: unknown): unknown {

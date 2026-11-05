@@ -1,6 +1,6 @@
-import { OrchaError } from "../errors.js";
+import { createProviderHttpError, OrchaError } from "../errors.js";
 import { readLocalFileContent } from "../file-content.js";
-import { parseStructuredOutput } from "../runtime/structured-output.js";
+import { resolveProviderStructuredOutput } from "../runtime/structured-output.js";
 import type {
   MessageContent,
   ProviderConfiguration,
@@ -124,11 +124,7 @@ async function generateOpenAI(
   );
 
   if (!response.ok) {
-    const errorBody = (await response.json()) as OpenAIResponse;
-    throw new Error(
-      errorBody.error?.message ??
-        `OpenAI request failed with HTTP ${response.status}.`,
-    );
+    throw await createProviderHttpError(response, "OpenAI");
   }
 
   const responseBody = response.headers
@@ -387,24 +383,22 @@ function toProviderResponse(
       .map((block) => block.text)
       .join("");
   const stopReason = normalizeStopReason(response, toolCalls, refused);
-  const output =
-    request.outputType === "json" &&
-    toolCalls.length === 0 &&
-    stopReason !== "max_tokens"
-      ? parseStructuredOutput(textOutput, request.outputSchema ?? {})
-      : textOutput;
   if (textOutput) {
     request.publishOutput?.(textOutput);
   }
 
-  return {
-    output,
-    responseId: response.id,
-    stopReason,
-    content,
-    toolCalls,
-    usage: normalizeUsage(response.usage),
-  };
+  return resolveProviderStructuredOutput(
+    request,
+    {
+      output: textOutput,
+      responseId: response.id,
+      stopReason,
+      content,
+      toolCalls,
+      usage: normalizeUsage(response.usage),
+    },
+    textOutput,
+  );
 }
 
 function parseFunctionArguments(

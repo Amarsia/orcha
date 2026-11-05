@@ -1,6 +1,6 @@
 import { OrchaError } from "../errors.js";
 import { readLocalFileContent } from "../file-content.js";
-import { parseStructuredOutput } from "../runtime/structured-output.js";
+import { resolveProviderStructuredOutput } from "../runtime/structured-output.js";
 import type {
   MessageContent,
   ProviderName,
@@ -271,21 +271,19 @@ function toProviderResponse(
     toolCalls.length > 0,
     response.promptBlockReason !== undefined,
   );
-  const output =
-    request.outputType === "json" &&
-    toolCalls.length === 0 &&
-    stopReason !== "max_tokens"
-      ? parseStructuredOutput(textOutput, request.outputSchema ?? {})
-      : textOutput;
 
-  return {
-    output,
-    responseId: response.responseId,
-    stopReason,
-    content,
-    toolCalls,
-    usage: normalizeUsage(response.usage),
-  };
+  return resolveProviderStructuredOutput(
+    request,
+    {
+      output: textOutput,
+      responseId: response.responseId,
+      stopReason,
+      content,
+      toolCalls,
+      usage: normalizeUsage(response.usage),
+    },
+    textOutput,
+  );
 }
 
 function appendGoogleTextPart(

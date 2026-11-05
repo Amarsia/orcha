@@ -331,11 +331,105 @@ test("Amarsia telemetry delivers evaluation updates before append resolves", asy
 
   try {
     await wrapped.append("session-1", [evaluation]);
+    await telemetry.drain();
 
     assert.equal(requests.length, 1);
     assert.equal(requests[0].runs[0].evaluation_count, 1);
     assert.equal(requests[0].runs[0].evaluation_metric_count, 1);
     assert.equal(requests[0].runs[0].evaluations[0].name, "response_quality");
+  } finally {
+    await telemetry.close();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Amarsia telemetry dispatches terminal events in the background without blocking append or waiting for in-flight running batches", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  let releaseFirstRequest;
+  globalThis.fetch = (_url, init) => {
+    const payload = JSON.parse(init.body);
+    requests.push(payload);
+    if (requests.length === 1) {
+      return new Promise((resolve) => {
+        releaseFirstRequest = () =>
+          resolve(new Response(null, { status: 500 }));
+      });
+    }
+    return Promise.resolve(new Response(null, { status: 202 }));
+  };
+
+  const telemetry = new AmarsiaTelemetryClient({
+    key: "amarsia_project_key",
+    endpoint: "https://example.test",
+  });
+  const wrapped = withAmarsiaTelemetry({
+    client: telemetry,
+    manifest: {
+      key: "support-agent",
+      name: "Support agent",
+      provider: "openai",
+      model: "gpt-test",
+    },
+    store: {
+      async append() {},
+      async read() {
+        throw new Error("store.read should not be called for in-memory session");
+      },
+      async listSessionIds() {
+        return ["session-1"];
+      },
+    },
+  });
+
+  try {
+    await wrapped.append("session-1", [
+      {
+        sequence: 1,
+        type: "session.created",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        run: 1,
+        data: {},
+      },
+      {
+        sequence: 2,
+        type: "run.started",
+        timestamp: "2026-01-01T00:00:01.000Z",
+        run: 1,
+        data: { status: "running", provider: "openai", model: "gpt-test" },
+      },
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 280));
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].runs[0].status, "running");
+
+    await wrapped.append("session-1", [
+      {
+        sequence: 3,
+        type: "run.failed",
+        timestamp: "2026-01-01T00:00:02.000Z",
+        run: 1,
+        data: {
+          status: "failed",
+          durationMs: 1_000,
+          error: {
+            code: "provider_error",
+            message: "Bedrock request failed",
+            retryable: true,
+          },
+        },
+      },
+    ]);
+
+    // The terminal request is initiated immediately in the background even while the first running request is still in-flight.
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1].runs[0].status, "failed");
+
+    releaseFirstRequest();
+    await telemetry.drain();
+    // Failed first "running" batch must not be re-queued after terminal "failed" was already recorded.
+    assert.equal(requests.length, 2);
   } finally {
     await telemetry.close();
     globalThis.fetch = originalFetch;
