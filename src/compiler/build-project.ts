@@ -448,10 +448,20 @@ function createNodeStorageExports(): string {
 function allCompiledAgents(
   agents: CompiledBundle["agents"],
 ): CompiledAgentManifest[] {
-  return Object.values(agents).flatMap((agent) => [
-    agent,
-    ...Object.values(agent.subagents ?? {}),
-  ]);
+  const collected: CompiledAgentManifest[] = [];
+  const visited = new Set<CompiledAgentManifest>();
+  const visit = (agent: CompiledAgentManifest): void => {
+    if (visited.has(agent)) return;
+    visited.add(agent);
+    collected.push(agent);
+    for (const child of Object.values(agent.subagents ?? {})) {
+      visit(child);
+    }
+  };
+  for (const agent of Object.values(agents)) {
+    visit(agent);
+  }
+  return collected;
 }
 
 function createProviderRuntimeSource(

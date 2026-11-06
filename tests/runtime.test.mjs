@@ -848,6 +848,189 @@ test("compiles explicitly registered private subagents", async () => {
   }
 });
 
+test("compiles and runs nested subagent chains and rejects circular subagent chains", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-nested-subagents-"));
+  try {
+    await writeProjectFiles(root, {
+      "documentParser/index.json": JSON.stringify({
+        name: "Document Parser",
+        provider: "anthropic",
+        model: "parser-model",
+      }),
+      "documentParser/instructions.md": "Parse the document.",
+      "taxAxisAnalysis/index.json": JSON.stringify({
+        name: "Tax Axis Analysis",
+        provider: "anthropic",
+        model: "analysis-model",
+      }),
+      "taxAxisAnalysis/instructions.md": "Analyze tax data.",
+      "taxAxisPipelineTester/index.json": JSON.stringify({
+        name: "Tax Axis Pipeline Tester",
+        provider: "anthropic",
+        model: "pipeline-model",
+      }),
+      "taxAxisPipelineTester/instructions.md":
+        "Orchestrate documentParser and taxAxisAnalysis.",
+      "nkskTester/index.json": JSON.stringify({
+        name: "NKSK Tester",
+        provider: "anthropic",
+        model: "nksk-model",
+      }),
+      "nkskTester/instructions.md": "Invoke taxAxisPipelineTester.",
+    });
+
+    const registrations = {
+      documentParser: "./documentParser",
+      taxAxisAnalysis: "./taxAxisAnalysis",
+      taxAxisPipelineTester: {
+        path: "./taxAxisPipelineTester",
+        subagents: {
+          documentParser: "./documentParser",
+          taxAxisAnalysis: "./taxAxisAnalysis",
+        },
+      },
+      nkskTester: {
+        path: "./nkskTester",
+        subagents: {
+          taxAxisPipelineTester: "./taxAxisPipelineTester",
+        },
+      },
+    };
+    const bundle = compileRegistry(registrations, root);
+
+    assert.deepEqual(
+      Object.keys(
+        bundle.agents.nkskTester.subagents.taxAxisPipelineTester.subagents,
+      ),
+      ["documentParser", "taxAxisAnalysis"],
+    );
+
+    const usage = {
+      inputTokens: 1,
+      outputTokens: 1,
+      reasoningTokens: null,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    };
+    const seenModels = [];
+    const client = createOrcha(
+      () => bundle,
+      async (_provider, _configuration, request) => {
+        seenModels.push(request.model);
+        if (
+          request.model === "nksk-model" &&
+          seenModels.filter((m) => m === "nksk-model").length === 1
+        ) {
+          const call = {
+            type: "tool_call",
+            callId: "call_pipeline_1",
+            name: "run_agent",
+            arguments: {
+              agent: "taxAxisPipelineTester",
+              input: "Run the pipeline.",
+            },
+          };
+          return {
+            output: "",
+            stopReason: "tool_call",
+            content: [call],
+            toolCalls: [call],
+            usage,
+          };
+        }
+        if (
+          request.model === "pipeline-model" &&
+          seenModels.filter((m) => m === "pipeline-model").length === 1
+        ) {
+          const call = {
+            type: "tool_call",
+            callId: "call_parser_1",
+            name: "run_agent",
+            arguments: {
+              agent: "documentParser",
+              input: "Parse this PDF.",
+            },
+          };
+          return {
+            output: "",
+            stopReason: "tool_call",
+            content: [call],
+            toolCalls: [call],
+            usage,
+          };
+        }
+        if (request.model === "parser-model") {
+          return {
+            output: "Parsed document chunks.",
+            stopReason: "end_turn",
+            content: [{ type: "text", text: "Parsed document chunks." }],
+            toolCalls: [],
+            usage,
+          };
+        }
+        if (request.model === "pipeline-model") {
+          return {
+            output: "Pipeline finished with parsed chunks.",
+            stopReason: "end_turn",
+            content: [
+              { type: "text", text: "Pipeline finished with parsed chunks." },
+            ],
+            toolCalls: [],
+            usage,
+          };
+        }
+        return {
+          output: "NKSK verified pipeline output.",
+          stopReason: "end_turn",
+          content: [{ type: "text", text: "NKSK verified pipeline output." }],
+          toolCalls: [],
+          usage,
+        };
+      },
+    );
+    client.init({
+      root,
+      providers: { anthropic: "test-key" },
+      agents: registrations,
+    });
+
+    const result = await client.nkskTester.run("Start nested test.").result;
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "NKSK verified pipeline output.");
+    assert.deepEqual(seenModels, [
+      "nksk-model",
+      "pipeline-model",
+      "parser-model",
+      "pipeline-model",
+      "nksk-model",
+    ]);
+
+    assert.throws(
+      () =>
+        compileRegistry(
+          {
+            agentA: {
+              path: "./nkskTester",
+              subagents: { agentB: "./taxAxisPipelineTester" },
+            },
+            agentB: {
+              path: "./taxAxisPipelineTester",
+              subagents: { agentC: "./documentParser" },
+            },
+            agentC: {
+              path: "./documentParser",
+              subagents: { agentA: "./nkskTester" },
+            },
+          },
+          root,
+        ),
+      /Circular subagent registration detected: agentA -> agentB -> agentC -> agentA\./,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("compiles named MCP connections for agents and subagents", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-mcp-"));
   try {

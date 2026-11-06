@@ -90,6 +90,7 @@ export type SubagentRegistration =
   | {
       path: string;
       mcp?: McpRegistration;
+      subagents?: Record<string, SubagentRegistration>;
     };
 
 export type AgentRegistration =

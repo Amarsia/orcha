@@ -320,6 +320,72 @@ for (const item of operationsHistory.items) {
   );
 }
 
+const executiveResult = await orcha.executiveDirector.run({
+  content: [
+    "Produce an executive briefing for the checkout outage affecting",
+    "service checkout-api, delayed order ORD-4821, and transaction TXN-90210.",
+    "Delegate the cross-functional investigation to operationsCoordinator",
+    "(do not run customerContextSpecialist since customer email is already known).",
+  ].join(" "),
+  name: "Nested subagent executive briefing",
+  metadata: {
+    service: "checkout-api",
+    orderId: "ORD-4821",
+    transactionId: "TXN-90210",
+  },
+}).result;
+
+const executiveHistory = await orcha.executiveDirector.history(
+  executiveResult.sessionId,
+  {
+    page: 1,
+    pageSize: 100,
+  },
+);
+logHistory("executiveDirector", executiveHistory);
+console.log(
+  "[executiveDirector] Result:",
+  JSON.stringify(executiveResult, null, 2),
+);
+console.log(
+  `\nSession log: .orcha/sessions/executiveDirector/${executiveResult.sessionId}.jsonl`,
+);
+
+for (const item of executiveHistory.items) {
+  if (item.type !== "subagent" || !item.childSessionId) {
+    continue;
+  }
+  const childHistory = await orcha.executiveDirector.subagentHistory(
+    item.childSessionId,
+    {
+      page: 1,
+      pageSize: 100,
+    },
+  );
+  logHistory(`executiveDirector → ${item.name}`, childHistory);
+  console.log(
+    `Child session log: .orcha/sessions/${item.name}/${item.childSessionId}.jsonl`,
+  );
+  for (const nested of childHistory.items) {
+    if (nested.type !== "subagent" || !nested.childSessionId) {
+      continue;
+    }
+    logHistory(
+      `executiveDirector → ${item.name} → ${nested.name}`,
+      await orcha.executiveDirector.subagentHistory(
+        nested.childSessionId,
+        {
+          page: 1,
+          pageSize: 100,
+        },
+      ),
+    );
+    console.log(
+      `Nested child session log: .orcha/sessions/${nested.name}/${nested.childSessionId}.jsonl`,
+    );
+  }
+}
+
 await orcha.close();
 
 function logHistory(

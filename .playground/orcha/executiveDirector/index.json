@@ -1,0 +1,9 @@
+{
+  "name": "Executive Director",
+  "description": "Delegates operational investigations to Operations Coordinator, which in turn orchestrates nested domain specialists.",
+  "provider": "googlegenai",
+  "model": "gemini-2.5-flash",
+  "region": "provider_managed",
+  "maxTokens": 4096,
+  "outputType": "text"
+}

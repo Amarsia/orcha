@@ -627,7 +627,9 @@ export class RuntimeAgent implements AgentRuntime {
   async #ownedChild(
     parentSessionId: string | undefined,
     childSessionId: string,
+    visited: Set<RuntimeAgent> = new Set(),
   ): Promise<RuntimeAgent> {
+    visited.add(this);
     for (const child of Object.values(this.#subagents)) {
       const events = await child.#readSession(childSessionId);
       const lineage = sessionLineage(events);
@@ -638,6 +640,16 @@ export class RuntimeAgent implements AgentRuntime {
           lineage.parentSessionId === parentSessionId)
       ) {
         return child;
+      }
+    }
+    if (parentSessionId === undefined) {
+      for (const child of Object.values(this.#subagents)) {
+        if (visited.has(child)) continue;
+        try {
+          return await child.#ownedChild(undefined, childSessionId, visited);
+        } catch {
+          // Continue searching sibling subtrees.
+        }
       }
     }
     throw new OrchaError(
