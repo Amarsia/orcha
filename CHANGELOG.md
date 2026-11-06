@@ -1,5 +1,15 @@
 # orchajs
 
+## 0.27.3
+
+### Patch Changes
+
+- [#134](https://github.com/Amarsia/orcha/pull/134) [`8e21df2`](https://github.com/Amarsia/orcha/commit/8e21df248a698fc55676329a30cbe70511518264) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Support nested subagent chains and cycle detection across the compiler, runtime, and test runner.
+
+  - When an agent is referenced as a subagent of another agent, automatically inherit its own declared `subagents` and `mcp` registrations (or allow inline nested `subagents` declarations).
+  - Recursively instantiate nested `RuntimeAgent` subagent trees in `orcha.init()` and `orcha.runTests()`, and allow `subagentHistory()` / `subagentEvents()` to inspect descendant sessions across the hierarchy.
+  - Detect and reject circular subagent chains (`A -> B -> C -> A`) at compile and initialization time.
+
 ## 0.27.2
 
 ### Patch Changes
