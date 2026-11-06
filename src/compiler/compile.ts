@@ -43,43 +43,100 @@ export function compileRegistry(
     );
   }
 
-  const agents: Record<string, CompiledAgentManifest> = {};
+  const normalizedRegistrations: Record<
+    string,
+    NormalizedAgentRegistration
+  > = {};
+  const registrationsByPath = new Map<
+    string,
+    { key: string; registration: NormalizedAgentRegistration }
+  >();
 
   for (const [key, registration] of Object.entries(registrations)) {
     if (!key.trim()) {
       throw new Error("Registered agent names cannot be empty.");
     }
     const normalized = normalizeAgentRegistration(key, registration);
+    normalizedRegistrations[key] = normalized;
+    const resolvedPath = resolve(registryRoot, normalized.path);
+    if (!registrationsByPath.has(resolvedPath)) {
+      registrationsByPath.set(resolvedPath, {
+        key,
+        registration: normalized,
+      });
+    }
+  }
+
+  if (Object.keys(normalizedRegistrations).length === 0) {
+    throw new Error("At least one agent must be registered.");
+  }
+
+  const compileRegistrationTree = (
+    key: string,
+    normalized: NormalizedAgentRegistration,
+    ownerPath: string,
+    ancestry: Array<{ key: string; resolvedPath: string }>,
+  ): CompiledAgentManifest => {
+    const resolvedPath = resolve(registryRoot, normalized.path);
+    const inherited =
+      normalizedRegistrations[key] ??
+      registrationsByPath.get(resolvedPath)?.registration;
+    const effectiveMcp =
+      Object.keys(normalized.mcp).length > 0
+        ? normalized.mcp
+        : (inherited?.mcp ?? {});
+    const effectiveSubagentRegistrations =
+      Object.keys(normalized.subagents).length > 0
+        ? normalized.subagents
+        : (inherited?.subagents ?? {});
+
     const subagents: Record<string, CompiledAgentManifest> = {};
-    for (const [subagentKey, registration] of Object.entries(
-      normalized.subagents,
+    for (const [subagentKey, subagentRegistration] of Object.entries(
+      effectiveSubagentRegistrations,
     )) {
       if (!subagentKey.trim()) {
-        throw new Error(`Agent "${key}" has an empty subagent name.`);
+        throw new Error(`Agent "${ownerPath}" has an empty subagent name.`);
       }
-      const subagent = normalizeSubagentRegistration(
-        key,
+      const normalizedSubagent = normalizeSubagentRegistration(
+        ownerPath,
         subagentKey,
-        registration,
+        subagentRegistration,
       );
-      subagents[subagentKey] = compileAgent(
-        subagentKey,
-        subagent.path,
-        subagent.mcp,
+      const childResolvedPath = resolve(
         registryRoot,
-        actionRuntime,
-        target,
+        normalizedSubagent.path,
+      );
+      const cycleExists = ancestry.some(
+        (ancestor) =>
+          ancestor.resolvedPath === childResolvedPath ||
+          ancestor.key === subagentKey,
+      );
+      if (cycleExists) {
+        const chain = [
+          ...ancestry.map((item) => item.key),
+          subagentKey,
+        ].join(" -> ");
+        throw new Error(
+          `Circular subagent registration detected: ${chain}.`,
+        );
+      }
+      subagents[subagentKey] = compileRegistrationTree(
+        subagentKey,
+        normalizedSubagent,
+        `${ownerPath}/${subagentKey}`,
+        [...ancestry, { key: subagentKey, resolvedPath: childResolvedPath }],
       );
     }
+
     const parent = compileAgent(
       key,
       normalized.path,
-      normalized.mcp,
+      effectiveMcp,
       registryRoot,
       actionRuntime,
       target,
     );
-    agents[key] = Object.freeze({
+    return Object.freeze({
       ...parent,
       subagentPolicy:
         Object.keys(subagents).length > 0
@@ -90,10 +147,17 @@ export function compileRegistry(
           : parent.subagentPolicy,
       subagents: Object.freeze(subagents),
     });
-  }
+  };
 
-  if (Object.keys(agents).length === 0) {
-    throw new Error("At least one agent must be registered.");
+  const agents: Record<string, CompiledAgentManifest> = {};
+  for (const [key, normalized] of Object.entries(normalizedRegistrations)) {
+    const resolvedPath = resolve(registryRoot, normalized.path);
+    agents[key] = compileRegistrationTree(
+      key,
+      normalized,
+      key,
+      [{ key, resolvedPath }],
+    );
   }
 
   return Object.freeze({
@@ -103,14 +167,16 @@ export function compileRegistry(
   });
 }
 
-function normalizeAgentRegistration(
-  key: string,
-  registration: AgentRegistration,
-): {
+interface NormalizedAgentRegistration {
   path: string;
   mcp: McpRegistration;
   subagents: Record<string, SubagentRegistration>;
-} {
+}
+
+function normalizeAgentRegistration(
+  key: string,
+  registration: AgentRegistration,
+): NormalizedAgentRegistration {
   if (typeof registration === "string") {
     if (!registration.trim()) {
       throw new Error(`Agent "${key}" must register a folder path.`);
@@ -145,14 +211,14 @@ function normalizeSubagentRegistration(
   parentKey: string,
   key: string,
   registration: SubagentRegistration,
-): { path: string; mcp: McpRegistration } {
+): NormalizedAgentRegistration {
   if (typeof registration === "string") {
     if (!registration.trim()) {
       throw new Error(
         `Subagent "${parentKey}/${key}" must register a folder path.`,
       );
     }
-    return { path: registration, mcp: {} };
+    return { path: registration, mcp: {}, subagents: {} };
   }
   if (
     !registration ||
@@ -164,6 +230,16 @@ function normalizeSubagentRegistration(
       `Subagent "${parentKey}/${key}" must register a folder path.`,
     );
   }
+  if (
+    registration.subagents !== undefined &&
+    (!registration.subagents ||
+      typeof registration.subagents !== "object" ||
+      Array.isArray(registration.subagents))
+  ) {
+    throw new Error(
+      `Subagent "${parentKey}/${key}" subagents must be an object of named registrations.`,
+    );
+  }
   validateMcpRegistration(
     `Subagent "${parentKey}/${key}"`,
     registration.mcp,
@@ -171,6 +247,7 @@ function normalizeSubagentRegistration(
   return {
     path: registration.path,
     mcp: registration.mcp ?? {},
+    subagents: registration.subagents ?? {},
   };
 }
 

@@ -40,6 +40,12 @@ orcha.init({
         riskAnalyst: "./riskBot",
       },
     },
+    executiveDirector: {
+      path: "./executiveDirector",
+      subagents: {
+        operationsCoordinator: "./operationsCoordinator",
+      },
+    },
     riskBot: "./riskBot",
     supportBot: "./supportBot",
     visualInspector: "./visualInspector",

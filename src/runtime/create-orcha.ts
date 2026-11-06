@@ -171,38 +171,46 @@ class OrchaRuntimeCore implements Orcha {
     };
     const agents = new Map<string, AgentRuntime>();
 
-    for (const [name, manifest] of Object.entries(bundle.agents)) {
+    const createRuntimeAgent = (
+      manifest: CompiledAgentManifest,
+      delegatedOnly: boolean,
+      ancestry: Set<string>,
+    ): RuntimeAgent => {
       const subagents = Object.fromEntries(
         Object.entries(manifest.subagents ?? {}).map(
-          ([subagentName, subagentManifest]) => [
-            subagentName,
-            new RuntimeAgent({
-              manifest: subagentManifest,
-              configuration: runtimeConfiguration,
-              store: createRuntimeStore(subagentManifest),
-              activeSessions: this.#activeSessions,
-              sessionControls: this.#sessionControls,
-              generateProviderResponse,
-              delegatedOnly: true,
-              projectRoot,
-              randomUUID: this.#platform.randomUUID,
-            }),
-          ],
+          ([subagentName, subagentManifest]) => {
+            if (ancestry.has(subagentName)) {
+              throw new Error(
+                `Circular subagent registration detected: ${[...ancestry, subagentName].join(" -> ")}.`,
+              );
+            }
+            const nextAncestry = new Set(ancestry);
+            nextAncestry.add(subagentName);
+            return [
+              subagentName,
+              createRuntimeAgent(subagentManifest, true, nextAncestry),
+            ];
+          },
         ),
       );
+      return new RuntimeAgent({
+        manifest,
+        configuration: runtimeConfiguration,
+        store: createRuntimeStore(manifest),
+        activeSessions: this.#activeSessions,
+        sessionControls: this.#sessionControls,
+        generateProviderResponse,
+        subagents,
+        delegatedOnly,
+        projectRoot,
+        randomUUID: this.#platform.randomUUID,
+      });
+    };
+
+    for (const [name, manifest] of Object.entries(bundle.agents)) {
       agents.set(
         name,
-        new RuntimeAgent({
-          manifest,
-          configuration: runtimeConfiguration,
-          store: createRuntimeStore(manifest),
-          activeSessions: this.#activeSessions,
-          sessionControls: this.#sessionControls,
-          generateProviderResponse,
-          subagents,
-          projectRoot,
-          randomUUID: this.#platform.randomUUID,
-        }),
+        createRuntimeAgent(manifest, false, new Set([name])),
       );
     }
 

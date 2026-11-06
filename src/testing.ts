@@ -123,23 +123,41 @@ export async function runTests(
         controller: AbortController;
       }
     >();
-    const subagents = Object.fromEntries(
-      Object.entries(manifest.subagents ?? {}).map(
-        ([name, subagentManifest]) => [
-          name,
-          new RuntimeAgent({
-            manifest: subagentManifest,
-            configuration: context.configuration,
-            store: createStore(subagentManifest),
-            activeSessions,
-            sessionControls,
-            generateProviderResponse: context.generateProviderResponse,
-            delegatedOnly: true,
-            sessionIdPrefix: "ses_test_",
-            projectRoot: context.projectRoot,
-          }),
-        ],
-      ),
+    const createTestSubagents = (
+      parentManifest: CompiledAgentManifest,
+      ancestry: Set<string>,
+    ): Record<string, RuntimeAgent> =>
+      Object.fromEntries(
+        Object.entries(parentManifest.subagents ?? {}).map(
+          ([name, subagentManifest]) => {
+            if (ancestry.has(name)) {
+              throw new Error(
+                `Circular subagent registration detected: ${[...ancestry, name].join(" -> ")}.`,
+              );
+            }
+            const nextAncestry = new Set(ancestry);
+            nextAncestry.add(name);
+            return [
+              name,
+              new RuntimeAgent({
+                manifest: subagentManifest,
+                configuration: context.configuration,
+                store: createStore(subagentManifest),
+                activeSessions,
+                sessionControls,
+                generateProviderResponse: context.generateProviderResponse,
+                subagents: createTestSubagents(subagentManifest, nextAncestry),
+                delegatedOnly: true,
+                sessionIdPrefix: "ses_test_",
+                projectRoot: context.projectRoot,
+              }),
+            ];
+          },
+        ),
+      );
+    const subagents = createTestSubagents(
+      manifest,
+      new Set([manifest.key ?? manifest.name]),
     );
     const agent = new RuntimeAgent({
       manifest: withTestActions(
