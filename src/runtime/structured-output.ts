@@ -8,6 +8,10 @@ export type StructuredOutputFailureKind =
   | "invalid_json"
   | "schema_mismatch";
 
+const STRUCTURED_OUTPUT_ERROR_BRAND = Symbol.for(
+  "orchajs.StructuredOutputError",
+);
+
 export class StructuredOutputError extends Error {
   readonly kind: StructuredOutputFailureKind;
   readonly rawText: string;
@@ -27,11 +31,26 @@ export class StructuredOutputError extends Error {
   ) {
     super(message, { cause: options.cause });
     this.name = "StructuredOutputError";
+    Object.defineProperty(this, STRUCTURED_OUTPUT_ERROR_BRAND, {
+      value: true,
+    });
     this.kind = options.kind;
     this.rawText = options.rawText;
     this.responsePreview = options.responsePreview;
     this.schemaErrors = options.schemaErrors;
   }
+}
+
+export function isStructuredOutputError(
+  value: unknown,
+): value is StructuredOutputError {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as Record<PropertyKey, unknown>)[
+      STRUCTURED_OUTPUT_ERROR_BRAND
+    ] === true
+  );
 }
 
 export function resolveProviderStructuredOutput(
@@ -57,7 +76,7 @@ export function resolveProviderStructuredOutput(
       ),
     };
   } catch (error) {
-    if (error instanceof StructuredOutputError) {
+    if (isStructuredOutputError(error)) {
       error.response = baseResponse;
     }
     throw error;

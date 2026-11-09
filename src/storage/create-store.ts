@@ -3,7 +3,7 @@ import type {
   SessionStore,
 } from "../types.js";
 import { NodeJsonlSessionStore } from "./node-jsonl.js";
-import { NodeSqliteSessionStore } from "./node-sqlite.js";
+import { NodeSqliteSessionStore } from "./node-sqlite-facade.js";
 
 export type SessionStorageStrategy = NonNullable<
   NonNullable<ProjectConfiguration["storage"]>["strategy"]

@@ -1,4 +1,5 @@
 import { OrchaError } from "../errors.js";
+import { importRuntimeModule } from "../runtime/node-module-loader.js";
 import type { ProviderName } from "../types.js";
 import {
   builtInProviderCatalog,
@@ -35,7 +36,12 @@ function loadProvider(name: ProviderName): Promise<ProviderAdapter> {
   }
 
   const descriptor = builtInProviderCatalog[name];
-  const loading = import(`./${descriptor.moduleFile}`)
+  const moduleName = descriptor.moduleFile.replace(/\.js$/, "");
+  const loading = importRuntimeModule<Record<string, unknown>>([
+    "orchajs",
+    "providers",
+    moduleName,
+  ])
     .then((module) => {
       const provider: unknown = module[descriptor.exportName];
       if (!isProviderAdapter(provider) || provider.name !== name) {
