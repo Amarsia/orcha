@@ -24,6 +24,7 @@
     ".": {
       "types": "./dist/index.d.ts",
       "react-native": "./dist/react-native.js",
+      "edge-light": "./dist/browser.js",
       "browser": "./dist/browser.js",
       "import": "./dist/index.js",
       "require": "./dist-cjs/index.js"
@@ -67,6 +68,31 @@
       "types": "./dist/integrations/expo.d.ts",
       "import": "./dist/integrations/expo.js",
       "require": "./dist-cjs/integrations/expo.js"
+    },
+    "./compiler": {
+      "types": "./dist/compiler/compile.d.ts",
+      "import": "./dist/compiler/compile.js",
+      "require": "./dist-cjs/compiler/compile.js"
+    },
+    "./providers/*": {
+      "types": "./dist/providers/*.d.ts",
+      "import": "./dist/providers/*.js",
+      "require": "./dist-cjs/providers/*.js"
+    },
+    "./runtime/sandbox": {
+      "types": "./dist/runtime/actions/sandbox.d.ts",
+      "import": "./dist/runtime/actions/sandbox.js",
+      "require": "./dist-cjs/runtime/actions/sandbox.js"
+    },
+    "./runtime/mcp-node": {
+      "types": "./dist/runtime/mcp/node-client.d.ts",
+      "import": "./dist/runtime/mcp/node-client.js",
+      "require": "./dist-cjs/runtime/mcp/node-client.js"
+    },
+    "./storage/sqlite": {
+      "types": "./dist/storage/node-sqlite.d.ts",
+      "import": "./dist/storage/node-sqlite.js",
+      "require": "./dist-cjs/storage/node-sqlite.js"
     }
   },
   "typesVersions": {
@@ -94,6 +120,9 @@
       ],
       "expo": [
         "dist/integrations/expo.d.ts"
+      ],
+      "storage/sqlite": [
+        "dist/storage/node-sqlite.d.ts"
       ]
     }
   },

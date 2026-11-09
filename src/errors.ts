@@ -1,5 +1,7 @@
 import type { OrchaErrorCode } from "./types.js";
 
+const ORCHA_ERROR_BRAND = Symbol.for("orchajs.OrchaError");
+
 export class OrchaError extends Error {
   readonly code: OrchaErrorCode;
   readonly retryable: boolean;
@@ -16,10 +18,19 @@ export class OrchaError extends Error {
   ) {
     super(message, { cause: options.cause });
     this.name = "OrchaError";
+    Object.defineProperty(this, ORCHA_ERROR_BRAND, { value: true });
     this.code = code;
     this.retryable = options.retryable ?? false;
     this.details = options.details;
   }
+}
+
+export function isOrchaError(value: unknown): value is OrchaError {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as Record<PropertyKey, unknown>)[ORCHA_ERROR_BRAND] === true
+  );
 }
 
 const NON_RETRYABLE_STATUS_CODES = new Set([400, 401, 403, 404, 413, 422]);

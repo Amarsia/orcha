@@ -1,5 +1,6 @@
 import {
   describeProviderError,
+  isOrchaError,
   isRetryableProviderConnectionError,
   OrchaError,
 } from "../errors.js";
@@ -58,7 +59,7 @@ import {
   SessionEventWriter,
 } from "./session-events.js";
 import {
-  StructuredOutputError,
+  isStructuredOutputError,
   validateStructuredValue,
 } from "./structured-output.js";
 import { executeLocalAction } from "./actions/execute.js";
@@ -1295,7 +1296,7 @@ export class RuntimeAgent implements AgentRuntime {
             output: streamedOutput,
           };
         }
-        if (error instanceof StructuredOutputError && error.response) {
+        if (isStructuredOutputError(error) && error.response) {
           const modelDurationMs = Math.round(
             performance.now() - modelStartedAt,
           );
@@ -1356,7 +1357,7 @@ export class RuntimeAgent implements AgentRuntime {
             details,
           });
         }
-        if (error instanceof OrchaError) {
+        if (isOrchaError(error)) {
           throw error;
         }
         const providerError = describeProviderError(error);
@@ -1614,12 +1615,9 @@ export class RuntimeAgent implements AgentRuntime {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const code =
-        error instanceof OrchaError ? error.code : "execution_failed";
-      const details =
-        error instanceof OrchaError ? error.details : undefined;
-      const retryable =
-        error instanceof OrchaError ? error.retryable : false;
+      const code = isOrchaError(error) ? error.code : "execution_failed";
+      const details = isOrchaError(error) ? error.details : undefined;
+      const retryable = isOrchaError(error) ? error.retryable : false;
       const usage = usageForRun(previousEvents, writer.run);
       await this.#store.append(sessionId, [
         writer.create("run.failed", {
@@ -2540,7 +2538,7 @@ export class RuntimeAgent implements AgentRuntime {
       return await operation();
     } catch (error) {
       const normalized =
-        error instanceof OrchaError
+        isOrchaError(error)
           ? error
           : new OrchaError(
               "storage_error",
@@ -2573,7 +2571,7 @@ export class RuntimeAgent implements AgentRuntime {
     try {
       return await operation();
     } catch (error) {
-      if (error instanceof OrchaError) {
+      if (isOrchaError(error)) {
         throw error;
       }
       throw new OrchaError(

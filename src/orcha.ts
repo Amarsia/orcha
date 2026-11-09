@@ -8,7 +8,6 @@ import {
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAmarsiaInferenceGenerator } from "./amarsia/inference.js";
-import { compileRegistry } from "./compiler/compile.js";
 import { generateProviderResponse } from "./providers/index.js";
 import {
   setNativeRuntimeLoader,
@@ -26,6 +25,10 @@ import {
 } from "./runtime/create-orcha.js";
 import { setMcpClientFactory } from "./runtime/mcp/client.js";
 import {
+  importRuntimeModule,
+  requireRuntimeModule,
+} from "./runtime/node-module-loader.js";
+import {
   setCloudSessionStoreFactory,
   setInferenceGeneratorFactory,
 } from "./runtime/optional-features.js";
@@ -40,14 +43,16 @@ export type { Orcha, OrchaClient };
 
 setNativeRuntimeLoader(async () => ({ executeNativeAction }));
 setSandboxRuntimeLoader(async () => {
-  const modulePath = "./runtime/actions/sandbox.js";
-  return import(modulePath) as Promise<
-    typeof import("./runtime/actions/sandbox.js")
-  >;
+  return importRuntimeModule<typeof import("./runtime/actions/sandbox.js")>([
+    "orchajs",
+    "runtime",
+    "sandbox",
+  ]);
 });
 setMcpClientFactory(async (server, credentials) => {
-  const modulePath = "./runtime/mcp/node-client.js";
-  const { createNodeMcpClient } = await import(modulePath);
+  const { createNodeMcpClient } = await importRuntimeModule<
+    typeof import("./runtime/mcp/node-client.js")
+  >(["orchajs", "runtime", "mcp-node"]);
   return createNodeMcpClient(server, credentials);
 });
 setInferenceGeneratorFactory(createAmarsiaInferenceGenerator);
@@ -79,7 +84,7 @@ function getSharedNodeOrcha(): OrchaClient {
         }
         const registryRoot = resolve(projectRoot, "orcha");
         if (existsSync(registryRoot)) {
-          const compiled = compileRegistry(
+          const compiled = compileRegistryAtRuntime(
             configuration.agents,
             registryRoot,
             configuration.actions?.runtime ?? "native",
@@ -169,7 +174,7 @@ function loadCompiledManifest(
   if (!existsSync(manifestPath)) {
     const registryRoot = resolve(projectRoot, "orcha");
     if (existsSync(registryRoot)) {
-      const compiled = compileRegistry(
+      const compiled = compileRegistryAtRuntime(
         configuration.agents,
         registryRoot,
         configuration.actions?.runtime ?? "native",
@@ -218,7 +223,7 @@ function loadCompiledManifest(
   ) {
     const registryRoot = resolve(projectRoot, "orcha");
     if (!isPrecompiledRuntime() && existsSync(registryRoot)) {
-      const recompiled = compileRegistry(
+      const recompiled = compileRegistryAtRuntime(
         configuration.agents,
         registryRoot,
         configuration.actions?.runtime ?? "native",
@@ -236,4 +241,21 @@ function loadCompiledManifest(
 
 function compiledManifestPath(projectRoot: string): string {
   return resolve(projectRoot, ".orcha/dist/manifest.json");
+}
+
+function compileRegistryAtRuntime(
+  registrations: OrchaInitConfiguration["agents"],
+  registryRoot: string,
+  actionRuntime: "native" | "sandbox",
+  target: "node" | "browser" | "react-native",
+): CompiledBundle {
+  const { compileRegistry } = requireRuntimeModule<
+    typeof import("./compiler/compile.js")
+  >(["orchajs", "compiler"]);
+  return compileRegistry(
+    registrations,
+    registryRoot,
+    actionRuntime,
+    target,
+  );
 }
