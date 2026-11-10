@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.28.0
+
+### Minor Changes
+
+- [#138](https://github.com/Amarsia/orcha/pull/138) [`f4d706b`](https://github.com/Amarsia/orcha/commit/f4d706b3dad1e111c6a4d3555da037055110e90a) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Add vendor-neutral OpenTelemetry GenAI tracing through a global provider or direct OTLP/HTTP endpoint, including model calls, tools, evaluations, errors, and linked subagent runs.
+
 ## 0.27.4
 
 ### Patch Changes
