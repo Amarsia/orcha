@@ -154,12 +154,12 @@
     "node": ">=18.20.8"
   },
   "peerDependencies": {
-    "@orchajs/playground-ui": ">=0.2.5",
-    "@react-native-async-storage/async-storage": ">=2 <3",
     "@aws-sdk/client-bedrock-runtime": ">=3.864.0 <4",
     "@google/genai": ">=2.22.0 <3",
     "@jitl/quickjs-singlefile-cjs-release-sync": ">=0.32.0 <0.33",
     "@modelcontextprotocol/sdk": ">=1.32.1 <2",
+    "@orchajs/playground-ui": ">=0.2.5",
+    "@react-native-async-storage/async-storage": ">=2 <3",
     "better-sqlite3": ">=11.10.0 <12",
     "chokidar": ">=4 <5",
     "dotenv": ">=16 <17",
@@ -221,10 +221,10 @@
     "chokidar": "4.0.3",
     "dotenv": "16.6.1",
     "esbuild": "^0.25.9",
+    "quickjs-emscripten-core": "0.32.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
-    "quickjs-emscripten-core": "0.32.0",
     "styletron-engine-atomic": "^1.6.2",
     "styletron-react": "^6.1.1",
     "typescript": "^5.9.2",
@@ -238,5 +238,8 @@
     "@changesets/write": {
       "human-id": "4.1.1"
     }
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.10.0"
   }
 }

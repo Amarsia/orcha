@@ -26,3 +26,9 @@ Direct-provider credentials belong in `.env`. Projects using
 `amarsia.inference: true` need only `amarsia.key`; the standalone Orcha CLI
 loads environment files without overriding values already in the process.
 `storage: { strategy: "cloud" }` is local-first and uses the same project key.
+Set `telemetry: { otel: true }` to use the application's global OpenTelemetry
+provider, or pass `telemetry: { otel: { endpoint, headers? } }` to send
+privacy-safe run traces directly to an OTLP/HTTP collector. Spans follow the
+OpenTelemetry GenAI Semantic Conventions. Orcha telemetry never includes
+prompts, responses, action arguments, or action outputs. Subagents share their
+root agent's trace; `orcha.close()` marks active runs interrupted.
