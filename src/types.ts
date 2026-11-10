@@ -111,6 +111,18 @@ export interface OrchaInitConfiguration {
     endpoint?: string;
     inference?: boolean;
   };
+  telemetry?: {
+    /**
+     * `true` uses the application's global OpenTelemetry provider.
+     * An endpoint sends OTLP/HTTP JSON directly to that collector.
+     */
+    otel?:
+      | true
+      | {
+          endpoint: string;
+          headers?: Record<string, string>;
+        };
+  };
   actions?: LocalActionRuntimeConfiguration;
   mcp?: ProjectConfiguration["mcp"];
   storage?: ProjectConfiguration["storage"];
@@ -611,6 +623,9 @@ export interface SessionLineage {
   parentAgent: string;
   parentSessionId: string;
   parentCallId: string;
+  parentRunNumber?: number;
+  rootSessionId?: string;
+  rootRunNumber?: number;
 }
 
 export interface SessionSnapshot {

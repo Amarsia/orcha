@@ -106,6 +106,12 @@ required.
 - \`amarsia.inference\` (optional): routes all model calls through Amarsia while
   preserving the provider and model in each manifest. It reuses \`amarsia.key\`;
   local provider credentials are not required.
+- \`telemetry.otel\` (optional): set to \`true\` to emit spans through the
+  application's global OpenTelemetry provider, or pass
+  \`{ endpoint, headers? }\` to send OTLP/HTTP JSON directly to a collector.
+  Spans follow OpenTelemetry GenAI Semantic Conventions. Telemetry excludes
+  prompts, responses, action arguments, and action outputs. Subagents share
+  their root agent's trace; \`orcha.close()\` marks active runs interrupted.
 - \`actions\` (optional): overrides the native local-action runtime or configures
   its environment and sandbox settings.
 - \`mcp.credentials\` (optional): runtime-only values used to resolve
@@ -783,6 +789,9 @@ type SessionCreated = SessionEvent<{
     parentAgent: string;
     parentSessionId: string;
     parentCallId: string;
+    parentRunNumber?: number;
+    rootSessionId?: string;
+    rootRunNumber?: number;
   };
 }>; // type "session.created", no run
 

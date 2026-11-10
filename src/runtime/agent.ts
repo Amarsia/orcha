@@ -2295,11 +2295,15 @@ export class RuntimeAgent implements AgentRuntime {
         call.arguments.input,
         this.#projectRoot,
       );
+      const parentLineage = sessionLineage(parentEvents);
       const lineage: SessionLineage = {
         origin: "delegated",
         parentAgent: this.#manifest.key,
         parentSessionId,
         parentCallId: call.callId,
+        parentRunNumber: writer.run,
+        rootSessionId: parentLineage?.rootSessionId ?? parentSessionId,
+        rootRunNumber: parentLineage?.rootRunNumber ?? writer.run,
       };
       const childSessionId = child.createDelegatedSessionId();
       const initiated = writer.create("subagent.initiated", {
@@ -4297,6 +4301,15 @@ function sessionLineage(events: SessionEvent[]): SessionLineage | undefined {
     parentAgent: value.parentAgent,
     parentSessionId: value.parentSessionId,
     parentCallId: value.parentCallId,
+    ...(typeof value.parentRunNumber === "number"
+      ? { parentRunNumber: value.parentRunNumber }
+      : {}),
+    ...(typeof value.rootSessionId === "string"
+      ? { rootSessionId: value.rootSessionId }
+      : {}),
+    ...(typeof value.rootRunNumber === "number"
+      ? { rootRunNumber: value.rootRunNumber }
+      : {}),
   };
 }
 

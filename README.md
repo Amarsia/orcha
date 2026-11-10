@@ -506,6 +506,37 @@ streaming are supported.
 `run()` always starts a new session; `resume()` continues one with either a new
 message or pending client tool results.
 
+Orcha follows the OpenTelemetry GenAI Semantic Conventions for privacy-safe
+agent, model-call, tool, evaluation, token, latency, and error spans. Use the
+application's existing global provider:
+
+```js
+orcha.init({
+  agents,
+  telemetry: { otel: true }
+});
+```
+
+Or send standard OTLP/HTTP JSON directly to a collector:
+
+```js
+orcha.init({
+  agents,
+  telemetry: {
+    otel: {
+      endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+      headers: { authorization: `Bearer ${process.env.OTEL_TOKEN}` }
+    }
+  }
+});
+```
+
+Collector base URLs automatically receive the `/v1/traces` suffix. Passing an
+endpoint already ending in `/v1/traces` leaves it unchanged. Prompts, model
+responses, action arguments, and action outputs are never included. Delegated
+subagents share the root agent's trace. Calling `orcha.close()` marks any active
+run as interrupted before flushing telemetry.
+
 The CLI provides the same focused workflows without introducing a separate
 application runtime:
 

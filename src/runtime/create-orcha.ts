@@ -1,12 +1,17 @@
 import { RuntimeAgent } from "./agent.js";
 import {
   AmarsiaTelemetryClient,
-  withAmarsiaTelemetry,
+  type RunTelemetryClient,
+  withRunTelemetry,
 } from "../amarsia/analytics.js";
 import type { ProviderResponseGenerator } from "../providers/types.js";
 import { isRegistryCompilationActive } from "./compiler-hook.js";
 import { setOrchaRuntimeContext } from "./context.js";
 import { createInferenceGenerator } from "./optional-features.js";
+import {
+  CompositeRunTelemetryClient,
+  createOpenTelemetryClient,
+} from "../telemetry/open-telemetry.js";
 import type { RuntimePlatform } from "./platform.js";
 import type {
   AgentRuntime,
@@ -57,7 +62,7 @@ class OrchaRuntimeCore implements Orcha {
   #inferenceEnabled = false;
   #cloudStorageEnabled = false;
   #client: OrchaClient | undefined;
-  #telemetry: AmarsiaTelemetryClient | undefined;
+  #telemetry: RunTelemetryClient | undefined;
   #stores = new Set<SessionStore>();
   #closing: Promise<void> | undefined;
   readonly #activeSessions = new Set<string>();
@@ -157,14 +162,26 @@ class OrchaRuntimeCore implements Orcha {
         projectRoot,
         manifest,
       });
-    const telemetry = configuration.amarsia?.key
-      ? new AmarsiaTelemetryClient(configuration.amarsia)
-      : undefined;
+    const telemetryClients: RunTelemetryClient[] = [];
+    if (configuration.amarsia?.key) {
+      telemetryClients.push(new AmarsiaTelemetryClient(configuration.amarsia));
+    }
+    if (configuration.telemetry?.otel) {
+      telemetryClients.push(
+        createOpenTelemetryClient(configuration.telemetry.otel),
+      );
+    }
+    const telemetry =
+      telemetryClients.length === 0
+        ? undefined
+        : telemetryClients.length === 1
+          ? telemetryClients[0]
+          : new CompositeRunTelemetryClient(telemetryClients);
     this.#telemetry = telemetry;
     const createRuntimeStore = (manifest: CompiledAgentManifest) => {
       const store = createStore(manifest);
       const runtimeStore = telemetry
-        ? withAmarsiaTelemetry({ store, manifest, client: telemetry })
+        ? withRunTelemetry({ store, manifest, client: telemetry })
         : store;
       this.#stores.add(runtimeStore);
       return runtimeStore;

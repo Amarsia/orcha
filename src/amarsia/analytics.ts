@@ -32,7 +32,39 @@ const MAX_CONCURRENT_FLUSHES = 2;
 
 export type AmarsiaRunFact = AmarsiaTelemetryRunV1;
 
-export class AmarsiaTelemetryClient {
+export interface RunTelemetryModelCall {
+  provider: string;
+  model: string;
+  started_at: string;
+  ended_at: string;
+  duration_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  response_id?: string;
+  finish_reason?: string;
+}
+
+export interface RunTelemetryDetails {
+  modelCalls: RunTelemetryModelCall[];
+  lineage?: {
+    parentRunNumber?: number;
+    rootSessionId?: string;
+    rootRunNumber?: number;
+  };
+}
+
+export interface RunTelemetryClient {
+  enqueue(fact: AmarsiaRunFact, details?: RunTelemetryDetails): void;
+  updateActiveRun(fact: AmarsiaRunFact): void;
+  trackProjection(projection: Promise<void>): void;
+  drain(options?: { timeoutMs?: number }): Promise<void>;
+  close(options?: { timeoutMs?: number }): Promise<void>;
+}
+
+export class AmarsiaTelemetryClient implements RunTelemetryClient {
   readonly #key: string;
   readonly #baseUrl: string;
   readonly #queue = new Map<string, AmarsiaRunFact>();
@@ -262,10 +294,10 @@ export class AmarsiaTelemetryClient {
   }
 }
 
-export function withAmarsiaTelemetry(options: {
+export function withRunTelemetry(options: {
   store: SessionStore;
   manifest: CompiledAgentManifest;
-  client: AmarsiaTelemetryClient;
+  client: RunTelemetryClient;
 }): SessionStore {
   const { store, manifest, client } = options;
   const projections = new Map<string, SessionProjection>();
@@ -323,7 +355,15 @@ export function withAmarsiaTelemetry(options: {
           if (projection.isTest || !hasNewEvents) return;
           for (const run of runs) {
             const fact = projectRunFact(manifest, sessionId, run, projection);
-            if (fact) client.enqueue(fact);
+            if (fact) {
+              client.enqueue(
+                fact,
+                projectRunTelemetryDetails(
+                  projection.runs.get(run) ?? [],
+                  projection.sessionCreated,
+                ),
+              );
+            }
           }
           for (const run of progressRuns) {
             const fact = projectRunFact(manifest, sessionId, run, projection);
@@ -353,7 +393,15 @@ export function withAmarsiaTelemetry(options: {
               run,
               projection,
             );
-            if (fact) client.enqueue(fact);
+            if (fact) {
+              client.enqueue(
+                fact,
+                projectRunTelemetryDetails(
+                  projection.runs.get(run) ?? [],
+                  projection.sessionCreated,
+                ),
+              );
+            }
           }
           for (const run of progressRuns) {
             const fact = projectRunFact(
@@ -376,6 +424,8 @@ export function withAmarsiaTelemetry(options: {
     },
   };
 }
+
+export const withAmarsiaTelemetry = withRunTelemetry;
 
 interface SessionProjection {
   readonly seenSequences: Set<number>;
@@ -570,6 +620,66 @@ function projectRunFact(
       : {}),
     ...(typeof error?.retryable === "boolean"
       ? { error_retryable: error.retryable }
+      : {}),
+  };
+}
+
+function projectRunTelemetryDetails(
+  runEvents: SessionEvent[],
+  sessionCreated?: SessionEvent,
+): RunTelemetryDetails {
+  const lineage = asRecord(sessionCreated?.data.lineage);
+  return {
+    modelCalls: runEvents
+      .filter(
+        (event) =>
+          event.type === "message.created" &&
+          event.data.role === "assistant",
+      )
+      .map((event) => {
+        const usage = usageFields(asRecord(event.data.usage) ?? {});
+        const duration = numberValue(event.data.durationMs);
+        const endedAt = event.timestamp;
+        const endedAtMs = new Date(endedAt).getTime();
+        return {
+          provider:
+            typeof event.data.provider === "string"
+              ? event.data.provider
+              : "unknown",
+          model:
+            typeof event.data.model === "string" ? event.data.model : "unknown",
+          started_at: new Date(
+            Number.isFinite(endedAtMs) ? endedAtMs - duration : endedAtMs,
+          ).toISOString(),
+          ended_at: endedAt,
+          duration_ms: duration,
+          input_tokens: usage.input_tokens,
+          output_tokens: usage.output_tokens,
+          reasoning_tokens: usage.reasoning_tokens ?? 0,
+          cache_read_tokens: usage.cache_read_tokens,
+          cache_write_tokens: usage.cache_write_tokens,
+          ...(typeof event.data.responseId === "string"
+            ? { response_id: event.data.responseId }
+            : {}),
+          ...(typeof event.data.stopReason === "string"
+            ? { finish_reason: event.data.stopReason }
+            : {}),
+        };
+      }),
+    ...(lineage
+      ? {
+          lineage: {
+            ...(typeof lineage.parentRunNumber === "number"
+              ? { parentRunNumber: lineage.parentRunNumber }
+              : {}),
+            ...(typeof lineage.rootSessionId === "string"
+              ? { rootSessionId: lineage.rootSessionId }
+              : {}),
+            ...(typeof lineage.rootRunNumber === "number"
+              ? { rootRunNumber: lineage.rootRunNumber }
+              : {}),
+          },
+        }
       : {}),
   };
 }

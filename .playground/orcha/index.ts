@@ -1,12 +1,13 @@
 import { orcha } from "orchajs";
 
 orcha.init({
-  amarsia: {
-    key: process.env.AMARSIA_PROJECT_KEY ?? "",
-    endpoint: "http://0.0.0.0:8000",
-  },
-  storage: {
-    strategy: "cloud",
+  telemetry: {
+    otel: {
+      endpoint: "https://api.honeycomb.io",
+      headers: {
+        "x-honeycomb-team": process.env.HONEYCOMB_API_KEY ?? "",
+      },
+    },
   },
   providers: {
     anthropic: process.env.ANTHROPIC_API_KEY ?? "",
