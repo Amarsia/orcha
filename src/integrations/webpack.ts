@@ -2,8 +2,8 @@ import { resolve } from "node:path";
 import {
   generatedBundlePath,
   queueRuntimeBuild,
-  type RuntimeBuildTarget,
 } from "./runtime-build.js";
+import type { RuntimeBuildTarget } from "./runtime-build.js";
 
 export interface OrchaWebpackPluginOptions {
   projectRoot?: string;

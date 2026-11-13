@@ -3,7 +3,8 @@ import { generateBrowserProviderResponse } from "./providers/browser.js";
 import { setNativeRuntimeLoader } from "./runtime/actions/execute.js";
 import { compiledManifest } from "./runtime/compiled-manifest.js";
 import { getGlobalCompiledManifest } from "./runtime/compiler-hook.js";
-import { createOrcha, type OrchaClient } from "./runtime/create-orcha.js";
+import { createOrcha } from "./runtime/create-orcha.js";
+import type { OrchaClient } from "./runtime/create-orcha.js";
 import {
   setCloudSessionStoreFactory,
   setInferenceGeneratorFactory,

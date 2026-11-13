@@ -18,11 +18,8 @@ import {
   getRegistryCompiler,
   setGlobalCompiledManifest,
 } from "./runtime/compiler-hook.js";
-import {
-  createOrcha,
-  type Orcha,
-  type OrchaClient,
-} from "./runtime/create-orcha.js";
+import { createOrcha } from "./runtime/create-orcha.js";
+import type { Orcha, OrchaClient } from "./runtime/create-orcha.js";
 import { setMcpClientFactory } from "./runtime/mcp/client.js";
 import {
   importRuntimeModule,

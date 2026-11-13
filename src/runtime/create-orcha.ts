@@ -1,9 +1,9 @@
 import { RuntimeAgent } from "./agent.js";
 import {
   AmarsiaTelemetryClient,
-  type RunTelemetryClient,
   withRunTelemetry,
 } from "../amarsia/analytics.js";
+import type { RunTelemetryClient } from "../amarsia/analytics.js";
 import type { ProviderResponseGenerator } from "../providers/types.js";
 import { isRegistryCompilationActive } from "./compiler-hook.js";
 import { setOrchaRuntimeContext } from "./context.js";

@@ -3,8 +3,8 @@ import {
   generatedBundlePath,
   queueRuntimeBuild,
   watchRuntimeTargets,
-  type RuntimeBuildTarget,
 } from "./runtime-build.js";
+import type { RuntimeBuildTarget } from "./runtime-build.js";
 import { OrchaWebpackPlugin } from "./webpack.js";
 
 export interface OrchaNextOptions {

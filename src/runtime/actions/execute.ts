@@ -3,10 +3,8 @@ import type {
   LocalActionRuntimeConfiguration,
   SessionMetadata,
 } from "../../types.js";
-import {
-  createLocalActionContext,
-  type LocalActionContext,
-} from "./context.js";
+import { createLocalActionContext } from "./context.js";
+import type { LocalActionContext } from "./context.js";
 
 type SandboxRuntime = typeof import("./sandbox.js");
 type SandboxRuntimeLoader = () => Promise<SandboxRuntime>;
@@ -44,7 +42,7 @@ export function setNativeRuntimeLoader(loader: NativeRuntimeLoader): void {
 }
 
 export async function executeLocalAction(options: {
-  action: CompiledActionManifest;
+  action: CompiledActionManifest,
   parameters: Record<string, unknown>;
   configuration: LocalActionRuntimeConfiguration;
   sessionId: string;
