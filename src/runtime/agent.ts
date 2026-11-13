@@ -63,15 +63,13 @@ import {
   validateStructuredValue,
 } from "./structured-output.js";
 import { executeLocalAction } from "./actions/execute.js";
-import {
-  createExecution,
-  type ExecutionSnapshotPublisher,
-  type OutputSnapshotPublisher,
+import { createExecution } from "./execution.js";
+import type {
+  ExecutionSnapshotPublisher,
+  OutputSnapshotPublisher,
 } from "./execution.js";
-import {
-  McpClientPool,
-  type AvailableMcpTool,
-} from "./mcp/client.js";
+import { McpClientPool } from "./mcp/client.js";
+import type { AvailableMcpTool } from "./mcp/client.js";
 import { portableRandomUUID } from "./random-id.js";
 
 interface PendingClientActions {

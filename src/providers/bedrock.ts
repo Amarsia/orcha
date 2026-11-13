@@ -1,13 +1,15 @@
 import {
   BedrockRuntimeClient,
   ConverseStreamCommand,
-  type ContentBlock,
-  type ConverseStreamCommandInput,
-  type ConverseStreamOutput,
-  type DocumentFormat,
-  type Message,
-  type TokenUsage,
-  type ToolResultContentBlock,
+} from "@aws-sdk/client-bedrock-runtime";
+import type {
+  ContentBlock,
+  ConverseStreamCommandInput,
+  ConverseStreamOutput,
+  DocumentFormat,
+  Message,
+  TokenUsage,
+  ToolResultContentBlock,
 } from "@aws-sdk/client-bedrock-runtime";
 import { createHash } from "node:crypto";
 import { basename, extname } from "node:path";

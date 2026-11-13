@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +46,23 @@ test("default ESM Node entry keeps optional features out of consumer bundles", a
 
 test("default CommonJS Node entry keeps optional features out of consumer bundles", async () => {
   await assertSafeDefaultGraph("dist-cjs/index.js", "cjs");
+});
+
+test("emitted declaration files avoid inline type import/export specifiers for older TypeScript consumers", async () => {
+  const declarationFiles = await collectDeclarationFiles(
+    resolve(repositoryRoot, "dist"),
+  );
+  assert.ok(declarationFiles.length > 0, "Expected emitted .d.ts files in dist/");
+  const inlineTypePattern = /(?:import|export)\s*\{[^}]*\btype\s+[A-Za-z0-9_$]/s;
+
+  for (const filePath of declarationFiles) {
+    const contents = await readFile(filePath, "utf8");
+    assert.doesNotMatch(
+      contents,
+      inlineTypePattern,
+      `Declaration file ${filePath} contains an inline type modifier in import/export`,
+    );
+  }
 });
 
 test("bundled default entry runs a zero-config agent without unused optional peers", async () => {
@@ -163,6 +188,20 @@ async function assertSafeDefaultGraph(entryPath, format) {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+async function collectDeclarationFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const path = resolve(directory, entry.name);
+      if (entry.isDirectory()) {
+        return collectDeclarationFiles(path);
+      }
+      return entry.name.endsWith(".d.ts") ? [path] : [];
+    }),
+  );
+  return files.flat();
 }
 
 function escapeRegExp(value) {

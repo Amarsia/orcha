@@ -1,8 +1,6 @@
 import type { CompiledBundle } from "../types.js";
-import {
-  createAmarsiaProjectMetadata,
-  type AmarsiaProjectMetadata,
-} from "./metadata.js";
+import { createAmarsiaProjectMetadata } from "./metadata.js";
+import type { AmarsiaProjectMetadata } from "./metadata.js";
 import { resolveAmarsiaEndpoint } from "./endpoint.js";
 
 const syncedHashes = new Map<string, string>();

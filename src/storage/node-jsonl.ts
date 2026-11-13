@@ -2,8 +2,8 @@ import {
   createReadStream,
   mkdirSync,
   watch,
-  type FSWatcher,
 } from "node:fs";
+import type { FSWatcher } from "node:fs";
 import {
   access,
   appendFile,
