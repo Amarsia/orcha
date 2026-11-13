@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.28.1
+
+### Patch Changes
+
+- [#140](https://github.com/Amarsia/orcha/pull/140) [`da0b33c`](https://github.com/Amarsia/orcha/commit/da0b33c4af550cdf8e16b05207bc9f44eb20606d) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Replace inline `type` import and export specifiers with statement-level `import type` and `export type` declarations so emitted `.d.ts` files remain compatible with older TypeScript compilers.
+
 ## 0.28.0
 
 ### Minor Changes
