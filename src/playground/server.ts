@@ -750,6 +750,9 @@ function parseContentItem(value: unknown): MessageContentInput {
   if (item.type === "text" && typeof item.text === "string") {
     return { type: "text", text: item.text };
   }
+  if (item.type === "json" && "data" in item) {
+    return { type: "json", data: item.data };
+  }
   if (
     (item.type === "image" ||
       item.type === "video" ||

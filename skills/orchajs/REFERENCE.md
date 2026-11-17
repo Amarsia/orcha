@@ -142,9 +142,10 @@ await orcha.supportBot.resume(sessionId, {
 Use returned call IDs exactly. A conversational resume starts a new run. A
 tool-result resume continues the paused run.
 
-Content may be text or supported multimodal blocks. Local file inputs use
-`filePath`; provider-ready remote content uses `fileUri`. Confirm supported
-media combinations from the installed provider documentation.
+Content may be text, structured JSON blocks (`{ type: "json", data }`), or
+supported multimodal blocks. Local file inputs use `filePath`; remote URLs use
+`url`; provider-ready remote content uses `fileUri`. Confirm supported media
+combinations from the installed provider documentation.
 
 ## Actions
 

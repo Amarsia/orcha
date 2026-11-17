@@ -1406,6 +1406,144 @@ test("runs a private subagent in a linked durable session", async () => {
   }
 });
 
+test("run_agent exposes a fixed content[] block schema and supports text and json blocks", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-subagent-json-block-"));
+  const usage = {
+    inputTokens: 1,
+    outputTokens: 1,
+    reasoningTokens: null,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  };
+  const bundle = {
+    schemaVersion: 1,
+    agents: {
+      coordinator: {
+        key: "coordinator",
+        name: "Coordinator",
+        provider: "anthropic",
+        model: "parent-model",
+        systemPrompt: "Delegate structured tasks.",
+        outputType: "text",
+        actions: {},
+        skills: {},
+        evaluations: {},
+        mcpServers: {},
+        subagentPolicy: { maxPerRun: 10 },
+        subagents: {
+          specialist: {
+            key: "specialist",
+            name: "Specialist",
+            provider: "anthropic",
+            model: "child-model",
+            systemPrompt: "Handle structured payload.",
+            outputType: "text",
+            actions: {},
+            skills: {},
+            evaluations: {},
+            mcpServers: {},
+            subagents: {},
+          },
+        },
+      },
+    },
+  };
+  const requests = [];
+  const client = createOrcha(
+    () => bundle,
+    async (_provider, _configuration, request) => {
+      requests.push(request);
+      if (request.model === "child-model") {
+        return {
+          output: "Processed order ORD-42.",
+          stopReason: "end_turn",
+          content: [{ type: "text", text: "Processed order ORD-42." }],
+          toolCalls: [],
+          usage,
+        };
+      }
+      if (requests.filter((item) => item.model === "parent-model").length === 1) {
+        const call = {
+          type: "tool_call",
+          callId: "call_json_block",
+          name: "run_agent",
+          arguments: {
+            agent: "specialist",
+            content: [
+              { type: "text", text: "Inspect this order." },
+              {
+                type: "json",
+                data: { orderId: "ORD-42", flags: ["expedited", "vip"] },
+              },
+            ],
+          },
+        };
+        return {
+          output: "",
+          stopReason: "tool_call",
+          content: [call],
+          toolCalls: [call],
+          usage,
+        };
+      }
+      return {
+        output: "Done: Processed order ORD-42.",
+        stopReason: "end_turn",
+        content: [{ type: "text", text: "Done: Processed order ORD-42." }],
+        toolCalls: [],
+        usage,
+      };
+    },
+  );
+  client.init({
+    root,
+    providers: { anthropic: "test-key" },
+    agents: {
+      coordinator: {
+        path: "./coordinator",
+        subagents: { specialist: "./specialist" },
+      },
+    },
+  });
+
+  try {
+    const result = await client.coordinator.run({
+      content: [
+        { type: "text", text: "Check order." },
+        { type: "json", data: { orderId: "ORD-42" } },
+      ],
+    }).result;
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "Done: Processed order ORD-42.");
+
+    const parentFirstRequest = requests.find(
+      (request) => request.model === "parent-model",
+    );
+    const runAgentTool = parentFirstRequest.tools.find(
+      (tool) => tool.name === "run_agent",
+    );
+    assert.deepEqual(runAgentTool.parameters.required, ["agent", "content"]);
+    assert.equal(runAgentTool.parameters.properties.content.type, "array");
+
+    const childRequest = requests.find(
+      (request) => request.model === "child-model",
+    );
+    assert.deepEqual(childRequest.messages[0].content, [
+      { type: "text", text: "Inspect this order." },
+      {
+        type: "text",
+        text: JSON.stringify(
+          { orderId: "ORD-42", flags: ["expedited", "vip"] },
+          null,
+          2,
+        ),
+      },
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("allows a parent to complete while its child waits for a client action", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-paused-child-"));
   let parentCalls = 0;

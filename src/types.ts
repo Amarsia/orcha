@@ -369,6 +369,11 @@ export interface TextContent {
   text: string;
 }
 
+export interface JsonContent {
+  type: "json";
+  data: unknown;
+}
+
 export interface FileContent {
   type: "image" | "video" | "audio" | "url";
   mimeType: string;
@@ -397,6 +402,7 @@ export interface UrlContentInput {
 
 export type MessageContentInput =
   | MessageContent
+  | JsonContent
   | FilePathContentInput
   | UrlContentInput;
 
