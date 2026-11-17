@@ -640,15 +640,15 @@ runs, the parent reports `waiting_for_subagent`. Child text, pause state,
 client-action request, failure, or completion returns to the parent as a tool
 result. Delegated agents cannot start further subagents.
 
-`run_agent.input` accepts the same text or multimodal content shape as
-`agent.run().content`:
+`run_agent.content` uses the same content blocks as `agent.run({ content })`:
 
 ```js
 {
   agent: "documentParser",
-  input: [
+  content: [
     { type: "text", text: "Extract the material facts." },
-    { filePath: "/absolute/path/to/report.pdf" }
+    { type: "json", data: { accountId: "acct_123", priority: "high" } },
+    { type: "file", filePath: "./evidence/report.pdf" }
   ]
 }
 ```

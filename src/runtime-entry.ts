@@ -50,6 +50,7 @@ export type {
   FailedRunResult,
   FileContent,
   FilePathContentInput,
+  JsonContent,
   LocalFileContent,
   LocalActionRuntimeConfiguration,
   MessageContent,

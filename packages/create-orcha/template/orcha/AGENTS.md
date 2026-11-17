@@ -413,7 +413,8 @@ const evaluations = await execution.evaluations;
 `run()` and conversational `resume()` accept either a direct `AgentContentInput` (a string, a single content item, or an array of content items) or an object with `content` and optional fields:
 
 - `content` (required when passing an options object): a non-empty string, one content item, or an array.
-  Use `{ filePath: "./document.pdf" }` for a local file or
+  Use `{ type: "text", text: "..." }` for text, `{ type: "json", data: { ... } }` for structured JSON payloads,
+  `{ filePath: "./document.pdf" }` for a local file, or
   `{ url: "https://example.com/document.pdf" }` for a remote file.
   `mimeType` is optional when it can be inferred from the extension. Durable
   events store local paths and MIME types, never encoded file bytes.
@@ -1103,11 +1104,12 @@ offline production compilation. Neither command invokes a provider.
 6. `load_skill` updates durable session instructions. Local actions execute
    through the configured runtime. Client actions pause safely. Tool results
    are reordered to match the model's original call order.
-7. Internal agent tools start or continue linked child sessions. A
-   `run_agent` input accepts the same text or multimodal content shape as a
-   normal run. Local file paths resolve from the configured Orcha project root.
-   The parent reports `waiting_for_subagent` until each synchronous child
-   call returns.
+7. Internal agent tools start or continue linked child sessions. `run_agent`
+   and `resume_agent` take `content` as an array of content blocks
+   (`{ type: "text", text }`, `{ type: "json", data }`, `{ type: "file", filePath }`,
+   or `{ type: "url", url }`). Local file paths resolve from the configured Orcha
+   project root. The parent reports `waiting_for_subagent` until each
+   synchronous child call returns.
 8. The model loop continues until final output, failure, a pause, or the
    maximum of 20 action rounds.
 9. Usage is normalized and aggregated across every model call in the run.
