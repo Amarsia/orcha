@@ -1,5 +1,11 @@
 # orchajs
 
+## 0.28.2
+
+### Patch Changes
+
+- [#142](https://github.com/Amarsia/orcha/pull/142) [`d38edd2`](https://github.com/Amarsia/orcha/commit/d38edd2f47b0cdf853432f0c222fe8a5d4f74784) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Align `run_agent` and `resume_agent` tool schemas with `agent.run({ content })` using a clear `content[]` block array supporting text, structured JSON (`{ type: "json", data }`), and multimodal file/URL/media blocks, while preserving backward compatibility for legacy `input` calls.
+
 ## 0.28.1
 
 ### Patch Changes
