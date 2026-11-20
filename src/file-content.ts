@@ -25,6 +25,28 @@ const MIME_TYPES: Record<string, string> = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
 
+export interface LoadedLocalFileContent {
+  bytes: Uint8Array;
+  base64: string;
+  dataUri: string;
+  fileName: string;
+}
+
+interface CachedFileEntry {
+  mtimeMs: number;
+  size: number;
+  mimeType: string;
+  byteLength: number;
+  value: LoadedLocalFileContent;
+}
+
+const MAX_CACHED_FILES = 32;
+const MAX_CACHED_FILE_BYTES = 16 * 1024 * 1024;
+const MAX_TOTAL_CACHE_BYTES = 64 * 1024 * 1024;
+
+const localFileCache = new Map<string, CachedFileEntry>();
+let totalCachedBytes = 0;
+
 export function normalizeLocalFile(
   filePath: string,
   mimeType?: string,
@@ -64,14 +86,37 @@ export function normalizeUrlContent(
 
 export async function readLocalFileContent(
   content: LocalFileContent,
-): Promise<{
-  bytes: Uint8Array;
-  base64: string;
-  dataUri: string;
-  fileName: string;
-}> {
+): Promise<LoadedLocalFileContent> {
   const fsModule = "node:fs/promises";
-  const { readFile } = await import(fsModule);
+  const { readFile, stat } = await import(fsModule);
+  let fileStats: { mtimeMs: number; size: number };
+  try {
+    fileStats = await stat(content.filePath);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new OrchaError(
+      "invalid_input",
+      `Failed to read local file "${content.filePath}": ${reason}`,
+      {
+        retryable: false,
+        cause: error,
+        details: { filePath: content.filePath },
+      },
+    );
+  }
+
+  const cached = localFileCache.get(content.filePath);
+  if (
+    cached &&
+    cached.mtimeMs === fileStats.mtimeMs &&
+    cached.size === fileStats.size &&
+    cached.mimeType === content.mimeType
+  ) {
+    localFileCache.delete(content.filePath);
+    localFileCache.set(content.filePath, cached);
+    return cached.value;
+  }
+
   let bytes: Buffer;
   try {
     bytes = await readFile(content.filePath);
@@ -88,12 +133,48 @@ export async function readLocalFileContent(
     );
   }
   const base64 = bytes.toString("base64");
-  return {
+  const value: LoadedLocalFileContent = {
     bytes,
     base64,
     dataUri: `data:${content.mimeType};base64,${base64}`,
     fileName: portableBasename(content.filePath),
   };
+
+  if (bytes.byteLength <= MAX_CACHED_FILE_BYTES) {
+    setCachedFile(content.filePath, {
+      mtimeMs: fileStats.mtimeMs,
+      size: fileStats.size,
+      mimeType: content.mimeType,
+      byteLength: bytes.byteLength,
+      value,
+    });
+  }
+
+  return value;
+}
+
+function setCachedFile(key: string, entry: CachedFileEntry): void {
+  const existing = localFileCache.get(key);
+  if (existing) {
+    totalCachedBytes -= existing.byteLength;
+    localFileCache.delete(key);
+  }
+  while (
+    localFileCache.size >= MAX_CACHED_FILES ||
+    totalCachedBytes + entry.byteLength > MAX_TOTAL_CACHE_BYTES
+  ) {
+    const oldest = localFileCache.keys().next().value;
+    if (!oldest) {
+      break;
+    }
+    const evicted = localFileCache.get(oldest);
+    if (evicted) {
+      totalCachedBytes -= evicted.byteLength;
+    }
+    localFileCache.delete(oldest);
+  }
+  localFileCache.set(key, entry);
+  totalCachedBytes += entry.byteLength;
 }
 
 function normalizeMimeType(

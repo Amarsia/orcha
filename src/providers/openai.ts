@@ -7,6 +7,7 @@ import type {
   Usage,
 } from "../types.js";
 import { readServerSentEvents } from "./sse.js";
+import { createProviderTimeout } from "./timeout.js";
 import type {
   ProviderAdapter,
   ProviderAssistantBlock,
@@ -53,6 +54,8 @@ interface OpenAIOutputItem {
   encrypted_content?: string | null;
 }
 
+const openAIMessageCache = new WeakMap<ProviderMessage, unknown[]>();
+
 export const openAIProvider: ProviderAdapter = {
   name: "openai",
   generate: generateOpenAI,
@@ -82,6 +85,9 @@ async function generateOpenAI(
       ? { max_output_tokens: request.maxTokens }
       : {}),
     ...(request.publishOutput ? { stream: true } : {}),
+    ...(!configuration.baseUrl && request.trace?.agentExternalId
+      ? { prompt_cache_key: `orcha:${request.trace.agentExternalId}` }
+      : {}),
   };
   if (request.tools.length > 0) {
     body.tools = request.tools.map((tool) => ({
@@ -110,102 +116,129 @@ async function generateOpenAI(
   body.reasoning = reasoning;
   body.include = ["reasoning.encrypted_content"];
 
-  const response = await fetch(
-    `${configuration.baseUrl ?? "https://api.openai.com"}/v1/responses`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${configuration.apiKey}`,
+  const timeout = createProviderTimeout({
+    provider: "OpenAI",
+    model: request.model,
+    signal: request.signal,
+  });
+
+  try {
+    const response = await fetch(
+      `${configuration.baseUrl ?? "https://api.openai.com"}/v1/responses`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${configuration.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: timeout.signal,
       },
-      body: JSON.stringify(body),
-      signal: request.signal,
-    },
-  );
+    );
 
-  if (!response.ok) {
-    throw await createProviderHttpError(response, "OpenAI");
+    if (!response.ok) {
+      throw await createProviderHttpError(response, "OpenAI");
+    }
+
+    timeout.reset("stream");
+    const responseBody = response.headers
+      .get("content-type")
+      ?.includes("text/event-stream")
+      ? await readOpenAIStream(
+          timeout.iterateStream(readServerSentEvents(response)),
+          request.publishOutput,
+        )
+      : ((await response.json()) as OpenAIResponse);
+    return toProviderResponse(request, responseBody);
+  } catch (error) {
+    if (timeout.didTimeout()) {
+      throw timeout.createTimeoutError();
+    }
+    throw error;
+  } finally {
+    timeout.cleanup();
   }
-
-  const responseBody = response.headers
-    .get("content-type")
-    ?.includes("text/event-stream")
-    ? await readOpenAIStream(response, request.publishOutput)
-    : ((await response.json()) as OpenAIResponse);
-  return toProviderResponse(request, responseBody);
 }
 
 async function toOpenAIInput(
   messages: ProviderMessage[],
 ): Promise<unknown[]> {
-  const input: unknown[] = [];
-  for (const message of messages) {
-    if (message.role === "user") {
-      input.push({
-        role: "user",
-        content:
-          typeof message.content === "string"
-            ? message.content
-            : await Promise.all(
-                message.content.map(toOpenAIUserContent),
-              ),
-      });
-      continue;
-    }
-    if (message.role === "tool") {
-      for (const result of message.results) {
-        input.push({
-          type: "function_call_output",
-          call_id: result.callId,
-          output: JSON.stringify(result.output ?? null),
+  const chunks = await Promise.all(
+    messages.map(async (message): Promise<unknown[]> => {
+      const cached = openAIMessageCache.get(message);
+      if (cached) {
+        return cached;
+      }
+
+      const converted: unknown[] = [];
+      if (message.role === "user") {
+        converted.push({
+          role: "user",
+          content:
+            typeof message.content === "string"
+              ? message.content
+              : await Promise.all(
+                  message.content.map(toOpenAIUserContent),
+                ),
         });
-        if (result.contents && result.contents.length > 0) {
-          input.push({
-            role: "user",
-            content: await Promise.all(
-              result.contents.map(toOpenAIUserContent),
-            ),
+      } else if (message.role === "tool") {
+        for (const result of message.results) {
+          converted.push({
+            type: "function_call_output",
+            call_id: result.callId,
+            output: JSON.stringify(result.output ?? null),
           });
+          if (result.contents && result.contents.length > 0) {
+            converted.push({
+              role: "user",
+              content: await Promise.all(
+                result.contents.map(toOpenAIUserContent),
+              ),
+            });
+          }
+        }
+      } else {
+        for (const block of message.content) {
+          if (block.type === "text") {
+            converted.push({
+              role: "assistant",
+              content: [{ type: "output_text", text: block.text }],
+            });
+          } else if (block.type === "tool_call") {
+            converted.push({
+              type: "function_call",
+              call_id: block.callId,
+              name: block.name,
+              arguments: JSON.stringify(block.arguments),
+            });
+          } else if (
+            message.provider === "openai" &&
+            block.replay?.providerId
+          ) {
+            converted.push({
+              type: "reasoning",
+              id: block.replay.providerId,
+              summary: block.text
+                ? [{ type: "summary_text", text: block.text }]
+                : [],
+              ...(block.replay.opaqueData
+                ? { encrypted_content: block.replay.opaqueData }
+                : {}),
+            });
+          } else if (block.text) {
+            converted.push({
+              role: "assistant",
+              content: [{ type: "output_text", text: block.text }],
+            });
+          }
         }
       }
-      continue;
-    }
-    for (const block of message.content) {
-      if (block.type === "text") {
-        input.push({
-          role: "assistant",
-          content: [{ type: "output_text", text: block.text }],
-        });
-      } else if (block.type === "tool_call") {
-        input.push({
-          type: "function_call",
-          call_id: block.callId,
-          name: block.name,
-          arguments: JSON.stringify(block.arguments),
-        });
-      } else if (
-        message.provider === "openai" &&
-        block.replay?.providerId
-      ) {
-        input.push({
-          type: "reasoning",
-          id: block.replay.providerId,
-          summary: block.text
-            ? [{ type: "summary_text", text: block.text }]
-            : [],
-          ...(block.replay.opaqueData
-            ? { encrypted_content: block.replay.opaqueData }
-            : {}),
-        });
-      } else if (block.text) {
-        input.push({
-          role: "assistant",
-          content: [{ type: "output_text", text: block.text }],
-        });
-      }
-    }
-  }
-  return input;
+
+      openAIMessageCache.set(message, converted);
+      return converted;
+    }),
+  );
+  return chunks.flat();
 }
 
 async function toOpenAIUserContent(
@@ -249,13 +282,13 @@ async function toOpenAIUserContent(
 }
 
 async function readOpenAIStream(
-  response: Response,
+  events: AsyncIterable<Record<string, unknown>>,
   publishOutput?: (output: string) => void,
 ): Promise<OpenAIResponse> {
   let cumulativeText = "";
   let completedResponse: OpenAIResponse | undefined;
 
-  for await (const event of readServerSentEvents(response)) {
+  for await (const event of events) {
     if (
       event.type === "response.output_text.delta" &&
       typeof event.delta === "string"

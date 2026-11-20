@@ -151,6 +151,47 @@ export function describeProviderError(error: unknown): {
   };
 }
 
+export function describeRuntimeError(error: unknown): {
+  message: string;
+  details?: Record<string, unknown>;
+} {
+  const rootMessage = errorMessage(error);
+  const errorName = extractErrorName(error);
+  const errorCode =
+    stringOrNumberField(error, "code") ??
+    stringOrNumberField(error, "type");
+  const cause = deepestUsefulCause(error);
+  const causeMessage = cause ? errorMessage(cause) : undefined;
+  const causeCode = cause ? stringOrNumberField(cause, "code") : undefined;
+  const explanation =
+    causeMessage && causeMessage !== rootMessage
+      ? causeMessage
+      : causeCode !== undefined
+        ? String(causeCode)
+        : undefined;
+  const stackSummary =
+    error instanceof Error && typeof error.stack === "string"
+      ? error.stack
+          .split("\n")
+          .slice(0, 5)
+          .map((line) => line.trim())
+          .join(" | ")
+      : undefined;
+
+  const details: Record<string, unknown> = {
+    ...(errorName ? { errorName } : {}),
+    ...(errorCode !== undefined ? { errorCode } : {}),
+    ...(causeCode !== undefined ? { causeCode } : {}),
+    ...(explanation ? { causeMessage: explanation } : {}),
+    ...(stackSummary ? { stack: stackSummary } : {}),
+  };
+
+  return {
+    message: explanation ? `${rootMessage}: ${explanation}` : rootMessage,
+    ...(Object.keys(details).length > 0 ? { details } : {}),
+  };
+}
+
 export function isRetryableProviderConnectionError(error: unknown): boolean {
   const retryableCodes = new Set([
     "UND_ERR_CONNECT_TIMEOUT",

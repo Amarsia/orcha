@@ -7,6 +7,7 @@ import { createProviderHttpError, OrchaError } from "../errors.js";
 import { readLocalFileContent } from "../file-content.js";
 import { resolveProviderStructuredOutput } from "../runtime/structured-output.js";
 import { readServerSentEvents } from "./sse.js";
+import { createProviderTimeout } from "./timeout.js";
 import type {
   ProviderAdapter,
   ProviderAssistantBlock,
@@ -45,6 +46,12 @@ interface AnthropicResponse {
   };
 }
 
+const anthropicMessageCache = new WeakMap<
+  ProviderMessage,
+  { role: "user" | "assistant"; content: string | unknown[] }
+>();
+const unsupportedAnthropicAutoCacheKeys = new Set<string>();
+
 export const anthropicProvider: ProviderAdapter = {
   name: "anthropic",
   generate: generateAnthropic,
@@ -72,11 +79,14 @@ async function generateAnthropic(
     request.outputType === "json"
       ? `${request.systemPrompt}\n\nReturn only valid JSON matching this JSON Schema:\n${JSON.stringify(request.outputSchema)}`
       : request.systemPrompt;
+  const cacheModelKey = `${provider.baseUrl ?? "default"}|${request.model}`;
+  const useAutoCache = !unsupportedAnthropicAutoCacheKeys.has(cacheModelKey);
   const requestBody: Record<string, unknown> = {
     model: request.model,
     max_tokens: reasoning.maxTokens,
     system: systemPrompt,
     messages: await toAnthropicMessages(request.messages),
+    ...(useAutoCache ? { cache_control: { type: "ephemeral" } } : {}),
     ...(request.publishOutput ? { stream: true } : {}),
   };
   const tools = request.tools.map((tool) => ({
@@ -95,9 +105,15 @@ async function generateAnthropic(
     }
   }
 
-  const response = await fetch(
-    `${provider.baseUrl ?? "https://api.anthropic.com"}/v1/messages`,
-    {
+  const timeout = createProviderTimeout({
+    provider: "Anthropic",
+    model: request.model,
+    signal: request.signal,
+  });
+
+  try {
+    const endpoint = `${provider.baseUrl ?? "https://api.anthropic.com"}/v1/messages`;
+    let response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -105,20 +121,57 @@ async function generateAnthropic(
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify(requestBody),
-      signal: request.signal,
-    },
-  );
+      signal: timeout.signal,
+    });
 
-  if (!response.ok) {
-    throw await createProviderHttpError(response, "Anthropic");
+    if (!response.ok) {
+      const httpError = await createProviderHttpError(response, "Anthropic");
+      if (
+        useAutoCache &&
+        response.status === 400 &&
+        /cache_control|extra inputs|unknown field|unrecognized/i.test(
+          httpError.message,
+        )
+      ) {
+        unsupportedAnthropicAutoCacheKeys.add(cacheModelKey);
+        delete requestBody.cache_control;
+        timeout.reset("request");
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": provider.apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify(requestBody),
+          signal: timeout.signal,
+        });
+        if (!response.ok) {
+          throw await createProviderHttpError(response, "Anthropic");
+        }
+      } else {
+        throw httpError;
+      }
+    }
+
+    timeout.reset("stream");
+    const body = response.headers
+      .get("content-type")
+      ?.includes("text/event-stream")
+      ? await readAnthropicStream(
+          timeout.iterateStream(readServerSentEvents(response)),
+          request.publishOutput,
+        )
+      : ((await response.json()) as AnthropicResponse);
+    return toProviderResponse(request, body);
+  } catch (error) {
+    if (timeout.didTimeout()) {
+      throw timeout.createTimeoutError();
+    }
+    throw error;
+  } finally {
+    timeout.cleanup();
   }
-
-  const body = response.headers
-    .get("content-type")
-    ?.includes("text/event-stream")
-    ? await readAnthropicStream(response, request.publishOutput)
-    : ((await response.json()) as AnthropicResponse);
-  return toProviderResponse(request, body);
 }
 
 function toProviderResponse(
@@ -219,7 +272,7 @@ function toProviderContentBlock(
 }
 
 async function readAnthropicStream(
-  response: Response,
+  events: AsyncIterable<Record<string, unknown>>,
   publishOutput?: (output: string) => void,
 ): Promise<AnthropicResponse> {
   const body: AnthropicResponse = {
@@ -229,7 +282,7 @@ async function readAnthropicStream(
   const partialToolInputs = new Map<number, string>();
   let cumulativeText = "";
 
-  for await (const event of readServerSentEvents(response)) {
+  for await (const event of events) {
     applyAnthropicStreamEvent(
       event,
       body,
@@ -391,69 +444,81 @@ async function toAnthropicMessages(
 ): Promise<
   Array<{ role: "user" | "assistant"; content: string | unknown[] }>
 > {
-  return Promise.all(messages.map(async (message) => {
-    if (message.role === "assistant") {
-      return {
-        role: "assistant",
-        content: message.content.map((block) => {
-          if (block.type === "text") {
-            return block;
-          }
-          if (block.type === "reasoning") {
-            if (message.provider !== "anthropic") {
-              return {
-                type: "text",
-                text: block.text,
-              };
+  return Promise.all(
+    messages.map(async (message) => {
+      const cached = anthropicMessageCache.get(message);
+      if (cached) {
+        return cached;
+      }
+
+      let converted: { role: "user" | "assistant"; content: string | unknown[] };
+      if (message.role === "assistant") {
+        converted = {
+          role: "assistant",
+          content: message.content.map((block) => {
+            if (block.type === "text") {
+              return block;
             }
-            return !block.text && block.replay?.opaqueData
-              ? {
-                  type: "redacted_thinking",
-                  data: block.replay.opaqueData,
-                }
-              : {
-                  type: "thinking",
-                  thinking: block.text,
-                  signature: block.replay?.opaqueData,
+            if (block.type === "reasoning") {
+              if (message.provider !== "anthropic") {
+                return {
+                  type: "text",
+                  text: block.text,
                 };
-          }
-          return {
-            type: "tool_use",
-            id: block.callId,
-            name: block.name,
-            input: block.arguments,
-          };
-        }),
-      };
-    }
-    if (message.role === "tool") {
-      return {
-        role: "user",
-        content: await Promise.all(message.results.map(async (result) => {
-          const serializedOutput = JSON.stringify(result.output ?? null);
-          const extraBlocks = result.contents?.length
-            ? await Promise.all(result.contents.map(toAnthropicUserBlock))
-            : [];
-          return {
-            type: "tool_result",
-            tool_use_id: result.callId,
-            content:
-              extraBlocks.length > 0
-                ? [{ type: "text", text: serializedOutput }, ...extraBlocks]
-                : serializedOutput,
-            ...(result.isError ? { is_error: true } : {}),
-          };
-        })),
-      };
-    }
-    if (typeof message.content === "string") {
-      return message;
-    }
-    return {
-      role: "user",
-      content: await Promise.all(message.content.map(toAnthropicUserBlock)),
-    };
-  }));
+              }
+              return !block.text && block.replay?.opaqueData
+                ? {
+                    type: "redacted_thinking",
+                    data: block.replay.opaqueData,
+                  }
+                : {
+                    type: "thinking",
+                    thinking: block.text,
+                    signature: block.replay?.opaqueData,
+                  };
+            }
+            return {
+              type: "tool_use",
+              id: block.callId,
+              name: block.name,
+              input: block.arguments,
+            };
+          }),
+        };
+      } else if (message.role === "tool") {
+        converted = {
+          role: "user",
+          content: await Promise.all(
+            message.results.map(async (result) => {
+              const serializedOutput = JSON.stringify(result.output ?? null);
+              const extraBlocks = result.contents?.length
+                ? await Promise.all(result.contents.map(toAnthropicUserBlock))
+                : [];
+              return {
+                type: "tool_result",
+                tool_use_id: result.callId,
+                content:
+                  extraBlocks.length > 0
+                    ? [{ type: "text", text: serializedOutput }, ...extraBlocks]
+                    : serializedOutput,
+                ...(result.isError ? { is_error: true } : {}),
+              };
+            }),
+          ),
+        };
+      } else if (typeof message.content === "string") {
+        converted = message;
+      } else {
+        converted = {
+          role: "user",
+          content: await Promise.all(message.content.map(toAnthropicUserBlock)),
+        };
+      }
+
+      anthropicMessageCache.set(message, converted);
+      return converted;
+    }),
+  );
 }
 
 async function toAnthropicUserBlock(block: MessageContent): Promise<unknown> {

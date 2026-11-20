@@ -140,9 +140,35 @@ test("Amarsia inference streams cumulative output and forwards abort", async () 
       publishOutput: (output) => snapshots.push(output),
       signal: controller.signal,
     });
-    assert.equal(forwardedSignal, controller.signal);
+    assert.equal(forwardedSignal?.aborted, false);
     assert.equal(response.output, "ab");
     assert.deepEqual(snapshots, ["a", "ab", "ab"]);
+
+    const abortController = new AbortController();
+    let inFlightSignal;
+    globalThis.fetch = async (_url, init) => {
+      inFlightSignal = init.signal;
+      return new Response(
+        new ReadableStream({
+          start() {
+            abortController.abort("test abort");
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    };
+    await assert.rejects(() =>
+      createAmarsiaInferenceGenerator({
+        key: "project-key",
+      })("openai", {}, {
+        model: "gpt-test",
+        systemPrompt: "Test",
+        messages: [{ role: "user", content: "Hello" }],
+        tools: [],
+        signal: abortController.signal,
+      }),
+    );
+    assert.equal(inFlightSignal?.aborted, true);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -8,7 +8,9 @@ import type {
   ConverseStreamOutput,
   DocumentFormat,
   Message,
+  SystemContentBlock,
   TokenUsage,
+  Tool,
   ToolResultContentBlock,
 } from "@aws-sdk/client-bedrock-runtime";
 import { createHash } from "node:crypto";
@@ -21,6 +23,8 @@ import type {
   MessageContent,
   ProviderConfiguration,
 } from "../types.js";
+import { ClientPool } from "./client-pool.js";
+import { createProviderTimeout } from "./timeout.js";
 import type {
   ProviderAdapter,
   ProviderAssistantBlock,
@@ -80,6 +84,13 @@ export interface BedrockContentClient {
   }>;
 }
 
+const bedrockClientPool = new ClientPool<BedrockRuntimeClient>({
+  maxEntries: 16,
+  onEvict: (client) => client.destroy(),
+});
+const bedrockMessageCache = new WeakMap<ProviderMessage, Message>();
+const unsupportedCachePointModels = new Set<string>();
+
 export const bedrockProvider: ProviderAdapter = {
   name: "bedrock",
   generate: generateBedrock,
@@ -97,44 +108,149 @@ async function generateBedrock(
     );
   }
 
-  const client = new BedrockRuntimeClient({
-    region: bedrockConfiguration.region,
-    ...(bedrockConfiguration.baseUrl
-      ? { endpoint: bedrockConfiguration.baseUrl }
-      : {}),
-    ...(bedrockConfiguration.credentials
-      ? { credentials: bedrockConfiguration.credentials }
-      : {}),
-  });
+  const client = getPooledBedrockClient(bedrockConfiguration);
   return generateBedrockContent(client, request);
+}
+
+function getPooledBedrockClient(
+  configuration: BedrockProviderConfiguration,
+): BedrockRuntimeClient {
+  const cacheKey = JSON.stringify([
+    configuration.region,
+    configuration.baseUrl ?? "",
+    configuration.credentials?.accessKeyId ?? "",
+    configuration.credentials?.secretAccessKey ?? "",
+    configuration.credentials?.sessionToken ?? "",
+  ]);
+  return bedrockClientPool.getOrCreate(
+    cacheKey,
+    () =>
+      new BedrockRuntimeClient({
+        region: configuration.region,
+        ...(configuration.baseUrl
+          ? { endpoint: configuration.baseUrl }
+          : {}),
+        ...(configuration.credentials
+          ? { credentials: configuration.credentials }
+          : {}),
+      }),
+  );
 }
 
 export async function generateBedrockContent(
   client: BedrockContentClient,
   request: ProviderRequest,
 ): Promise<ProviderResponse> {
+  const timeout = createProviderTimeout({
+    provider: "Amazon Bedrock",
+    model: request.model,
+    signal: request.signal,
+  });
+
+  try {
+    const useCachePoints = supportsBedrockPromptCaching(request.model);
+    let input = await buildConverseInput(
+      request,
+      useCachePoints,
+      timeout.signal,
+    );
+
+    let response: {
+      stream?: AsyncIterable<ConverseStreamOutput>;
+      $metadata: { requestId?: string };
+    };
+    try {
+      response = await client.send(new ConverseStreamCommand(input), {
+        abortSignal: timeout.signal,
+      });
+    } catch (error) {
+      if (useCachePoints && isUnsupportedCachePointError(error)) {
+        unsupportedCachePointModels.add(request.model);
+        input = await buildConverseInput(request, false, timeout.signal);
+        response = await client.send(new ConverseStreamCommand(input), {
+          abortSignal: timeout.signal,
+        });
+      } else {
+        throw error;
+      }
+    }
+
+    if (!response.stream) {
+      throw new OrchaError(
+        "provider_error",
+        `Amazon Bedrock model "${request.model}" returned no response stream.`,
+        {
+          retryable: true,
+          details: {
+            provider: "bedrock",
+            model: request.model,
+            ...(response.$metadata.requestId
+              ? { requestId: response.$metadata.requestId }
+              : {}),
+          },
+        },
+      );
+    }
+
+    timeout.reset("stream");
+    const collected = await collectBedrockStream(
+      timeout.iterateStream(response.stream),
+      request,
+      response.$metadata.requestId,
+      request.publishOutput,
+    );
+    return toProviderResponse(request, collected);
+  } catch (error) {
+    if (timeout.didTimeout()) {
+      throw timeout.createTimeoutError();
+    }
+    throw error;
+  } finally {
+    timeout.cleanup();
+  }
+}
+
+async function buildConverseInput(
+  request: ProviderRequest,
+  useCachePoints: boolean,
+  signal?: AbortSignal,
+): Promise<ConverseStreamCommandInput> {
+  const promptText = systemPrompt(request);
+  const system: SystemContentBlock[] = [{ text: promptText }];
+  if (useCachePoints && promptText.length > 0) {
+    system.push({ cachePoint: { type: "default" } });
+  }
+
+  const baseMessages = await toBedrockMessages(request.messages, signal);
+  const messages = useCachePoints
+    ? withBedrockMessageCachePoints(baseMessages)
+    : baseMessages;
+
   const input: ConverseStreamCommandInput = {
     modelId: request.model,
-    system: [{ text: systemPrompt(request) }],
-    messages: await toBedrockMessages(request.messages),
+    system,
+    messages,
     ...(request.maxTokens
       ? { inferenceConfig: { maxTokens: request.maxTokens } }
       : {}),
   };
 
   if (request.tools.length > 0) {
-    input.toolConfig = {
-      tools: request.tools.map((tool) => ({
-        toolSpec: {
-          name: tool.name,
-          description: tool.description,
-          inputSchema: {
-            json: toBedrockDocument(tool.parameters),
-          },
+    const tools: Tool[] = request.tools.map((tool) => ({
+      toolSpec: {
+        name: tool.name,
+        description: tool.description,
+        inputSchema: {
+          json: toBedrockDocument(tool.parameters),
         },
-      })),
-    };
+      },
+    }));
+    if (useCachePoints) {
+      tools.push({ cachePoint: { type: "default" } });
+    }
+    input.toolConfig = { tools };
   }
+
   if (request.reasoningLevel && isAnthropicModel(request.model)) {
     input.additionalModelRequestFields = {
       thinking: { type: "adaptive" },
@@ -142,21 +258,59 @@ export async function generateBedrockContent(
     };
   }
 
-  const response = await client.send(
-    new ConverseStreamCommand(input),
-    { abortSignal: request.signal },
-  );
-  if (!response.stream) {
-    throw new Error("Amazon Bedrock returned no response stream.");
-  }
+  return input;
+}
 
-  const collected = await collectBedrockStream(
-    response.stream,
-    request,
-    response.$metadata.requestId,
-    request.publishOutput,
+function withBedrockMessageCachePoints(messages: Message[]): Message[] {
+  if (messages.length < 3) {
+    return messages;
+  }
+  const cacheIndex = findLastStableUserMessageIndex(messages);
+  if (cacheIndex < 0) {
+    return messages;
+  }
+  return messages.map((message, index) => {
+    if (index !== cacheIndex || !message.content?.length) {
+      return message;
+    }
+    return {
+      ...message,
+      content: [...message.content, { cachePoint: { type: "default" } }],
+    };
+  });
+}
+
+function findLastStableUserMessageIndex(messages: Message[]): number {
+  const startIndex =
+    messages.length >= 5 ? messages.length - 1 : messages.length - 2;
+  for (let index = startIndex; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user" && messages[index]?.content?.length) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function supportsBedrockPromptCaching(model: string): boolean {
+  if (unsupportedCachePointModels.has(model)) {
+    return false;
+  }
+  return isAnthropicModel(model) || isNovaModel(model);
+}
+
+function isUnsupportedCachePointError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(error).toLowerCase();
+  const name = error instanceof Error ? error.name : "";
+  return (
+    (name === "ValidationException" || message.includes("validation")) &&
+    (message.includes("cachepoint") ||
+      message.includes("cache point") ||
+      message.includes("prompt caching") ||
+      message.includes("caching is not supported"))
   );
-  return toProviderResponse(request, collected);
 }
 
 function validateConfiguration(
@@ -192,62 +346,71 @@ function systemPrompt(request: ProviderRequest): string {
 
 async function toBedrockMessages(
   messages: ProviderMessage[],
+  signal?: AbortSignal,
 ): Promise<Message[]> {
-  const output: Message[] = [];
-  for (const message of messages) {
-    if (message.role === "user") {
-      output.push({
-        role: "user",
-        content:
-          typeof message.content === "string"
-            ? [{ text: message.content }]
-            : await Promise.all(
-                message.content.map(toBedrockUserBlock),
-              ),
-      });
-      continue;
-    }
-    if (message.role === "tool") {
-      output.push({
-        role: "user",
-        content: await Promise.all(
-          message.results.map(async (result) => {
-            const extraBlocks = result.contents?.length
-              ? ((await Promise.all(
-                  result.contents.map(toBedrockUserBlock),
-                )) as ToolResultContentBlock[])
-              : [];
-            return {
-              toolResult: {
-                toolUseId: result.callId,
-                content: [
-                  { json: toBedrockDocument(result.output) },
-                  ...extraBlocks,
-                ],
-                ...(result.isError ? { status: "error" as const } : {}),
-              },
-            };
-          }),
-        ),
-      });
-      continue;
-    }
+  return Promise.all(
+    messages.map(async (message): Promise<Message> => {
+      const cached = bedrockMessageCache.get(message);
+      if (cached) {
+        return cached;
+      }
 
-    output.push({
-      role: "assistant",
-      content: message.content.map((block) =>
-        toBedrockAssistantBlock(
-          block,
-          message.provider === "bedrock",
-        ),
-      ),
-    });
-  }
-  return output;
+      let converted: Message;
+      if (message.role === "user") {
+        converted = {
+          role: "user",
+          content:
+            typeof message.content === "string"
+              ? [{ text: message.content }]
+              : await Promise.all(
+                  message.content.map((block) =>
+                    toBedrockUserBlock(block, signal),
+                  ),
+                ),
+        };
+      } else if (message.role === "tool") {
+        converted = {
+          role: "user",
+          content: await Promise.all(
+            message.results.map(async (result) => {
+              const extraBlocks = result.contents?.length
+                ? ((await Promise.all(
+                    result.contents.map((block) =>
+                      toBedrockUserBlock(block, signal),
+                    ),
+                  )) as ToolResultContentBlock[])
+                : [];
+              return {
+                toolResult: {
+                  toolUseId: result.callId,
+                  content: [
+                    { json: toBedrockDocument(result.output) },
+                    ...extraBlocks,
+                  ],
+                  ...(result.isError ? { status: "error" as const } : {}),
+                },
+              };
+            }),
+          ),
+        };
+      } else {
+        converted = {
+          role: "assistant",
+          content: message.content.map((block) =>
+            toBedrockAssistantBlock(block, message.provider === "bedrock"),
+          ),
+        };
+      }
+
+      bedrockMessageCache.set(message, converted);
+      return converted;
+    }),
+  );
 }
 
 async function toBedrockUserBlock(
   block: MessageContent,
+  signal?: AbortSignal,
 ): Promise<ContentBlock> {
   if (block.type === "text") {
     return { text: block.text };
@@ -264,7 +427,7 @@ async function toBedrockUserBlock(
     block.type === "image" ||
     block.type === "url"
   ) {
-    const response = await fetch(block.fileUri);
+    const response = await fetch(block.fileUri, { signal });
     if (!response.ok) {
       throw new Error(
         `Could not load Bedrock file input: HTTP ${response.status}.`,
@@ -432,7 +595,7 @@ async function collectBedrockStream(
   let cumulativeText = "";
 
   for await (const event of stream) {
-    throwStreamError(event);
+    throwStreamError(event, request, requestId);
 
     const start = event.contentBlockStart;
     if (start?.start?.toolUse) {
@@ -737,16 +900,36 @@ function normalizeStopReason(
   return "unknown";
 }
 
-function throwStreamError(event: ConverseStreamOutput): void {
-  const error =
-    event.internalServerException ??
-    event.modelStreamErrorException ??
-    event.validationException ??
-    event.throttlingException ??
-    event.serviceUnavailableException;
-  if (error) {
-    throw new Error(
-      error.message ?? "Amazon Bedrock streaming request failed.",
+function throwStreamError(
+  event: ConverseStreamOutput,
+  request: ProviderRequest,
+  requestId?: string,
+): void {
+  const candidates: Array<[string, { message?: string } | undefined, boolean]> = [
+    ["internalServerException", event.internalServerException, true],
+    ["modelStreamErrorException", event.modelStreamErrorException, true],
+    ["validationException", event.validationException, false],
+    ["throttlingException", event.throttlingException, true],
+    ["serviceUnavailableException", event.serviceUnavailableException, true],
+  ];
+  for (const [errorName, error, retryable] of candidates) {
+    if (!error) {
+      continue;
+    }
+    const detail = error.message ?? "Amazon Bedrock streaming request failed.";
+    throw new OrchaError(
+      "provider_error",
+      `Amazon Bedrock stream error (${errorName}) for model "${request.model}": ${detail}`,
+      {
+        retryable,
+        cause: error,
+        details: {
+          provider: "bedrock",
+          model: request.model,
+          errorName,
+          ...(requestId ? { requestId } : {}),
+        },
+      },
     );
   }
 }
@@ -757,6 +940,11 @@ function isAnthropicModel(model: string): boolean {
     normalized.includes("anthropic.") ||
     normalized.includes("claude")
   );
+}
+
+function isNovaModel(model: string): boolean {
+  const normalized = model.toLowerCase();
+  return normalized.includes("amazon.nova");
 }
 
 function toBedrockDocument(value: unknown): BedrockDocument {

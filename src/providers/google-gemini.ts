@@ -1,6 +1,7 @@
 import { OrchaError } from "../errors.js";
 import { readLocalFileContent } from "../file-content.js";
 import { resolveProviderStructuredOutput } from "../runtime/structured-output.js";
+import { createProviderTimeout } from "./timeout.js";
 import type {
   MessageContent,
   ProviderName,
@@ -60,6 +61,93 @@ interface GoogleGenerateContentConfig {
   thinkingConfig?: {
     includeThoughts: boolean;
     thinkingLevel?: string;
+    thinkingBudget?: number;
+  };
+}
+
+const GEMINI_25_THINKING_BUDGETS: Record<string, number> = {
+  none: 0,
+  off: 0,
+  minimal: 256,
+  low: 512,
+  medium: 1024,
+  high: 4096,
+  max: 24576,
+  xhigh: 24576,
+};
+
+const GEMINI_3_THINKING_LEVELS: Record<string, string> = {
+  none: "MINIMAL",
+  off: "MINIMAL",
+  minimal: "MINIMAL",
+  low: "LOW",
+  medium: "MEDIUM",
+  high: "HIGH",
+  max: "HIGH",
+  xhigh: "HIGH",
+};
+
+function resolveGoogleThinkingConfig(
+  model: string,
+  reasoningLevel?: string,
+): GoogleGenerateContentConfig["thinkingConfig"] | undefined {
+  const normalizedModel = model.trim().toLowerCase();
+  const bareModel = normalizedModel.includes("/")
+    ? (normalizedModel.split("/").pop() ?? normalizedModel)
+    : normalizedModel;
+  const rawLevel = reasoningLevel?.trim();
+  const normalizedLevel = (rawLevel ?? "low").toLowerCase();
+
+  // Gemini 3.x models use thinkingLevel (LOW / MEDIUM / HIGH / MINIMAL).
+  if (/^gemini-3([.\-]|$)/.test(bareModel)) {
+    let level = GEMINI_3_THINKING_LEVELS[normalizedLevel] ?? (rawLevel ? rawLevel.toUpperCase() : "LOW");
+    // Gemini 3.0 Pro only supports LOW and HIGH (3.1+ Pro and Flash support MEDIUM/MINIMAL).
+    if (/^gemini-3(\.0)?-pro/.test(bareModel) && (level === "MINIMAL" || level === "MEDIUM")) {
+      level = "LOW";
+    } else if (/^gemini-3\.1-pro/.test(bareModel) && level === "MINIMAL") {
+      level = "LOW";
+    }
+    return {
+      includeThoughts: true,
+      thinkingLevel: level,
+    };
+  }
+
+  // Gemini 2.5 models use numeric thinkingBudget tokens.
+  if (/^gemini-2\.5([.\-]|$)/.test(bareModel)) {
+    let budget: number;
+    if (rawLevel && /^\d+$/.test(rawLevel)) {
+      budget = Number.parseInt(rawLevel, 10);
+    } else {
+      budget = GEMINI_25_THINKING_BUDGETS[normalizedLevel] ?? 512;
+    }
+    // gemini-2.5-pro cannot disable thinking (minimum budget is 128).
+    if (bareModel.includes("-pro") && budget >= 0 && budget < 128) {
+      budget = 128;
+    }
+    return {
+      includeThoughts: budget !== 0,
+      thinkingBudget: budget,
+    };
+  }
+
+  // Legacy Gemini 2.0 thinking preview supports includeThoughts only.
+  if (bareModel.startsWith("gemini-2.0-flash-thinking")) {
+    return { includeThoughts: true };
+  }
+
+  // Gemini 1.x, standard Gemini 2.0, and Gemma models do not support thinkingConfig.
+  if (
+    /^gemini-(1\.|2\.0)/.test(bareModel) ||
+    bareModel.startsWith("gemma")
+  ) {
+    return undefined;
+  }
+
+  // Preserve pass-through behavior for unrecognized/custom model IDs.
+  return {
+    includeThoughts: true,
+    ...(rawLevel ? { thinkingLevel: rawLevel } : {}),
   };
 }
 
@@ -117,6 +205,8 @@ interface CollectedGoogleResponse {
   usage?: GoogleGenerateContentResponse["usageMetadata"];
 }
 
+const googleUserMessageCache = new WeakMap<ProviderMessage, GoogleContent>();
+
 export async function generateGoogleContent(
   client: GoogleContentClient,
   request: ProviderRequest,
@@ -151,37 +241,52 @@ export async function generateGoogleContent(
     config.responseMimeType = "application/json";
     config.responseJsonSchema = request.outputSchema ?? {};
   }
-  config.thinkingConfig = {
-    includeThoughts: true,
-  };
-  if (request.reasoningLevel) {
-    config.thinkingConfig.thinkingLevel = request.reasoningLevel;
+  const thinkingConfig = resolveGoogleThinkingConfig(
+    request.model,
+    request.reasoningLevel,
+  );
+  if (thinkingConfig) {
+    config.thinkingConfig = thinkingConfig;
   }
 
-  const stream = await client.models.generateContentStream({
+  const timeout = createProviderTimeout({
+    provider: provider === "vertexai" ? "Vertex AI" : "Google GenAI",
     model: request.model,
-    contents: await toGoogleContents(request.messages, provider),
-    config,
+    signal: request.signal,
   });
+
+  let stream: AsyncGenerator<GoogleGenerateContentResponse> | undefined;
   const abort = (): void => {
-    void stream.return(undefined);
+    void stream?.return(undefined);
   };
-  request.signal?.addEventListener("abort", abort, { once: true });
+  timeout.signal.addEventListener("abort", abort, { once: true });
   try {
+    stream = await client.models.generateContentStream({
+      model: request.model,
+      contents: await toGoogleContents(request.messages, provider, timeout.signal),
+      config,
+    });
+    timeout.reset("stream");
     const response = await collectGoogleStream(
-      stream,
+      timeout.iterateStream(stream),
       request.publishOutput,
-      request.signal,
+      timeout.signal,
     );
-    request.signal?.throwIfAborted();
+    timeout.signal.throwIfAborted();
     return toProviderResponse(request, response);
+  } catch (error) {
+    if (timeout.didTimeout()) {
+      throw timeout.createTimeoutError();
+    }
+    throw error;
   } finally {
-    request.signal?.removeEventListener("abort", abort);
+    timeout.signal.removeEventListener("abort", abort);
+    timeout.cleanup();
   }
 }
 
 async function collectGoogleStream(
-  stream: AsyncGenerator<GoogleGenerateContentResponse>,
+  stream: AsyncIterable<GoogleGenerateContentResponse>,
   publishOutput?: (output: string) => void,
   signal?: AbortSignal,
 ): Promise<CollectedGoogleResponse> {
@@ -324,6 +429,7 @@ function appendGoogleTextPart(
 async function toGoogleContents(
   messages: ProviderMessage[],
   provider: "googlegenai" | "vertexai",
+  signal?: AbortSignal,
 ): Promise<GoogleContent[]> {
   const contents: GoogleContent[] = [];
   const previousCalls = new Map<
@@ -336,15 +442,22 @@ async function toGoogleContents(
 
   for (const message of messages) {
     if (message.role === "user") {
-      contents.push({
+      const cached = googleUserMessageCache.get(message);
+      if (cached) {
+        contents.push(cached);
+        continue;
+      }
+      const converted: GoogleContent = {
         role: "user",
         parts:
           typeof message.content === "string"
             ? [{ text: message.content }]
             : await Promise.all(
-                message.content.map(toGoogleUserPart),
+                message.content.map((block) => toGoogleUserPart(block, signal)),
               ),
-      });
+      };
+      googleUserMessageCache.set(message, converted);
+      contents.push(converted);
       continue;
     }
     if (message.role === "assistant") {
@@ -390,7 +503,9 @@ async function toGoogleContents(
       });
       if (result.contents && result.contents.length > 0) {
         parts.push(
-          ...(await Promise.all(result.contents.map(toGoogleUserPart))),
+          ...(await Promise.all(
+            result.contents.map((block) => toGoogleUserPart(block, signal)),
+          )),
         );
       }
     }
@@ -404,6 +519,7 @@ async function toGoogleContents(
 
 async function toGoogleUserPart(
   content: MessageContent,
+  signal?: AbortSignal,
 ): Promise<GooglePart> {
   if (content.type === "text") {
     return { text: content.text };
@@ -422,7 +538,7 @@ async function toGoogleUserPart(
     /^https?:\/\//i.test(content.fileUri) &&
     !isGoogleFileUri(content.fileUri)
   ) {
-    const response = await fetch(content.fileUri);
+    const response = await fetch(content.fileUri, { signal });
     if (!response.ok) {
       throw new OrchaError(
         "invalid_input",

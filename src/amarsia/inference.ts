@@ -1,6 +1,7 @@
 import { OrchaError } from "../errors.js";
 import { readLocalFileContent } from "../file-content.js";
 import { readServerSentEvents } from "../providers/sse.js";
+import { createProviderTimeout } from "../providers/timeout.js";
 import type {
   ProviderAssistantBlock,
   ProviderMessage,
@@ -23,7 +24,10 @@ interface GatewayResponse {
   usage?: {
     input_tokens?: number;
     output_tokens?: number;
-    input_tokens_details?: { cached_tokens?: number };
+    input_tokens_details?: {
+      cached_tokens?: number;
+      cache_write_tokens?: number;
+    };
     output_tokens_details?: { reasoning_tokens?: number };
     cache_write_tokens?: number;
   };
@@ -45,6 +49,8 @@ export interface AmarsiaInferenceConfiguration {
   key: string;
   endpoint?: string;
 }
+
+const gatewayMessageCache = new WeakMap<ProviderMessage, unknown[]>();
 
 const SUPPORTED_AMARSIA_PROVIDERS = new Set<ProviderName>([
   "openai",
@@ -136,26 +142,45 @@ async function generateThroughAmarsia(
     };
   }
 
-  const response = await fetch(`${endpoint}/v3/model/v1/responses`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify(body),
+  const timeout = createProviderTimeout({
+    provider: `Amarsia (${provider})`,
+    model: request.model,
     signal: request.signal,
   });
-  if (!response.ok) {
-    const message = await responseError(response);
-    throw gatewayRequestError(message, response.status);
-  }
 
-  const responseBody = response.headers
-    .get("content-type")
-    ?.includes("text/event-stream")
-    ? await readGatewayStream(response, request.publishOutput)
-    : ((await response.json()) as GatewayResponse);
-  return toProviderResponse(request, responseBody);
+  try {
+    const response = await fetch(`${endpoint}/v3/model/v1/responses`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify(body),
+      signal: timeout.signal,
+    });
+    if (!response.ok) {
+      const message = await responseError(response);
+      throw gatewayRequestError(message, response.status);
+    }
+
+    timeout.reset("stream");
+    const responseBody = response.headers
+      .get("content-type")
+      ?.includes("text/event-stream")
+      ? await readGatewayStream(
+          timeout.iterateStream(readServerSentEvents(response)),
+          request.publishOutput,
+        )
+      : ((await response.json()) as GatewayResponse);
+    return toProviderResponse(request, responseBody);
+  } catch (error) {
+    if (timeout.didTimeout()) {
+      throw timeout.createTimeoutError();
+    }
+    throw error;
+  } finally {
+    timeout.cleanup();
+  }
 }
 
 function assertProviderSupportsMessageContent(
@@ -208,71 +233,79 @@ function gatewayRequestError(
 async function toResponsesInput(
   messages: ProviderMessage[],
 ): Promise<unknown[]> {
-  const input: unknown[] = [];
-  for (const message of messages) {
-    if (message.role === "user") {
-      input.push({
-        role: "user",
-        content:
-          typeof message.content === "string"
-            ? message.content
-            : await Promise.all(
-                message.content.map(toResponsesUserContent),
-              ),
-      });
-      continue;
-    }
-    if (message.role === "tool") {
-      for (const result of message.results) {
-        const contents = result.contents?.length
-          ? await Promise.all(result.contents.map(toResponsesUserContent))
-          : undefined;
-        input.push({
-          type: "function_call_output",
-          call_id: result.callId,
-          output: JSON.stringify(result.output ?? null),
-          ...(contents ? { contents } : {}),
-          ...(result.isError ? { is_error: true } : {}),
-        });
+  const chunks = await Promise.all(
+    messages.map(async (message): Promise<unknown[]> => {
+      const cached = gatewayMessageCache.get(message);
+      if (cached) {
+        return cached;
       }
-      continue;
-    }
-    for (const block of message.content) {
-      if (block.type === "text") {
-        input.push({
-          role: "assistant",
-          content: [{ type: "output_text", text: block.text }],
+
+      const converted: unknown[] = [];
+      if (message.role === "user") {
+        converted.push({
+          role: "user",
+          content:
+            typeof message.content === "string"
+              ? message.content
+              : await Promise.all(
+                  message.content.map(toResponsesUserContent),
+                ),
         });
-      } else if (block.type === "tool_call") {
-        input.push({
-          type: "function_call",
-          call_id: block.callId,
-          name: block.name,
-          arguments: JSON.stringify(block.arguments),
-          ...(block.replay?.providerId
-            ? { id: block.replay.providerId }
-            : {}),
-          ...(block.replay?.opaqueData
-            ? { encrypted_content: block.replay.opaqueData }
-            : {}),
-        });
+      } else if (message.role === "tool") {
+        for (const result of message.results) {
+          const contents = result.contents?.length
+            ? await Promise.all(result.contents.map(toResponsesUserContent))
+            : undefined;
+          converted.push({
+            type: "function_call_output",
+            call_id: result.callId,
+            output: JSON.stringify(result.output ?? null),
+            ...(contents ? { contents } : {}),
+            ...(result.isError ? { is_error: true } : {}),
+          });
+        }
       } else {
-        input.push({
-          type: "reasoning",
-          ...(block.replay?.providerId
-            ? { id: block.replay.providerId }
-            : {}),
-          summary: block.text
-            ? [{ type: "summary_text", text: block.text }]
-            : [],
-          ...(block.replay?.opaqueData
-            ? { encrypted_content: block.replay.opaqueData }
-            : {}),
-        });
+        for (const block of message.content) {
+          if (block.type === "text") {
+            converted.push({
+              role: "assistant",
+              content: [{ type: "output_text", text: block.text }],
+            });
+          } else if (block.type === "tool_call") {
+            converted.push({
+              type: "function_call",
+              call_id: block.callId,
+              name: block.name,
+              arguments: JSON.stringify(block.arguments),
+              ...(block.replay?.providerId
+                ? { id: block.replay.providerId }
+                : {}),
+              ...(block.replay?.opaqueData
+                ? { encrypted_content: block.replay.opaqueData }
+                : {}),
+            });
+          } else {
+            converted.push({
+              type: "reasoning",
+              ...(block.replay?.providerId
+                ? { id: block.replay.providerId }
+                : {}),
+              summary: block.text
+                ? [{ type: "summary_text", text: block.text }]
+                : [],
+              ...(block.replay?.opaqueData
+                ? { encrypted_content: block.replay.opaqueData }
+                : {}),
+            });
+          }
+        }
       }
-    }
-  }
-  return input;
+
+      gatewayMessageCache.set(message, converted);
+      return converted;
+    }),
+  );
+  return chunks.flat();
 }
 
 async function toResponsesUserContent(
@@ -312,12 +345,12 @@ async function toResponsesUserContent(
 }
 
 async function readGatewayStream(
-  response: Response,
+  events: AsyncIterable<Record<string, unknown>>,
   publishOutput?: (output: string) => void,
 ): Promise<GatewayResponse> {
   let text = "";
   let terminal: GatewayResponse | undefined;
-  for await (const event of readServerSentEvents(response)) {
+  for await (const event of events) {
     if (
       event.type === "response.output_text.delta" &&
       typeof event.delta === "string"
@@ -500,7 +533,10 @@ function normalizeUsage(usage: GatewayResponse["usage"]): Usage {
     reasoningTokens:
       usage?.output_tokens_details?.reasoning_tokens ?? null,
     cacheReadTokens: usage?.input_tokens_details?.cached_tokens ?? 0,
-    cacheWriteTokens: usage?.cache_write_tokens ?? 0,
+    cacheWriteTokens:
+      usage?.cache_write_tokens ??
+      usage?.input_tokens_details?.cache_write_tokens ??
+      0,
   };
 }
 
