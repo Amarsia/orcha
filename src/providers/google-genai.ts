@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai/web";
 import type { ProviderConfiguration } from "../types.js";
+import { ClientPool } from "./client-pool.js";
 import {
   generateGoogleContent,
   toGoogleContentClient,
@@ -9,6 +10,8 @@ import type {
   ProviderRequest,
   ProviderResponse,
 } from "./types.js";
+
+const googleGenAIClientPool = new ClientPool<GoogleGenAI>({ maxEntries: 16 });
 
 export const googleGenAIProvider: ProviderAdapter = {
   name: "googlegenai",
@@ -25,15 +28,29 @@ async function generateGoogleGenAI(
     );
   }
 
-  const client = new GoogleGenAI({
-    apiKey: configuration.apiKey,
-    ...(configuration.baseUrl
-      ? { httpOptions: { baseUrl: configuration.baseUrl } }
-      : {}),
-  });
+  const client = getPooledGoogleGenAIClient(configuration);
   return generateGoogleContent(
     toGoogleContentClient(client),
     request,
     "googlegenai",
+  );
+}
+
+function getPooledGoogleGenAIClient(
+  configuration: ProviderConfiguration,
+): GoogleGenAI {
+  const cacheKey = JSON.stringify([
+    configuration.apiKey,
+    configuration.baseUrl ?? "",
+  ]);
+  return googleGenAIClientPool.getOrCreate(
+    cacheKey,
+    () =>
+      new GoogleGenAI({
+        apiKey: configuration.apiKey,
+        ...(configuration.baseUrl
+          ? { httpOptions: { baseUrl: configuration.baseUrl } }
+          : {}),
+      }),
   );
 }

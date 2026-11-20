@@ -15,6 +15,10 @@ import { loadProjectEnvironment } from "../dist/env.js";
 import { orchaPlugin } from "../dist/integrations/esbuild.js";
 import { generateBedrockContent } from "../dist/providers/bedrock.js";
 import { generateProviderResponse } from "../dist/providers/index.js";
+import {
+  createProviderTimeout,
+  PROVIDER_REQUEST_TIMEOUT_MS,
+} from "../dist/providers/timeout.js";
 import { createLocalActionContext } from "../dist/runtime/actions/context.js";
 import { createOrcha as createRuntimeOrcha } from "../dist/runtime/create-orcha.js";
 import { setMcpClientFactory } from "../dist/runtime/mcp/client.js";
@@ -2670,6 +2674,73 @@ test(
   },
 );
 
+test(
+  "maps default and explicit thinking configs across Gemini model families",
+  { skip: !googleProvidersAvailable },
+  async () => {
+    const cases = [
+      {
+        model: "gemini-2.5-flash",
+        expected: { includeThoughts: true, thinkingBudget: 512 },
+      },
+      {
+        model: "gemini-2.5-pro",
+        reasoningLevel: "none",
+        expected: { includeThoughts: true, thinkingBudget: 128 },
+      },
+      {
+        model: "gemini-3-flash-preview",
+        expected: { includeThoughts: true, thinkingLevel: "LOW" },
+      },
+      {
+        model: "gemini-3.1-pro-preview",
+        reasoningLevel: "high",
+        expected: { includeThoughts: true, thinkingLevel: "HIGH" },
+      },
+      {
+        model: "gemini-2.0-flash",
+        expected: undefined,
+      },
+    ];
+
+    for (const entry of cases) {
+      const fixture = await createRuntimeFixture(
+        () => ({
+          chunks: [
+            {
+              responseId: `google_${entry.model}`,
+              candidates: [
+                {
+                  content: {
+                    role: "model",
+                    parts: [{ text: "ok" }],
+                  },
+                  finishReason: "STOP",
+                },
+              ],
+            },
+          ],
+        }),
+        {
+          provider: "googlegenai",
+          model: entry.model,
+          ...(entry.reasoningLevel ? { reasoningLevel: entry.reasoningLevel } : {}),
+        },
+      );
+      try {
+        const result = await fixture.client.testAgent.run("ping").result;
+        assert.equal(result.status, "completed");
+        assert.deepEqual(
+          fixture.requests[0].generationConfig.thinkingConfig,
+          entry.expected,
+        );
+      } finally {
+        await fixture.dispose();
+      }
+    }
+  },
+);
+
 test("runs DeepSeek reasoning, streaming, and normalized local tools", async () => {
   const fixture = await createRuntimeFixture(
     (_requests, index) =>
@@ -4247,6 +4318,316 @@ test("executes a sandboxed local action from the production ESM bundle", async (
   }
 });
 
+test("enforces a 10-minute default provider timeout and aborts stalled streams with detailed OrchaError", async () => {
+  assert.equal(PROVIDER_REQUEST_TIMEOUT_MS, 600_000);
+
+  const timeout = createProviderTimeout({
+    provider: "Amazon Bedrock",
+    model: "us.anthropic.claude-sonnet-4-6",
+    timeoutMs: 30,
+  });
+
+  const stalledStream = {
+    [Symbol.asyncIterator]() {
+      return {
+        next() {
+          return new Promise(() => {});
+        },
+        return() {
+          return Promise.resolve({ value: undefined, done: true });
+        },
+      };
+    },
+  };
+
+  try {
+    await assert.rejects(
+      async () => {
+        for await (const _chunk of timeout.iterateStream(stalledStream)) {
+          // Never yields.
+        }
+      },
+      (error) => {
+        assert.equal(error.code, "provider_error");
+        assert.equal(error.retryable, true);
+        assert.equal(error.details?.reason, "provider_timeout");
+        assert.equal(error.details?.provider, "Amazon Bedrock");
+        assert.equal(error.details?.model, "us.anthropic.claude-sonnet-4-6");
+        assert.equal(error.details?.phase, "stream");
+        assert.equal(error.details?.timeoutMs, 30);
+        assert.match(error.message, /timed out/i);
+        return true;
+      },
+    );
+  } finally {
+    timeout.cleanup();
+  }
+});
+
+test("adds Bedrock prompt cachePoints on system, tools, and stable history and falls back if rejected", async () => {
+  const requests = [];
+  const client = {
+    async send(command) {
+      requests.push(command.input);
+      if (command.input.modelId === "anthropic.claude-unsupported-cache") {
+        const hasCachePoint =
+          command.input.system?.some((block) => "cachePoint" in block) ||
+          command.input.toolConfig?.tools?.some((tool) => "cachePoint" in tool);
+        if (hasCachePoint) {
+          const error = new Error("cachePoint is not supported by this model.");
+          error.name = "ValidationException";
+          throw error;
+        }
+      }
+      return {
+        $metadata: { requestId: `req_${requests.length}` },
+        stream: (async function* () {
+          yield { contentBlockDelta: { contentBlockIndex: 0, delta: { text: "ok" } } };
+          yield { messageStop: { stopReason: "end_turn" } };
+        })(),
+      };
+    },
+  };
+
+  await generateBedrockContent(client, {
+    model: "us.anthropic.claude-sonnet-4-6",
+    systemPrompt: "System instructions.",
+    messages: [
+      { role: "user", content: "Turn 1" },
+      { role: "assistant", provider: "bedrock", content: [{ type: "text", text: "Ack" }] },
+      {
+        role: "tool",
+        results: [{ callId: "call_1", output: { parsed: "large payload" } }],
+      },
+    ],
+    tools: [
+      {
+        name: "lookup",
+        description: "Lookup",
+        parameters: { type: "object", properties: {} },
+      },
+    ],
+  });
+
+  assert.deepEqual(requests[0].system, [
+    { text: "System instructions." },
+    { cachePoint: { type: "default" } },
+  ]);
+  assert.deepEqual(requests[0].toolConfig.tools.at(-1), {
+    cachePoint: { type: "default" },
+  });
+  assert.deepEqual(requests[0].messages[0].content.at(-1), {
+    cachePoint: { type: "default" },
+  });
+
+  await generateBedrockContent(client, {
+    model: "us.anthropic.claude-sonnet-4-6",
+    systemPrompt: "System instructions.",
+    messages: [
+      { role: "user", content: "Turn 1" },
+      { role: "assistant", provider: "bedrock", content: [{ type: "text", text: "Ack 1" }] },
+      { role: "tool", results: [{ callId: "call_1", output: { ok: true } }] },
+      { role: "assistant", provider: "bedrock", content: [{ type: "text", text: "Ack 2" }] },
+      { role: "tool", results: [{ callId: "call_2", output: { large: "payload" } }] },
+    ],
+    tools: [],
+  });
+  assert.deepEqual(requests[1].messages[4].content.at(-1), {
+    cachePoint: { type: "default" },
+  });
+
+  await generateBedrockContent(client, {
+    model: "anthropic.claude-unsupported-cache",
+    systemPrompt: "Fallback instructions.",
+    messages: [{ role: "user", content: "Hello" }],
+    tools: [],
+  });
+  assert.equal(requests.length, 4);
+  assert.deepEqual(requests[3].system, [{ text: "Fallback instructions." }]);
+});
+
+test("enables automatic prompt caching on Anthropic and prompt_cache_key on OpenAI", async () => {
+  const anthropicFixture = await createRuntimeFixture(
+    () => ({
+      id: "msg_cache",
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "cached" }],
+    }),
+    { provider: "anthropic" },
+  );
+  try {
+    const result = await anthropicFixture.client.testAgent.run("Hello").result;
+    assert.equal(result.status, "completed");
+    assert.deepEqual(anthropicFixture.requests[0].cache_control, {
+      type: "ephemeral",
+    });
+  } finally {
+    await anthropicFixture.dispose();
+  }
+
+  const openaiRequests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    openaiRequests.push(JSON.parse(String(init?.body ?? "{}")));
+    return new Response(
+      JSON.stringify({
+        id: "resp_cache_1",
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            status: "completed",
+            content: [{ type: "output_text", text: "ok", annotations: [] }],
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  try {
+    const response = await generateProviderResponse(
+      "openai",
+      { apiKey: "test-openai-key" },
+      {
+        model: "gpt-5",
+        systemPrompt: "System",
+        messages: [{ role: "user", content: "Hi" }],
+        tools: [],
+        trace: { agentExternalId: "agent_123", sessionId: "ses_123" },
+      },
+    );
+    assert.equal(response.output, "ok");
+    assert.equal(openaiRequests[0].prompt_cache_key, "orcha:agent_123");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("dispatches parallel subagents concurrently with batched events and preserves failure details", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "orchajs-parallel-subagents-"));
+  let parentTurn = 0;
+  let activeChildren = 0;
+  let maxConcurrentChildren = 0;
+
+  const childManifest = {
+    key: "worker",
+    name: "Worker",
+    description: "Process one item.",
+    provider: "anthropic",
+    model: "claude-sonnet-4-6",
+    systemPrompt: "Process item.",
+    outputType: "text",
+    actions: {},
+    skills: {},
+    evaluations: {},
+    mcpServers: {},
+    subagents: {},
+  };
+  const parentManifest = {
+    key: "coordinator",
+    name: "Coordinator",
+    description: "Dispatch workers.",
+    provider: "anthropic",
+    model: "claude-sonnet-4-6",
+    systemPrompt: "Dispatch all workers in parallel.",
+    outputType: "text",
+    actions: {},
+    skills: {},
+    evaluations: {},
+    mcpServers: {},
+    subagentPolicy: { maxPerRun: 10 },
+    subagents: { worker: childManifest },
+  };
+
+  const bundle = {
+    schemaVersion: 1,
+    actionRuntime: "native",
+    agents: { coordinator: parentManifest },
+  };
+  const client = createOrcha(
+    () => bundle,
+    async (_provider, _config, request) => {
+      if (request.tools.some((tool) => tool.name === "run_agent")) {
+        assert.match(
+          request.systemPrompt,
+          /emit all independent `run_agent` calls together in a single response/i,
+        );
+        parentTurn += 1;
+        if (parentTurn === 1) {
+          return {
+            output: "",
+            stopReason: "tool_call",
+            content: Array.from({ length: 6 }, (_, index) => ({
+              type: "tool_call",
+              callId: `call_${index + 1}`,
+              name: "run_agent",
+              arguments: {
+                agent: "worker",
+                content: [{ type: "text", text: `doc-${index + 1}` }],
+              },
+            })),
+            toolCalls: Array.from({ length: 6 }, (_, index) => ({
+              type: "tool_call",
+              callId: `call_${index + 1}`,
+              name: "run_agent",
+              arguments: {
+                agent: "worker",
+                content: [{ type: "text", text: `doc-${index + 1}` }],
+              },
+            })),
+            usage: { inputTokens: 10, outputTokens: 10, reasoningTokens: null, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          };
+        }
+        return {
+          output: "all-done",
+          stopReason: "end_turn",
+          content: [{ type: "text", text: "all-done" }],
+          toolCalls: [],
+          usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: null, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        };
+      }
+
+      activeChildren += 1;
+      maxConcurrentChildren = Math.max(maxConcurrentChildren, activeChildren);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+      activeChildren -= 1;
+      return {
+        output: "parsed",
+        stopReason: "end_turn",
+        content: [{ type: "text", text: "parsed" }],
+        toolCalls: [],
+        usage: { inputTokens: 5, outputTokens: 2, reasoningTokens: null, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      };
+    },
+  );
+  client.init({
+    root,
+    providers: { anthropic: "test-key" },
+    agents: {
+      coordinator: {
+        path: "./coordinator",
+        subagents: { worker: "./worker" },
+      },
+    },
+  });
+
+  try {
+    const result = await client.coordinator.run("Parse 6 docs").result;
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "all-done");
+    assert.equal(maxConcurrentChildren, 6);
+
+    const events = await readSessionEvents(root, result.sessionId);
+    const initiatedCount = events.filter((event) => event.type === "subagent.initiated").length;
+    const completedCount = events.filter((event) => event.type === "subagent.completed").length;
+    assert.equal(initiatedCount, 6);
+    assert.equal(completedCount, 6);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 async function createRuntimeFixture(responseFactory, options = {}) {
   const root = await mkdtemp(resolve(tmpdir(), "orchajs-runtime-"));
   const provider = options.provider ?? "anthropic";
@@ -4265,13 +4646,14 @@ async function createRuntimeFixture(responseFactory, options = {}) {
         name: "testAgent",
         provider,
         model:
-          provider === "anthropic"
+          options.model ??
+          (provider === "anthropic"
             ? "claude-test"
             : provider === "openai"
               ? "gpt-test"
               : provider === "deepseek"
                 ? "deepseek-test"
-                : "gemini-test",
+                : "gemini-test"),
         systemPrompt: options.systemPrompt ?? "You are a test agent.",
         maxTokens: 32,
         reasoningLevel: options.reasoningLevel,

@@ -1,5 +1,6 @@
 import {
   describeProviderError,
+  describeRuntimeError,
   isOrchaError,
   isRetryableProviderConnectionError,
   OrchaError,
@@ -774,7 +775,10 @@ export class RuntimeAgent implements AgentRuntime {
         ) {
           childSnapshot = await child.pause(childSessionId);
         }
-        result = snapshotRunResult(childSnapshot);
+        result = snapshotRunResult(
+          childSnapshot,
+          await child.#readSession(childSessionId),
+        );
       } catch (error) {
         result = failure(
           childSessionId,
@@ -1612,10 +1616,28 @@ export class RuntimeAgent implements AgentRuntime {
         usage,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const code = isOrchaError(error) ? error.code : "execution_failed";
-      const details = isOrchaError(error) ? error.details : undefined;
-      const retryable = isOrchaError(error) ? error.retryable : false;
+      const described = isOrchaError(error)
+        ? {
+            message: error.message,
+            code: error.code,
+            retryable: error.retryable,
+            details: error.details,
+          }
+        : (() => {
+            const runtimeError = describeRuntimeError(error);
+            return {
+              message: runtimeError.message,
+              code: "execution_failed" as const,
+              retryable: false,
+              details: {
+                agent: this.#agentKey,
+                provider: this.#manifest.provider,
+                model: this.#manifest.model,
+                toolRound,
+                ...runtimeError.details,
+              },
+            };
+          })();
       const usage = usageForRun(previousEvents, writer.run);
       await this.#store.append(sessionId, [
         writer.create("run.failed", {
@@ -1623,16 +1645,16 @@ export class RuntimeAgent implements AgentRuntime {
           durationMs: elapsedRunDuration(previousEvents, writer.run),
           usage,
           error: {
-            code,
-            message,
-            retryable,
-            ...(details ? { details } : {}),
+            code: described.code,
+            message: described.message,
+            retryable: described.retryable,
+            ...(described.details ? { details: described.details } : {}),
           },
         }),
       ]);
-      return failure(sessionId, code, message, {
-        retryable,
-        details,
+      return failure(sessionId, described.code, described.message, {
+        retryable: described.retryable,
+        details: described.details,
       });
     }
   }
@@ -2226,8 +2248,9 @@ export class RuntimeAgent implements AgentRuntime {
     events: SessionEvent[];
     results: ProviderToolResult[];
   }> {
-    const events: SessionEvent[] = [];
-    const results: ProviderToolResult[] = [];
+    if (calls.length === 0) {
+      return { events: [], results: [] };
+    }
     const existingStarts = previousEvents.filter(
       (event) =>
         event.run === writer.run && event.type === "subagent.initiated",
@@ -2237,188 +2260,278 @@ export class RuntimeAgent implements AgentRuntime {
     ).length;
     const maximum = this.#manifest.subagentPolicy?.maxPerRun ?? 10;
     if (existingStarts + requestedStarts > maximum) {
-      throw new Error(
+      throw new OrchaError(
+        "invalid_input",
         `Agent exceeded its maximum of ${maximum} subagents for this run.`,
+        {
+          details: {
+            agent: this.#agentKey,
+            maxPerRun: maximum,
+            existingStarts,
+            requestedStarts,
+          },
+        },
       );
     }
 
-    results.push(
-      ...(await Promise.all(
-        calls.map(async (call): Promise<ProviderToolResult> => {
-          try {
-            const result = await this.#executeSubagentToolCall(
-              parentSessionId,
-              writer,
-              call,
-              events,
-              publishSnapshot,
+    const parentLineage = sessionLineage(previousEvents);
+    const startEvents: SessionEvent[] = [];
+
+    type PreparedSubagentCall =
+      | {
+          kind: "immediate";
+          result: ProviderToolResult;
+        }
+      | {
+          kind: "execute";
+          call: ProviderToolCall;
+          agentName: string;
+          childSessionId: string;
+          run: () => Promise<RunResult>;
+        };
+
+    const prepared = await Promise.all(
+      calls.map(async (call): Promise<PreparedSubagentCall> => {
+        try {
+          if (call.name === RUN_AGENT_TOOL_NAME) {
+            const agentName = requiredToolString(call.arguments.agent, "agent");
+            const child = this.#subagents[agentName];
+            if (!child) {
+              throw new Error(`Unknown subagent "${agentName}".`);
+            }
+            const existing = previousSubagentCall(previousEvents, call.callId);
+            if (existing) {
+              const output = subagentToolOutput(existing);
+              return {
+                kind: "immediate",
+                result: {
+                  callId: call.callId,
+                  output,
+                  ...(output.status === "failed" ? { isError: true } : {}),
+                },
+              };
+            }
+            const rawDelegatedInput =
+              call.arguments.content !== undefined
+                ? call.arguments.content
+                : call.arguments.input;
+            const input = normalizeDelegatedInput(
+              rawDelegatedInput,
+              this.#projectRoot,
             );
-            return {
-              callId: call.callId,
-              output: result,
-              ...(result.status === "failed" ? { isError: true } : {}),
+            const lineage: SessionLineage = {
+              origin: "delegated",
+              parentAgent: this.#manifest.key,
+              parentSessionId,
+              parentCallId: call.callId,
+              parentRunNumber: writer.run,
+              rootSessionId: parentLineage?.rootSessionId ?? parentSessionId,
+              rootRunNumber: parentLineage?.rootRunNumber ?? writer.run,
             };
-          } catch (error) {
-            return {
+            const childSessionId = child.createDelegatedSessionId();
+            const initiated = writer.create("subagent.initiated", {
               callId: call.callId,
-              output: {
-                error: error instanceof Error ? error.message : String(error),
-              },
-              isError: true,
+              agent: agentName,
+              sessionId: childSessionId,
+              status: "running",
+            });
+            startEvents.push(initiated);
+            return {
+              kind: "execute",
+              call,
+              agentName,
+              childSessionId,
+              run: () =>
+                child.runAsChild(childSessionId, { content: input }, lineage)
+                  .result,
             };
           }
-        }),
-      )),
-    );
-    return { events, results };
-  }
 
-  async #executeSubagentToolCall(
-    parentSessionId: string,
-    writer: SessionEventWriter,
-    call: ProviderToolCall,
-    events: SessionEvent[],
-    publishSnapshot?: ExecutionSnapshotPublisher<unknown>,
-  ): Promise<Record<string, unknown>> {
-    if (call.name === RUN_AGENT_TOOL_NAME) {
-      const agentName = requiredToolString(call.arguments.agent, "agent");
-      const child = this.#subagents[agentName];
-      if (!child) {
-        throw new Error(`Unknown subagent "${agentName}".`);
-      }
-      const parentEvents = await this.#readSession(parentSessionId);
-      const existing = previousSubagentCall(parentEvents, call.callId);
-      if (existing) {
-        return subagentToolOutput(existing);
-      }
-      const rawDelegatedInput =
-        call.arguments.content !== undefined
-          ? call.arguments.content
-          : call.arguments.input;
-      const input = normalizeDelegatedInput(
-        rawDelegatedInput,
-        this.#projectRoot,
-      );
-      const parentLineage = sessionLineage(parentEvents);
-      const lineage: SessionLineage = {
-        origin: "delegated",
-        parentAgent: this.#manifest.key,
-        parentSessionId,
-        parentCallId: call.callId,
-        parentRunNumber: writer.run,
-        rootSessionId: parentLineage?.rootSessionId ?? parentSessionId,
-        rootRunNumber: parentLineage?.rootRunNumber ?? writer.run,
-      };
-      const childSessionId = child.createDelegatedSessionId();
-      const initiated = writer.create("subagent.initiated", {
-        callId: call.callId,
-        agent: agentName,
-        sessionId: childSessionId,
-        status: "running",
-      });
-      await this.#store.append(parentSessionId, [initiated]);
-      events.push(initiated);
-      const childExecution = child.runAsChild(
-        childSessionId,
-        { content: input },
-        lineage,
-      );
-      publishSnapshot?.({
-        sessionId: parentSessionId,
-        status: "waiting_for_subagent",
-        childSessionId,
-        childAgent: agentName,
-      });
-      const result = await childExecution.result;
-      const childResult = writer.create(subagentEventType(result), {
-        callId: call.callId,
-        agent: agentName,
-        ...childRunResultData(result, childSessionId),
-      });
-      await this.#store.append(parentSessionId, [childResult]);
-      events.push(childResult);
-      return {
-        agent: agentName,
-        childSessionId,
-        ...result,
-      };
-    }
+          const childSessionId = requiredToolString(
+            call.arguments.sessionId,
+            "sessionId",
+          );
+          const child = await this.#ownedChild(parentSessionId, childSessionId);
+          if (call.name === INSPECT_AGENT_TOOL_NAME) {
+            const options = {
+              ...(typeof call.arguments.page === "number"
+                ? { page: call.arguments.page }
+                : {}),
+              ...(typeof call.arguments.pageSize === "number"
+                ? { pageSize: Math.min(call.arguments.pageSize, 50) }
+                : {}),
+            };
+            return {
+              kind: "immediate",
+              result: {
+                callId: call.callId,
+                output: {
+                  childSessionId,
+                  history: await child.history(childSessionId, options),
+                },
+              },
+            };
+          }
 
-    const childSessionId = requiredToolString(
-      call.arguments.sessionId,
-      "sessionId",
-    );
-    const child = await this.#ownedChild(parentSessionId, childSessionId);
-    if (call.name === INSPECT_AGENT_TOOL_NAME) {
-      const options = {
-        ...(typeof call.arguments.page === "number"
-          ? { page: call.arguments.page }
-          : {}),
-        ...(typeof call.arguments.pageSize === "number"
-          ? { pageSize: Math.min(call.arguments.pageSize, 50) }
-          : {}),
-      };
-      return {
-        childSessionId,
-        history: await child.history(childSessionId, options),
-      };
-    }
-    if (call.name === RESUME_AGENT_TOOL_NAME) {
-      const rawDelegatedContent =
-        call.arguments.content !== undefined
-          ? call.arguments.content
-          : call.arguments.input;
-      const hasInput = rawDelegatedContent !== undefined;
-      const hasToolResults = Array.isArray(call.arguments.toolResults);
-      if (hasInput === hasToolResults) {
-        throw new Error(
-          "resume_agent requires either content or toolResults, but not both.",
-        );
-      }
-      const input = hasInput
-        ? normalizeDelegatedInput(
-            rawDelegatedContent,
-            this.#projectRoot,
-            RESUME_AGENT_TOOL_NAME,
-          )
-        : undefined;
-      const resumed = writer.create("subagent.resumed", {
-        callId: call.callId,
-        agent: child.agent,
-        sessionId: childSessionId,
-        status: "running",
-      });
-      await this.#store.append(parentSessionId, [resumed]);
-      events.push(resumed);
-      const execution = child.resume(
-        childSessionId,
-        input !== undefined
-          ? { content: input }
-          : {
-              toolResults: call.arguments.toolResults as ToolResult[],
+          if (call.name === RESUME_AGENT_TOOL_NAME) {
+            const rawDelegatedContent =
+              call.arguments.content !== undefined
+                ? call.arguments.content
+                : call.arguments.input;
+            const hasInput = rawDelegatedContent !== undefined;
+            const hasToolResults = Array.isArray(call.arguments.toolResults);
+            if (hasInput === hasToolResults) {
+              throw new Error(
+                "resume_agent requires either content or toolResults, but not both.",
+              );
+            }
+            const input = hasInput
+              ? normalizeDelegatedInput(
+                  rawDelegatedContent,
+                  this.#projectRoot,
+                  RESUME_AGENT_TOOL_NAME,
+                )
+              : undefined;
+            const resumed = writer.create("subagent.resumed", {
+              callId: call.callId,
+              agent: child.agent,
+              sessionId: childSessionId,
+              status: "running",
+            });
+            startEvents.push(resumed);
+            return {
+              kind: "execute",
+              call,
+              agentName: child.agent,
+              childSessionId,
+              run: () =>
+                child.resume(
+                  childSessionId,
+                  input !== undefined
+                    ? { content: input }
+                    : {
+                        toolResults: call.arguments.toolResults as ToolResult[],
+                      },
+                ).result,
+            };
+          }
+
+          throw new Error(`Unknown internal subagent tool "${call.name}".`);
+        } catch (error) {
+          const described = isOrchaError(error)
+            ? {
+                message: error.message,
+                code: error.code,
+                retryable: error.retryable,
+                details: error.details,
+              }
+            : {
+                ...describeRuntimeError(error),
+                code: "execution_failed" as const,
+                retryable: false,
+              };
+          return {
+            kind: "immediate",
+            result: {
+              callId: call.callId,
+              output: {
+                error: described.message,
+                errorCode: described.code,
+                retryable: described.retryable,
+                ...(described.details ? { details: described.details } : {}),
+              },
+              isError: true,
             },
-      );
-      publishSnapshot?.({
-        sessionId: parentSessionId,
-        status: "waiting_for_subagent",
-        childSessionId,
-        childAgent: child.agent,
-      });
-      const result = await execution.result;
-      const childResult = writer.create(subagentEventType(result), {
-        callId: call.callId,
-        agent: child.agent,
-        ...childRunResultData(result, childSessionId),
-      });
-      await this.#store.append(parentSessionId, [childResult]);
-      events.push(childResult);
-      return {
-        agent: child.agent,
-        childSessionId,
-        ...result,
-      };
+          };
+        }
+      }),
+    );
+
+    if (startEvents.length > 0) {
+      await this.#store.append(parentSessionId, startEvents);
+      for (const item of prepared) {
+        if (item.kind === "execute") {
+          publishSnapshot?.({
+            sessionId: parentSessionId,
+            status: "waiting_for_subagent",
+            childSessionId: item.childSessionId,
+            childAgent: item.agentName,
+          });
+        }
+      }
     }
-    throw new Error(`Unknown internal subagent tool "${call.name}".`);
+
+    const finishEvents: SessionEvent[] = [];
+    const results = await Promise.all(
+      prepared.map(async (item): Promise<ProviderToolResult> => {
+        if (item.kind === "immediate") {
+          return item.result;
+        }
+        try {
+          const result = await item.run();
+          const childResult = writer.create(subagentEventType(result), {
+            callId: item.call.callId,
+            agent: item.agentName,
+            ...childRunResultData(result, item.childSessionId),
+          });
+          finishEvents.push(childResult);
+          return {
+            callId: item.call.callId,
+            output: {
+              agent: item.agentName,
+              childSessionId: item.childSessionId,
+              ...result,
+            },
+            ...(result.status === "failed" ? { isError: true } : {}),
+          };
+        } catch (error) {
+          const described = isOrchaError(error)
+            ? {
+                message: error.message,
+                code: error.code,
+                retryable: error.retryable,
+                details: error.details,
+              }
+            : {
+                ...describeRuntimeError(error),
+                code: "execution_failed" as const,
+                retryable: false,
+              };
+          const failedEvent = writer.create("subagent.failed", {
+            callId: item.call.callId,
+            agent: item.agentName,
+            sessionId: item.childSessionId,
+            status: "failed",
+            error: {
+              code: described.code,
+              message: described.message,
+              retryable: described.retryable,
+              ...(described.details ? { details: described.details } : {}),
+            },
+          });
+          finishEvents.push(failedEvent);
+          return {
+            callId: item.call.callId,
+            output: {
+              error: described.message,
+              errorCode: described.code,
+              retryable: described.retryable,
+              ...(described.details ? { details: described.details } : {}),
+            },
+            isError: true,
+          };
+        }
+      }),
+    );
+
+    if (finishEvents.length > 0) {
+      await this.#store.append(parentSessionId, finishEvents);
+    }
+
+    return {
+      events: [...startEvents, ...finishEvents],
+      results,
+    };
   }
 
   #assertValidToolCalls(
@@ -2552,11 +2665,21 @@ export class RuntimeAgent implements AgentRuntime {
       const normalized =
         isOrchaError(error)
           ? error
-          : new OrchaError(
-              "storage_error",
-              error instanceof Error ? error.message : String(error),
-              { retryable: true, cause: error },
-            );
+          : (() => {
+              const runtimeError = describeRuntimeError(error);
+              return new OrchaError(
+                "storage_error",
+                runtimeError.message,
+                {
+                  retryable: true,
+                  cause: error,
+                  details: {
+                    agent: this.#agentKey,
+                    ...runtimeError.details,
+                  },
+                },
+              );
+            })();
       return failure(sessionId, normalized.code, normalized.message, {
         retryable: normalized.retryable,
         details: normalized.details,
@@ -3566,7 +3689,7 @@ function buildSystemPrompt(
         'Use `run_agent` to start a specialist. Give it the complete task and only the context it needs by passing `content` as an array of content blocks (same blocks as a normal agent run): `[{ "type": "text", "text": "..." }]`.',
         'You can mix text, structured JSON (`{ "type": "json", "data": { ... } }`), and multimodal attachments: local files (`{ "type": "file", "filePath": "./path/to/file.pdf" }`), remote URLs (`{ "type": "url", "url": "https://..." }`), or media URIs (`{ "type": "image" | "video" | "audio" | "url", "fileUri": "...", "mimeType": "..." }`).',
         "Local file paths in subagent content resolve from the configured Orcha project root.",
-        "You may request multiple independent subagents in one response; Orcha runs them concurrently and returns each result by call ID.",
+        "When dispatching multiple independent subagents, emit all independent `run_agent` calls together in a single response rather than splitting them into small batches; Orcha executes all requested subagents concurrently and returns each result by call ID.",
         "The call waits synchronously while the child is actively running, and the child's response returns as a normal tool result.",
         "If a child pauses for a client action or because its session was paused, decide whether to resume it with `resume_agent`, inspect it with `inspect_agent`, invoke one of your own client actions for missing information, or continue without it.",
         "To ask your client for information, you must invoke an available client action. A plain-text question ends your run and does not pause it for an action result.",
@@ -4421,7 +4544,10 @@ function usageForRun(
     : undefined;
 }
 
-function snapshotRunResult(snapshot: SessionSnapshot): RunResult {
+function snapshotRunResult(
+  snapshot: SessionSnapshot,
+  events?: SessionEvent[],
+): RunResult {
   if (snapshot.runStatus === "completed") {
     return {
       sessionId: snapshot.sessionId,
@@ -4446,6 +4572,36 @@ function snapshotRunResult(snapshot: SessionSnapshot): RunResult {
       output: snapshot.lastOutput,
       usage: snapshot.usage,
     };
+  }
+  if (snapshot.runStatus === "failed" && events) {
+    const failedEvent = findLast(
+      events,
+      (event) => event.type === "run.failed",
+    );
+    const errorData = isRecord(failedEvent?.data.error)
+      ? failedEvent.data.error
+      : undefined;
+    if (errorData) {
+      const code =
+        typeof errorData.code === "string"
+          ? (errorData.code as OrchaErrorCode)
+          : "execution_failed";
+      const message =
+        typeof errorData.message === "string" && errorData.message.trim()
+          ? errorData.message
+          : "The child session failed without an error message.";
+      const retryable =
+        typeof errorData.retryable === "boolean"
+          ? errorData.retryable
+          : undefined;
+      const details = isRecord(errorData.details)
+        ? errorData.details
+        : undefined;
+      return failure(snapshot.sessionId, code, message, {
+        retryable,
+        details,
+      });
+    }
   }
   return failure(
     snapshot.sessionId,

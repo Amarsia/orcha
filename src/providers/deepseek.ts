@@ -6,6 +6,7 @@ import type {
   Usage,
 } from "../types.js";
 import { readServerSentEvents } from "./sse.js";
+import { createProviderTimeout } from "./timeout.js";
 import type {
   ProviderAdapter,
   ProviderAssistantBlock,
@@ -64,6 +65,8 @@ interface CollectedDeepSeekResponse {
   usage?: DeepSeekUsage;
 }
 
+const deepSeekMessageCache = new WeakMap<ProviderMessage, unknown[]>();
+
 export const deepSeekProvider: ProviderAdapter = {
   name: "deepseek",
   generate: generateDeepSeek,
@@ -118,28 +121,44 @@ async function generateDeepSeek(
     body.reasoning_effort = request.reasoningLevel;
   }
 
-  const response = await fetch(
-    `${configuration.baseUrl ?? "https://api.deepseek.com"}/chat/completions`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${configuration.apiKey}`,
+  const timeout = createProviderTimeout({
+    provider: "DeepSeek",
+    model: request.model,
+    signal: request.signal,
+  });
+
+  try {
+    const response = await fetch(
+      `${configuration.baseUrl ?? "https://api.deepseek.com"}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${configuration.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: timeout.signal,
       },
-      body: JSON.stringify(body),
-      signal: request.signal,
-    },
-  );
+    );
 
-  if (!response.ok) {
-    throw await createProviderHttpError(response, "DeepSeek");
+    if (!response.ok) {
+      throw await createProviderHttpError(response, "DeepSeek");
+    }
+
+    timeout.reset("stream");
+    const collected = await collectDeepSeekStream(
+      timeout.iterateStream(readServerSentEvents(response)),
+      request.publishOutput,
+    );
+    return toProviderResponse(request, collected);
+  } catch (error) {
+    if (timeout.didTimeout()) {
+      throw timeout.createTimeoutError();
+    }
+    throw error;
+  } finally {
+    timeout.cleanup();
   }
-
-  const collected = await collectDeepSeekStream(
-    response,
-    request.publishOutput,
-  );
-  return toProviderResponse(request, collected);
 }
 
 function systemPrompt(request: ProviderRequest): string {
@@ -153,17 +172,22 @@ function toDeepSeekMessages(messages: ProviderMessage[]): unknown[] {
   const output: unknown[] = [];
 
   for (const message of messages) {
+    const cached = deepSeekMessageCache.get(message);
+    if (cached) {
+      output.push(...cached);
+      continue;
+    }
+
+    const converted: unknown[] = [];
     if (message.role === "user") {
-      output.push({
+      converted.push({
         role: "user",
         content:
           typeof message.content === "string"
             ? message.content
             : textOnlyContent(message.content),
       });
-      continue;
-    }
-    if (message.role === "tool") {
+    } else if (message.role === "tool") {
       for (const result of message.results) {
         let text = JSON.stringify(result.output ?? null);
         if (result.contents && result.contents.length > 0) {
@@ -172,46 +196,48 @@ function toDeepSeekMessages(messages: ProviderMessage[]): unknown[] {
             text = `${text}\n${extraText}`;
           }
         }
-        output.push({
+        converted.push({
           role: "tool",
           tool_call_id: result.callId,
           content: text,
         });
       }
-      continue;
+    } else {
+      const text: string[] = [];
+      const reasoning: string[] = [];
+      const toolCalls: unknown[] = [];
+      for (const block of message.content) {
+        if (block.type === "text") {
+          text.push(block.text);
+        } else if (block.type === "reasoning") {
+          if (message.provider === "deepseek") {
+            reasoning.push(block.text);
+          } else if (block.text) {
+            text.push(block.text);
+          }
+        } else {
+          toolCalls.push({
+            id: block.callId,
+            type: "function",
+            function: {
+              name: block.name,
+              arguments: JSON.stringify(block.arguments),
+            },
+          });
+        }
+      }
+      converted.push({
+        role: "assistant",
+        content: text.join(""),
+        ...(reasoning.length > 0
+          ? { reasoning_content: reasoning.join("") }
+          : {}),
+        ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+      });
     }
 
-    const text: string[] = [];
-    const reasoning: string[] = [];
-    const toolCalls: unknown[] = [];
-    for (const block of message.content) {
-      if (block.type === "text") {
-        text.push(block.text);
-      } else if (block.type === "reasoning") {
-        if (message.provider === "deepseek") {
-          reasoning.push(block.text);
-        } else if (block.text) {
-          text.push(block.text);
-        }
-      } else {
-        toolCalls.push({
-          id: block.callId,
-          type: "function",
-          function: {
-            name: block.name,
-            arguments: JSON.stringify(block.arguments),
-          },
-        });
-      }
-    }
-    output.push({
-      role: "assistant",
-      content: text.join(""),
-      ...(reasoning.length > 0
-        ? { reasoning_content: reasoning.join("") }
-        : {}),
-      ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
-    });
+    deepSeekMessageCache.set(message, converted);
+    output.push(...converted);
   }
 
   return output;
@@ -232,7 +258,7 @@ function textOnlyContent(content: MessageContent[]): string {
 }
 
 async function collectDeepSeekStream(
-  response: Response,
+  events: AsyncIterable<Record<string, unknown>>,
   publishOutput?: (output: string) => void,
 ): Promise<CollectedDeepSeekResponse> {
   const collected: CollectedDeepSeekResponse = {
@@ -241,7 +267,7 @@ async function collectDeepSeekStream(
     toolCalls: [],
   };
 
-  for await (const event of readServerSentEvents(response)) {
+  for await (const event of events) {
     const chunk = event as DeepSeekStreamChunk;
     if (chunk.error) {
       throw new Error(
