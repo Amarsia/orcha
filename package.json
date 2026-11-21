@@ -1,8 +1,48 @@
 {
   "name": "orchajs",
   "version": "0.29.0",
-  "description": "A filesystem-convention, stateful agent framework for JavaScript.",
+  "description": "Build AI agents in JavaScript & TypeScript — works in Node.js, Next.js, React, React Native, Hono, Deno & Bun.",
+  "author": {
+    "name": "Amarsia",
+    "url": "https://amarsia.com"
+  },
   "license": "MIT",
+  "keywords": [
+    "orcha",
+    "orchajs",
+    "ai",
+    "agent",
+    "agents",
+    "ai-agent",
+    "ai-agents",
+    "agent-framework",
+    "filesystem-agents",
+    "durable-agents",
+    "llm",
+    "mcp",
+    "tool-calling",
+    "typescript",
+    "javascript",
+    "nodejs",
+    "nextjs",
+    "react",
+    "react-native",
+    "expo",
+    "hono",
+    "deno",
+    "bun",
+    "openai",
+    "anthropic",
+    "gemini",
+    "bedrock",
+    "vertex-ai",
+    "deepseek",
+    "opentelemetry",
+    "amarsia"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Amarsia/orcha.git"

@@ -1,1204 +1,324 @@
-# OrchaJS
+<div align="center">
 
-**An agent is a folder.** OrchaJS is a filesystem-convention framework for building AI agents in JavaScript — no orchestration graph, no client to instantiate, no export step. It's a library, not a platform: add it to Next.js, React, React Native, Express, NestJS, or plain Node, the way you'd add Prisma or Zod.
+<img src="https://raw.githubusercontent.com/Amarsia/orcha/main/assets/orcha-banner.png" alt="OrchaJS — An agent is a folder. Works on top of your existing JS app." width="100%" />
 
-> Early and moving fast. Not yet accepting external contributions — see [Status](#status) below.
+<br />
+<br />
+
+**Build AI agents in JavaScript & TypeScript — right inside your existing app.**  
+Works on **Node.js, Next.js, React, React Native, Expo, Hono, Deno, Bun, and Express.** An agent is a folder.
+
+[![GitHub Repo](https://img.shields.io/badge/GitHub-Amarsia%2Forcha-111111?style=flat-square&logo=github)](https://github.com/Amarsia/orcha)
+[![Star on GitHub](https://img.shields.io/github/stars/Amarsia/orcha?style=flat-square&label=Star%20on%20GitHub&color=0f3d33)](https://github.com/Amarsia/orcha)
+[![Docs](https://img.shields.io/badge/Docs-orcha.sh%2Fdocs-111111?style=flat-square)](https://orcha.sh/docs)
+[![LLM Docs](https://img.shields.io/badge/LLM_Reference-llms--full.txt-111111?style=flat-square)](https://orcha.sh/llms-full.txt)
+[![npm](https://img.shields.io/npm/v/orchajs?style=flat-square&color=111111)](https://www.npmjs.com/package/orchajs)
+[![License: MIT](https://img.shields.io/badge/License-MIT-111111?style=flat-square)](./LICENSE)
+
+<p>
+  <a href="https://github.com/Amarsia/orcha"><strong>⭐ Star Amarsia/orcha on GitHub</strong></a> ·
+  <a href="https://orcha.sh/docs">Read the Docs</a> ·
+  <a href="https://www.npmjs.com/package/orchajs">View on npm</a>
+</p>
+
+</div>
 
 ---
 
-## Why
+## Why OrchaJS
 
-Most agent frameworks or platforms ask you to trust a black box: the real logic lives inside someone else's runtime, and what you get to "own" is a copy or an export of it. OrchaJS removes that gap by making the file tree the actual source of truth — there's no internal state that isn't also a file you can open, edit, and run yourself.
+Most agent frameworks lock your logic into runtime graphs, proprietary DSLs, or a hosted platform. **OrchaJS is a library, not a platform**—add it to the app you already ship, the way you add Prisma or Zod.
 
-Read the full concept: [`docs/concept.md`](./docs/concept.md)
+Just like Next.js turns files into routes, **OrchaJS turns folders into durable AI agents**. What you put inside an agent folder—instructions, actions (tools), skills, tests, and evaluations—is automatically discovered, typed, compiled, and persisted.
 
 ---
 
-## Create a project
+## Get started
 
-Scaffold a complete Node.js application with example agents and a local
-browser playground:
+### Add to an existing JS/TS project
 
 ```bash
-npm create orcha@latest my-agent-app
+npx orchajs init
+```
+
+This installs `orchajs` and its compiler tooling (`esbuild`, `chokidar`, `dotenv`, `@orchajs/playground-ui`), creates `orcha/index.ts`, scaffolds `orcha/exampleAgent/`, generates `AGENTS.md`, and updates `.gitignore`. Existing files are never overwritten.
+
+### Or create a new project
+
+```bash
+npx create-orcha@latest my-agent-app
 cd my-agent-app
 npm install
 cp .env.example .env
 npm run dev
 ```
 
-Orcha library code reads credentials from the host application's existing
-`process.env`. Standalone Orcha CLI commands additionally load `.env` from the
-project root without overriding environment variables already in the process.
-
-The starter demonstrates durable sessions, actions, client-action pauses,
-skills, tests, evaluations, and multimodal input without a frontend framework
-or hosted dependency.
-
-Orcha supports both ECMAScript modules and CommonJS on Node.js 18.20.8 or
-newer. Current LTS Node.js releases are recommended; Node.js 18 compatibility
-is maintained for existing deployments. TypeScript projects may use either
-`module: "NodeNext"` or `module: "commonjs"`. CommonJS applications can load
-the public API normally:
-
-```js
-const { orcha } = require("orchajs");
-require("./orcha");
-```
-
-The Google GenAI and Vertex AI adapters use Google's current SDK and require
-Node.js 20 or newer. On Node.js 18, the rest of Orcha—including Amazon
-Bedrock—remains available.
-
-Compiler and playground packages are optional development dependencies. Apps
-created with `create-orcha` include them automatically. Existing projects that
-use the CLI or a bundler integration should install them explicitly:
-
-```bash
-npm install --save-dev esbuild chokidar dotenv
-```
-
-The local playground is also development-only:
-
-```bash
-npm install --save-dev @orchajs/playground-ui
-```
-
-## React, Next.js, and React Native
-
-Application code always imports the same package:
-
-```ts
-import { orcha } from "orchajs";
-```
-
-The framework integration compiles the filesystem registry ahead of time and
-redirects that unchanged import to a small, target-specific runtime. Compiler,
-filesystem, playground, and unused provider code are not included in the
-customer bundle. Provider adapters are selected from the compiled registry, so
-using OpenAI does not include Anthropic, Google, Bedrock, or Vertex AI code.
-
-For React with Vite:
-
-```ts
-// vite.config.ts
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import { orchaVitePlugin } from "orchajs/vite";
-
-export default defineConfig({
-  plugins: [orchaVitePlugin(), react()],
-});
-```
-
-Webpack-based React applications use the equivalent plugin:
-
-```js
-const { OrchaWebpackPlugin } = require("orchajs/webpack");
-
-const orcha = new OrchaWebpackPlugin();
-module.exports = {
-  resolve: { alias: { "orchajs$": orcha.bundlePath } },
-  plugins: [orcha],
-};
-```
-
-Next.js 16 uses Turbopack by default. Its config may be asynchronous, so the
-integration compiles both browser and Node targets before returning the config
-and also configures Webpack fallback builds:
-
-```ts
-// next.config.ts
-import { withOrcha } from "orchajs/next";
-
-export default async function nextConfig() {
-  return withOrcha({});
-}
-```
-
-Both Expo and bare React Native use the same precompiled runtime and persistent
-AsyncStorage:
-
-```bash
-# Bare React Native
-npm install @react-native-async-storage/async-storage
-
-# Expo
-npx expo install @react-native-async-storage/async-storage
-```
-
-Bare React Native:
-
-```js
-// metro.config.js
-const { getDefaultConfig } = require("@react-native/metro-config");
-const { withOrchaMetro } = require("orchajs/metro");
-
-module.exports = withOrchaMetro(getDefaultConfig(__dirname));
-```
-
-Expo:
-
-```js
-// metro.config.js
-const { getDefaultConfig } = require("expo/metro-config");
-const { withOrchaExpo } = require("orchajs/expo");
-
-module.exports = withOrchaExpo(getDefaultConfig(__dirname));
-```
-
-Browser and React Native builds execute compiled agents locally. Only
-Anthropic, DeepSeek, Google GenAI, and OpenAI are browser-compatible; Bedrock
-and Vertex AI remain server runtimes. Provider credentials included in client
-configuration are visible to end users, so production applications should use
-restricted client credentials or a server-side provider proxy.
-
----
-
-## The convention
-
-```
-/agentname
-  index.json                 → name, description, model, limits, output schema
-  instructions.md           → required base agent instructions
-  /skills
-    /skillname
-      index.json              → { name, description, triggers }
-      instructions.md           → procedural knowledge, lazy-loaded into context
-  /actions
-    /actionname
-      index.json                → definition, schemas, and execution location
-      index.js                   → executable code for local actions only
-  /guardrails                     → input/output policy
-  /tests                          → explicitly run agent contract tests
-  /evaluations                    → metrics each run is judged against
-```
-
-Placement determines behavior. Direct child folders under `actions`, `skills`,
-`tests`, and `evaluations` are discovered automatically. Set
-`"enabled": false` in an item's `index.json` to keep WIP source inactive.
-
----
-
-## Skills
-
-Skills keep specialized procedures out of the base prompt until the model
-needs them. Each skill folder contains compact discovery metadata and the full
-instructions:
-
-```json
-{
-  "name": "incomplete_evidence_review",
-  "description": "Assess incomplete control evidence.",
-  "triggers": ["A control has missing or stale evidence."]
-}
-```
-
-```text
-skills/incompleteEvidenceReview/
-  index.json
-  instructions.md
-```
-
-Orcha initially gives the model only each enabled skill's name,
-description, and trigger guidance. When the model calls the internal
-`load_skill` tool, Orcha activates the full instructions without running an
-application action or pausing for the client. Durable `skill.requested`,
-`skill.loaded`, and `skill.failed` events expose the loading lifecycle. Loaded
-skills remain active across `resume()` calls and provider changes.
-Skill folders with `"enabled": false` are not compiled or exposed.
-
----
-
-## Model Action Protocol
-
-What a model can do lives in `/actions`. Every action has `index.json`; local
-actions additionally have `index.js`.
-
-```
-actions/
-  send-refund/
-    index.json   // the definition
-    index.js      // the code
-```
-
-`index.json` tells the model what the action is and its input/output contracts.
-Actions are local by default; set `"execution": "client"` only when the
-application must execute one:
-
-```json
-{
-  "name": "request_refund_approval",
-  "description": "Ask the client application to approve a refund.",
-  "execution": "client",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "orderId": { "type": "string" },
-      "amount": { "type": "number" }
-    },
-    "required": ["orderId", "amount"]
-  },
-  "outputSchema": {
-    "type": "object",
-    "properties": {
-      "approved": { "type": "boolean" }
-    },
-    "required": ["approved"]
-  }
-}
-```
-
-Client actions pause the durable run. The application advertises only the
-actions available on that client, executes the requested call, then resumes:
-
-```js
-const paused = await orcha.invoiceBot.run({
-  content: "Refund order 123",
-  clientCapabilities: orcha.invoiceBot.clientTools
-}).result;
-
-if (paused.status === "waiting_for_client_action") {
-  const completed = await orcha.invoiceBot.resume(paused.sessionId, {
-    toolResults: paused.clientToolCalls.map((call) => ({
-      callId: call.callId,
-      output: { approved: true }
-    }))
-  }).result;
-}
-```
-
-Definitions are compiled from the filesystem and are not submitted again to
-`resume()`. Requests and results are persisted in the session JSONL.
-
-Local actions export their implementation from `index.js` and execute
-automatically inside the model tool loop:
-
-```js
-import { calculateRefund } from "../../../../lib/billing.js";
-
-export default async function sendRefund(parameters, context) {
-  return {
-    refunded: await calculateRefund(parameters),
-    orderId: parameters.orderId,
-    idempotencyKey: context.idempotencyKey,
-  };
-}
-```
-
-Action entrypoints and their imported JavaScript or TypeScript modules are
-bundled together. Relative project imports, package imports, transitive
-dependencies, and standard exports work normally.
-
-Local actions use the native Node.js runtime by default, so ordinary projects
-do not need global action configuration. Select the sandbox explicitly when
-isolation is required:
-
-```js
-orcha.init({
-  actions: {
-    runtime: "sandbox",
-  },
-  // providers and agents...
-});
-```
-
-Native execution runs compiled action JavaScript directly without the QuickJS
-dependency in the production bundle. It is trusted code with full host
-privileges, including Node.js built-ins such as `node:fs`, the network, and
-`process.env`. Native timeouts can reject asynchronous work but cannot
-interrupt a synchronous infinite loop.
-
-Use `"sandbox"` for isolated QuickJS execution. Declared environment and
-network permissions are only securely enforced by the sandbox runtime. Install
-its runtime only when this mode is selected:
-
-```bash
-npm install quickjs-emscripten-core @jitl/quickjs-singlefile-cjs-release-sync
-```
-
----
-
-## Amarsia inference
-
-Set `amarsia.inference: true` to route every model round through Amarsia:
-
-```js
-orcha.init({
-  amarsia: {
-    key: process.env.AMARSIA_PROJECT_KEY,
-    inference: true,
-    // endpoint: "https://api.amarsia.com",
-  },
-  agents: {
-    coordinator: "./coordinator",
-  },
-});
-```
-
-The provider and model remain in each agent or evaluation `index.json`.
-Amarsia inference supports `openai`, `anthropic`, `googlegenai`, and
-`deepseek`. Infrastructure-specific `bedrock` and `vertexai` providers remain
-available only for direct inference. Inference uses
-`POST /v3/model/v1/responses`, requires no local provider keys, and covers
-normal runs, streaming, tool loops, MCP, subagents, tests, evaluations, replay,
-structured output, and abort signals. Amarsia uses the workspace owner's
-configured BYOK provider key first and falls back to managed credit billing.
-When `inference` is absent or false, direct-provider behavior is unchanged.
-
----
-
-## MCP connections
-
-Assign named MCP connections directly to agents and subagents:
-
-```js
-orcha.init({
-  mcp: {
-    credentials: {
-      GITHUB_MCP_TOKEN: process.env.GITHUB_MCP_TOKEN,
-    },
-  },
-  agents: {
-    coordinator: {
-      path: "./coordinator",
-      mcp: {
-        github: "./mcp/github",
-      },
-      subagents: {
-        researcher: {
-          path: "./researcher",
-          mcp: {
-            docs: "./mcp/docs",
-          },
-        },
-      },
-    },
-  },
-});
-```
-
-Each path contains an `index.json`. Streamable HTTP works in Node.js,
-browsers, Expo, and React Native:
-
-```json
-{
-  "transport": "streamable-http",
-  "url": "https://mcp.example.com",
-  "headers": {
-    "Authorization": "Bearer ${GITHUB_MCP_TOKEN}"
-  },
-  "timeoutMs": 30000
-}
-```
-
-Node.js also supports local stdio servers:
-
-```json
-{
-  "transport": "stdio",
-  "command": "npx",
-  "args": ["-y", "@example/mcp-server"],
-  "env": {
-    "API_TOKEN": "${EXAMPLE_MCP_TOKEN}"
-  }
-}
-```
-
-Orcha discovers every server tool lazily and exposes it as
-`<connection>__<tool>`, for example `github__get_issue`. Tool calls and
-results use the durable action event timeline. Credential placeholders resolve
-from `orcha.init().mcp.credentials`; Node.js additionally resolves them from
-`process.env`. Never put secret values directly in MCP JSON files.
-
-The optional MCP SDK is installed automatically when an agent uses MCP.
-Projects without MCP do not install or bundle it. Browser and React Native
-targets reject stdio connections during compilation.
-
----
-
-## Quick start
-
-```bash
-npx orchajs init
-```
-
-This installs `orchajs` and its development tooling in the current project,
-then creates the starter agent files.
-
-The default installation includes the compiler, CLI, native actions, JSONL
-storage, and fetch-based Anthropic, DeepSeek, and OpenAI adapters. Orcha
-automatically installs the Bedrock, Google, or MCP SDK only when a compiled
-agent selects that integration. Other optional integrations remain explicit:
-
-```bash
-# SQLite session storage
-npm install better-sqlite3
-```
-
-Install the OrchaJS skill to give supported coding agents version-aware Orcha
-workflows:
+### Give your coding agent the Orcha skill
 
 ```bash
 npx skills add Amarsia/orcha
 ```
 
-Refresh an existing installation after Orcha documentation changes:
+---
 
-```bash
-npx skills update orchajs
-```
+## Get started with your framework
 
-```js
-// Import the consumer registry once from the application entrypoint.
-import './orcha/index.js';
-import { orcha } from 'orchajs';
+Pick your runtime or framework for a complete, copy-pasteable setup guide:
 
-const execution = orcha.exampleAgent.run({
-  content: 'Help me understand this invoice'
-});
-
-// Native ReadableStream frames contain the complete output generated so far.
-for await (const snapshot of execution.stream) {
-  console.log(snapshot);
-}
-
-// The latest cumulative snapshot is also available without consuming the stream.
-console.log(execution.snapshot);
-
-const result = await execution.result;
-
-// Every later conversational turn uses the returned sessionId.
-const followUp = await orcha.exampleAgent.resume(result.sessionId, {
-  content: 'Now summarize it in one sentence'
-}).result;
-```
-
-Registered agents are exposed as `orcha.<agentName>`. Durable Node.js runs use
-JSONL by default at
-`.orcha/sessions/<agentName>/ses_<timestamp>_<uuid>.jsonl`. To opt into the
-shared `.orcha/sessions/orcha-sqlite.db` store, set
-`storage: { strategy: "sqlite" }` in `orcha.init()` and install
-`better-sqlite3`.
-Use `storage: { strategy: "cloud" }` with `amarsia.key` for local-first cloud
-storage. Node.js keeps JSONL locally, browsers use IndexedDB, and React
-Native/Expo use AsyncStorage. Existing `list`, `get`, `history`, `events`, and
-`resume` calls remain unchanged. Every append commits locally first and returns
-without waiting for cloud latency. Delivery continues in bounded background
-batches and is recovered from the durable local acknowledgement after restart.
-Warm local reads return immediately and safely refresh an already-synchronized
-tail in the background; unsent local tails are never overwritten. Permanent
-delivery failures are parked to avoid retry loops and are retried by a new
-append or an explicit `orcha.flushCloudStorage()`.
-
-`flushCloudStorage({ timeoutMs })` resolves only when every outbox is empty and
-throws if data remains pending. `orcha.close({ timeoutMs })` flushes, aborts and
-joins in-flight cloud requests, and likewise throws on an incomplete flush.
-Close establishes a storage lifecycle barrier: appends already writing locally
-are included in the final outbox scan, while later appends are rejected.
-Local events remain durable in either case. JSONL-backed cloud stores maintain
-recoverable tail indexes so bounded delivery batches do not repeatedly parse
-the full session history. Immutable-prefix conflicts preserve both sides and
-surface as `storage_error`. Call and await `orcha.close()` before calling
-synchronous `orcha.init()` again; overlapping initialized runtimes are rejected.
-Client-action pause/resume, compiled local actions, and cumulative output
-streaming are supported.
-`run()` always starts a new session; `resume()` continues one with either a new
-message or pending client tool results.
-
-Orcha follows the OpenTelemetry GenAI Semantic Conventions for privacy-safe
-agent, model-call, tool, evaluation, token, latency, and error spans. Use the
-application's existing global provider:
-
-```js
-orcha.init({
-  agents,
-  telemetry: { otel: true }
-});
-```
-
-Or send standard OTLP/HTTP JSON directly to a collector, with optional
-per-category capture controls and a redaction hook:
-
-```js
-orcha.init({
-  agents,
-  telemetry: {
-    otel: {
-      endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
-      headers: { authorization: `Bearer ${process.env.OTEL_TOKEN}` },
-      capture: {
-        content: false,          // gen_ai.input.messages / gen_ai.output.messages
-        actionIO: false,         // gen_ai.tool.call.arguments / gen_ai.tool.call.result
-        evaluationDetail: true,  // explanation, evidence, and error messages
-      },
-      redact(value, context) {
-        // Return transformed value, or `undefined` to omit the attribute.
-        return value;
-      }
-    }
-  }
-});
-```
-
-Collector base URLs automatically receive the `/v1/traces` suffix. Passing an
-endpoint already ending in `/v1/traces` leaves it unchanged. Delegated
-subagents share the root agent's trace. Calling `orcha.close()` marks any active
-run as interrupted before flushing telemetry.
-
-#### Standard OpenTelemetry environment variables
-
-Standard environment variables are used as defaults when omitted in
-`orcha.init()`, and explicit configuration always wins. If `telemetry.otel` is
-omitted and `OTEL_EXPORTER_OTLP_ENDPOINT` is set, OTLP/HTTP export is
-auto-enabled; set `telemetry: { otel: false }` to disable it explicitly.
-
-| Environment variable | Effect |
+| Framework / Runtime | Guide |
 | --- | --- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Default OTLP/HTTP collector endpoint or base URL. |
-| `OTEL_EXPORTER_OTLP_HEADERS` | Comma-separated `key=value` headers merged under explicit `headers`. |
-| `OTEL_SERVICE_NAME` | Default `service.name` resource attribute (fallback `"orchajs"`). |
-| `OTEL_RESOURCE_ATTRIBUTES` | Comma-separated `key=value` OTLP resource attributes merged under explicit `resourceAttributes`. |
-| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | Set to `"true"` to enable `capture.content` by default unless overridden. |
+| **Node.js** | [Get started with Node.js →](https://orcha.sh/docs/frameworks/node) |
+| **React (Vite / Webpack)** | [Get started with React →](https://orcha.sh/docs/frameworks/react) |
+| **Next.js (App Router / Turbopack)** | [Get started with Next.js →](https://orcha.sh/docs/frameworks/nextjs) |
+| **React Native & Expo** | [Get started with React Native & Expo →](https://orcha.sh/docs/frameworks/react-native) |
+| **Deno** | [Get started with Deno →](https://orcha.sh/docs/frameworks/deno) |
+| **Bun** | [Get started with Bun →](https://orcha.sh/docs/frameworks/bun) |
+| **Hono** | [Get started with Hono →](https://orcha.sh/docs/frameworks/hono) |
 
-#### Exact attributes emitted per span type
+---
 
-By default (`capture: { content: false, actionIO: false, evaluationDetail: true }`),
-prompts, model responses, action arguments, and action outputs are never
-exported. The tables below list every attribute and event emitted so you can
-audit what leaves your infrastructure.
+## The convention
 
-**Resource attributes (OTLP/HTTP export):**
-
-- `service.name` (`telemetry.otel.serviceName`, `OTEL_SERVICE_NAME`, `service.name` in `OTEL_RESOURCE_ATTRIBUTES`, or `"orchajs"`)
-- `telemetry.sdk.language` (`"nodejs"`)
-- Any entries from `OTEL_RESOURCE_ATTRIBUTES` and `telemetry.otel.resourceAttributes`
-
-**`invoke_agent <agent_id>` span (Kind: `INTERNAL`):**
-
-- Default: `gen_ai.operation.name` (`"invoke_agent"`), `gen_ai.agent.id`, `gen_ai.agent.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.conversation.id`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `orcha.span.type` (`"agent_run"`), `orcha.agent.id`, `orcha.session.id`, `orcha.run.number`, `orcha.run.status`, `orcha.run.duration_ms`, `orcha.run.model_duration_ms`, `orcha.run.action_duration_ms`, `orcha.usage.reasoning_tokens`, `orcha.usage.cache_read_tokens`, `orcha.usage.cache_write_tokens`, `orcha.action.count`, `orcha.action.success_count`, `orcha.action.failure_count`, `orcha.subagent.count`, `orcha.evaluation.count`
-- Conditional: `orcha.parent.agent_id`, `orcha.parent.session_id`, `gen_ai.response.finish_reasons`, `error.type` (when failed or interrupted)
-- Opt-in (`capture.content: true`): `gen_ai.input.messages`, `gen_ai.output.messages` (JSON-encoded OTel GenAI message arrays)
-- Span events: `gen_ai.evaluation.result` (one per evaluation/metric), `exception` (`exception.type`, `exception.message` when failed or interrupted)
-
-**`chat <model>` span (Kind: `CLIENT`, child of `invoke_agent`):**
-
-- Default: `gen_ai.operation.name` (`"chat"`), `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.conversation.id`, `gen_ai.agent.name`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `orcha.usage.reasoning_tokens`, `orcha.usage.cache_read_tokens`, `orcha.usage.cache_write_tokens`, `orcha.model.duration_ms`
-- Conditional: `gen_ai.response.id`, `gen_ai.response.finish_reasons`
-- Opt-in (`capture.content: true`): `gen_ai.input.messages`, `gen_ai.output.messages`
-
-**`execute_tool <action_name>` span (Kind: `INTERNAL`, child of `invoke_agent`):**
-
-- Default: `gen_ai.operation.name` (`"execute_tool"`), `gen_ai.tool.name`, `gen_ai.tool.type` (`"function"`), `gen_ai.tool.call.id`, `gen_ai.agent.name`, `gen_ai.conversation.id`, `orcha.span.type` (`"action"`), `orcha.action.call_id`, `orcha.action.duration_ms`
-- Conditional: `error.type` (when failed)
-- Opt-in (`capture.actionIO: true`): `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`
-- Span events: `exception` (`exception.type`, `exception.message` when failed)
-
-**`gen_ai.evaluation.result` span event (on `invoke_agent`):**
-
-- Always included: `gen_ai.evaluation.name`, `gen_ai.evaluation.score.value` (per metric), `gen_ai.evaluation.score.label`, `orcha.evaluation.name` (when per metric), `orcha.evaluation.duration_ms`, `error.type` (when evaluation errored)
-- Controlled by `capture.evaluationDetail` (default `true`): `gen_ai.evaluation.explanation`, `orcha.evaluation.evidence`, `orcha.evaluation.error_message` (pre-sanitized for common secrets/PII, and omitted when `evaluationDetail: false`)
-
-The CLI provides the same focused workflows without introducing a separate
-application runtime:
-
-```bash
-# Offline validation that watches orcha/**
-npx orchajs dev
-
-# Open the built-in localhost playground and watch orcha/**
-npx orchajs playground
-
-# Execute a registered agent. Input can also come from a JSON file or stdin.
-npx orchajs run exampleAgent --input "Help me understand this invoice"
-
-# Continue an existing session or resolve pending client actions.
-npx orchajs run exampleAgent --session ses_123 --input "Summarize it"
-npx orchajs run exampleAgent --session ses_123 --tool-results results.json
-
-# Run all tests, one agent, or one case.
-npx orchajs test
-npx orchajs test exampleAgent
-npx orchajs test exampleAgent/exampleCase
-
-# Copy all session histories to SQLite or back to JSONL.
-npx orchajs migrate-storage --to sqlite
-npx orchajs migrate-storage --to node-jsonl
-
-# Export one session from the active store as portable JSONL.
-npx orchajs export-session exampleAgent ses_123 --output session.jsonl
-
-# Offline production compilation.
-npx orchajs build
+```text
+orcha/
+  index.ts                      → initializes providers & registers agents
+  mcp/
+    github/
+      index.json                → named MCP server (streamable-http or stdio)
+  supportAgent/                 → an agent is a folder
+    index.json                  → name, provider, model, limits, output schema
+    instructions.md             → required base system prompt (supports {{variables}})
+    actions/
+      lookupOrder/
+        index.json              → tool name, description, JSON schemas, execution
+        index.js                → local executable code (omit for execution: "client")
+    skills/
+      refundPolicy/
+        index.json              → lazy-loaded discovery card (name, description, triggers)
+        instructions.md         → full procedure loaded on demand via load_skill
+    tests/
+      delayedOrder/
+        index.json              → real-model contract test + mocked action responses
+    evaluations/
+      responseQuality/
+        index.json              → async LLM judge with metrics & thresholds
 ```
 
-`playground` accepts `--host`, `--port`, and `--no-open`; it binds to
-`localhost:4310` and opens the browser by default. Network access requires an
-explicit hostname or IP address; wildcard hosts are rejected. Mutation routes
-use same-origin checks and a per-process token.
+- **Direct child folders** under `actions/`, `skills/`, `tests/`, and `evaluations/` are discovered automatically.
+- Set `"enabled": false` in any item's `index.json` to keep WIP work inactive without deleting it.
+- Agents and subagents are registered explicitly in `orcha/index.ts`. Registration keys become `orcha.<agentName>`.
 
-Human-readable `run` output includes the execution timeline, actions,
-subagent lifecycle, each child agent's actions, and clickable session logs.
-`run` and `test` support `--json` for clean machine-readable output.
-`playground` serves Orcha's prebuilt React and Base Web interface from the
-installed package. It exposes agent instructions, actions, skills,
-evaluations, tests, durable sessions, and linked subagent transcripts without
-adding frontend dependencies to the project or production agent bundle.
-`orchajs init` also creates a comprehensive `AGENTS.md` describing Orcha's
-filesystem contract and APIs. The CLI does not provide a UI; applications can
-build one from the storage-neutral runtime session APIs.
+---
 
-Orcha owns its built-in provider adapters. Messages, tool calls and results,
-streaming snapshots, usage, and errors are normalized before reaching the
-runtime, so application and action APIs do not change when an agent switches
-providers. Provider-specific capabilities that cannot be represented safely
-fail with an explicit Orcha error instead of silently degrading.
+## Working 1-shot example
 
-### Parent agents and subagents
+Copy these files to build a complete, working tool-calling agent in any Node.js/TypeScript project.
 
-Register private subagents on a top-level agent:
+### 1. `orcha/index.ts`
 
-```js
-orcha.init({
-  providers: {
-    openai: process.env.OPENAI_API_KEY,
-  },
-  agents: {
-    coordinator: {
-      path: "./coordinator",
-      subagents: {
-        researcher: "./researcher",
-      },
-    },
-    researcher: "./researcher",
-  },
-});
-```
-
-Only top-level registrations are exposed directly, so `orcha.coordinator`
-and `orcha.researcher` exist in this example. Removing the top-level
-`researcher` registration makes it private while preserving delegation.
-
-Every agent `index.json` requires a model-facing `name`; `description` is
-optional and helps parent models understand when to delegate. A parent may
-also configure delegation limits:
-
-```json
-{
-  "name": "Coordinator",
-  "description": "Delegate research and assemble the final answer.",
-  "provider": "openai",
-  "model": "gpt-5-mini",
-  "subagents": {
-    "maxPerRun": 3
-  }
-}
-```
-
-`maxPerRun` limits new child sessions in one parent run and defaults to `10`.
-
-Starting or continuing a child is a synchronous internal tool call. While it
-runs, the parent reports `waiting_for_subagent`. Child text, pause state,
-client-action request, failure, or completion returns to the parent as a tool
-result. Delegated agents cannot start further subagents.
-
-`run_agent.content` uses the same content blocks as `agent.run({ content })`:
-
-```js
-{
-  agent: "documentParser",
-  content: [
-    { type: "text", text: "Extract the material facts." },
-    { type: "json", data: { accountId: "acct_123", priority: "high" } },
-    { type: "file", filePath: "./evidence/report.pdf" }
-  ]
-}
-```
-
-Local file paths resolve from the configured Orcha project root and are loaded
-with the same provider-specific encoding used by normal agent input.
-
-Applications inspect a durable child through its owning parent agent:
-
-```js
-const history = await orcha.coordinator.subagentHistory(childSessionId);
-const events = await orcha.coordinator.subagentEvents(childSessionId);
-```
-
-The child session ID is included in the parent's projected history and
-`subagent.initiated` event. Access is lineage-checked, so another parent agent
-cannot inspect it. Parent traces record each child transition as
-`subagent.initiated`, `subagent.paused`, `subagent.resumed`,
-`subagent.completed`, or `subagent.failed`.
-
-`orcha.coordinator.pause(sessionId)` immediately aborts active provider work
-for the parent and active children. Already streamed text is persisted as an
-incomplete assistant message. `resume()` always starts a new run with the
-complete prior history, including that incomplete message:
-
-```js
-await orcha.coordinator.pause(parentSessionId);
-
-// Adds "Continue." as the next user message.
-await orcha.coordinator.resume(parentSessionId).result;
-
-// Or provide different instructions.
-await orcha.coordinator.resume(parentSessionId, {
-  content: "Continue, but only use confirmed findings.",
-}).result;
-```
-
-A child waiting for a client action returns control to the parent. The parent
-can resolve it through its internal `resume_agent` tool, ask its own client
-for information, inspect the child history, or finish without resuming the
-paused child. Paused children do not block parent completion.
-
-Anthropic, Amazon Bedrock Converse, DeepSeek Chat Completions, OpenAI
-Responses, the Gemini Developer API through Google GenAI, and Vertex AI are
-built in:
-
-```js
-orcha.init({
-  providers: {
-    anthropic: process.env.ANTHROPIC_API_KEY,
-    bedrock: {
-      region: process.env.AWS_REGION,
-    },
-    deepseek: process.env.DEEPSEEK_API_KEY,
-    googlegenai: process.env.GOOGLE_GENAI_API_KEY,
-    openai: process.env.OPENAI_API_KEY,
-    vertexai: {
-      project: process.env.GOOGLE_CLOUD_PROJECT,
-      location: process.env.GOOGLE_CLOUD_LOCATION,
-    },
-  },
-  agents: {
-    invoiceAgent: "./invoiceAgent",
-  },
-});
-```
-
-Bedrock applications must install `@aws-sdk/client-bedrock-runtime`. Google
-GenAI and Vertex AI applications must install `@google/genai` and use Node.js
-20 or newer. These SDKs are not installed for applications that do not select
-those providers.
-
-Amazon Bedrock uses the standard AWS credential chain by default. Local AWS
-profiles, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, ECS/EKS credentials,
-and attached IAM roles work without copying credentials into Orcha
-configuration. Explicit temporary or static credentials are also supported:
-
-```js
-orcha.init({
-  providers: {
-    bedrock: {
-      region: process.env.AWS_REGION,
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-        sessionToken: process.env.AWS_SESSION_TOKEN,
-      },
-    },
-  },
-  agents: {
-    complianceAgent: "./complianceAgent",
-  },
-});
-```
-
-Select `"bedrock"` in the agent and use a Bedrock model ID, inference-profile
-ID, or ARN:
-
-```json
-{
-  "name": "Bedrock Agent",
-  "description": "Handle requests using the configured Bedrock model.",
-  "provider": "bedrock",
-  "model": "us.anthropic.claude-sonnet-4-6",
-  "outputType": "text"
-}
-```
-
-Vertex AI uses Google Application Default Credentials by default. Configure
-ADC through the runtime environment, or provide `credentials: { clientEmail,
-privateKey }` inside the `vertexai` configuration.
-
-On Google Cloud, attach a service account to the Cloud Run, GKE, or Compute
-runtime. No credential file or application configuration is required beyond
-the project and location above.
-
-For local development or a deployment with a mounted service-account file,
-set its runtime path:
-
-```bash
-export GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/google-service-account.json
-```
-
-The credential file is read by Google's authentication library at runtime; it
-is not included in the application bundle. The file must therefore exist at
-that path inside the deployed container or server.
-
-Credentials can alternatively come from environment variables:
-
-```js
-orcha.init({
-  providers: {
-    vertexai: {
-      project: process.env.GOOGLE_CLOUD_PROJECT,
-      location: process.env.GOOGLE_CLOUD_LOCATION,
-      credentials: {
-        clientEmail: process.env.GOOGLE_CLIENT_EMAIL,
-        privateKey: process.env.GOOGLE_PRIVATE_KEY,
-      },
-    },
-  },
-  agents: {
-    riskAgent: "./riskAgent",
-  },
-});
-```
-
-Do not import a service-account JSON file into application source because a
-bundler may embed the secret in its output.
-
-Choose the adapter and model in the agent's `index.json`:
-
-```json
-{
-  "name": "Gemini Agent",
-  "description": "Handle requests using the Gemini Developer API.",
-  "provider": "googlegenai",
-  "model": "gemini-2.5-flash",
-  "outputType": "text"
-}
-```
-
-Orcha requests provider-exposed reasoning summaries where that does not enable
-reasoning itself, and stores any returned reasoning text as normalized blocks.
-Set `reasoningLevel` to pass a provider-native effort value through unchanged
-when you want to enable or configure reasoning.
-
-Both methods accept text shorthand:
-
-```js
-const first = await orcha.exampleAgent.run("Start").result;
-const second = await orcha.exampleAgent.resume(
-  first.sessionId,
-  "Continue",
-).result;
-```
-
-Content accepts a single item or an array. Local paths and HTTP URLs infer
-their MIME type from the extension unless `mimeType` is provided:
-
-```js
-const result = await orcha.exampleAgent.run({
-  content: [
-    { type: "text", text: "Summarize this document" },
-    { filePath: "./documents/local-report.pdf" },
-    { url: "https://example.com/supporting-report.pdf" },
-  ],
-  name: "Customer report",
-  metadata: { customerId: "cus_123" },
-  variables: { CUSTOMER_NAME: "Acme" },
-}).result;
-```
-
-Orcha resolves local paths to absolute paths and stores only the path and MIME
-type in durable session events. File bytes are loaded and encoded only while
-constructing each provider request; base64 data is never persisted in the
-message history. Provider file-type and size limits still apply.
-
-Prompt variables replace `{{CUSTOMER_NAME}}` placeholders in
-`instructions.md`. They are fixed when the session is created and persisted
-for deterministic continuation. Do not put secrets in prompt variables; use
-provider or action environment configuration for secrets.
-
-Sessions are managed through the same registered agent:
-
-```js
-await orcha.exampleAgent.get(sessionId);
-await orcha.exampleAgent.history(sessionId, { page: 1, pageSize: 50 });
-await orcha.exampleAgent.events(sessionId, { page: 1, pageSize: 100 });
-await orcha.exampleAgent.list({
-  metadata: { customerId: "cus_123" },
-  page: 1,
-  pageSize: 20,
-});
-await orcha.exampleAgent.update(sessionId, {
-  name: "September invoice",
-  metadata: { approved: true },
-});
-```
-
-`history()` returns a user-facing projection. `events()` returns the canonical
-durable event records for observability and debugging without exposing the
-active storage adapter. Applications should never read session files directly.
-When paging while a session is still changing, pass the first response's
-`throughSequence` into later `events()` calls to keep every page on the same
-event boundary.
-
-## Agent tests
-
-Agent tests live beside the agent and use the same compiled instructions,
-provider, output contract, action schemas, `run()`, and `resume()` behavior as
-the application.
-
-Each test folder contains an `index.json` with its input, one simulated
-response sequence for every action declared by the agent, and deterministic
-expectations:
-
-```json
-{
-  "input": {
-    "content": "Explain why order ORD-4821 is late."
-  },
-  "actions": {
-    "lookup_order_status": {
-      "responses": [
-        {
-          "output": {
-            "orderId": "ORD-4821",
-            "status": "delayed"
-          }
-        }
-      ]
-    }
-  },
-  "expect": {
-    "status": "completed",
-    "text": {
-      "contains": ["ORD-4821", "delayed"],
-      "excludes": ["delivered"]
-    },
-    "actions": [
-      {
-        "name": "lookup_order_status",
-        "arguments": {
-          "equals": {
-            "orderId": "ORD-4821"
-          }
-        }
-      }
-    ]
-  }
-}
-```
-
-For large or shared inputs, `input` may instead be a JSON file path relative to
-the test case directory:
-
-```json
-{
-  "input": "../../../../lakeview_input.json",
-  "expect": { "status": "completed" }
-}
-```
-
-The referenced file must contain the normal agent input object with `content`
-and optional `variables` and `metadata`.
-
-Actions included in the test's `actions` object use their configured mock
-responses. Unlisted local actions execute live and produce warnings in the
-terminal, report, session log, and Playground because they may cause side
-effects. Client actions must be mocked because the test runner has no attached
-application client. Unknown mock action names are rejected.
-
-Run every enabled test programmatically:
-
-```js
+```ts
 import { orcha } from "orchajs";
-import { runTests } from "orchajs/testing";
-import "./orcha/index.js";
 
-const report = await runTests(orcha);
+orcha.init({
+  providers: {
+    anthropic: process.env.ANTHROPIC_API_KEY ?? "",
+    // Also supported: openai, deepseek, googlegenai, vertexai, bedrock
+  },
+  agents: {
+    supportAgent: "./supportAgent",
+  },
+});
 ```
 
-Test sessions use the configured session store beside normal sessions. The
-final `test.completed` event records the suite, case, status, duration, and
-every assertion. Run tests explicitly before building in CI. Tests use the
-configured providers, so the test step requires provider credentials and
-consumes model tokens; `orchajs build` itself remains offline and does not
-require those credentials.
-
-## Evaluations
-
-Evaluations are automatically discovered LLM judges that score the cumulative
-session after every completed run:
+### 2. `orcha/supportAgent/index.json`
 
 ```json
 {
-  "name": "response_quality",
-  "description": "Grounding of agent responses.",
-  "instructions": "Judge the complete response using only confirmed evidence recorded in the session.",
-  "enabled": true,
-  "provider": "openai",
-  "model": "gpt-5-mini",
-  "metrics": [
-    {
-      "name": "groundedness",
-      "description": "The response relies only on confirmed session evidence.",
-      "threshold": 0.8
-    }
-  ]
+  "name": "Support Agent",
+  "description": "Help customers check order status using confirmed data.",
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6",
+  "maxTokens": 4096,
+  "outputType": "text"
 }
 ```
 
-Each metric receives a normalized score from 0 to 1, reasoning, evidence, and
-a threshold result. Orcha stores the judge lifecycle and results as
-`evaluation.requested`, `evaluation.completed`, or `evaluation.failed` events.
-Evaluation errors and missed thresholds do not change a successful production
-agent result, but they do fail an agent test. Evaluator usage is reported
-separately from the agent's usage.
+### 3. `orcha/supportAgent/instructions.md`
 
-`description` is a short human-facing summary. `instructions` contains the
-potentially detailed prompt that directs the evaluator; when omitted,
-`description` is used for backward compatibility. Metric descriptions define
-the individual scoring criteria.
+```md
+You are a concise customer support assistant.
 
-Evaluations do not delay the agent result. Await them only where the caller
-needs the scores:
+Always call `lookup_order` before stating an order's status.
+Never invent order details or delivery dates.
+```
+
+### 4. `orcha/supportAgent/actions/lookupOrder/index.json` & `index.js`
+
+```json
+{
+  "name": "lookup_order",
+  "description": "Look up an order by ID.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "orderId": { "type": "string" }
+    },
+    "required": ["orderId"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "orderId": { "type": "string" },
+      "status": { "type": "string" }
+    },
+    "required": ["orderId", "status"],
+    "additionalProperties": false
+  }
+}
+```
 
 ```js
-const execution = orcha.riskBot.run(input);
+export default async function lookupOrder({ orderId }) {
+  return { orderId, status: "in_transit" };
+}
+```
+
+### 5. `.env`
+
+```bash
+ANTHROPIC_API_KEY=your-anthropic-key
+```
+
+### 6. `app.ts` (your application entrypoint)
+
+```ts
+import "dotenv/config";       // MUST load .env before importing ./orcha/index
+import "./orcha/index.js";    // Registers agents onto the shared `orcha` singleton
+import { orcha } from "orchajs";
+
+// Start a new durable session
+const execution = orcha.supportAgent.run("Where is order ord_1001?");
+
+// Optional: stream cumulative snapshots
+for await (const snapshot of execution.stream) {
+  if (typeof snapshot.output === "string") {
+    process.stdout.write(".");
+  }
+}
+
 const result = await execution.result;
 
-// Optional in production; agent tests always await this.
-const evaluations = await execution.evaluations;
+if (result.status === "completed") {
+  console.log("\nAnswer:", result.output);
+
+  // Continue the same durable session later
+  const followUp = await orcha.supportAgent.resume(result.sessionId, {
+    content: "Summarize that in one sentence.",
+  }).result;
+
+  if (followUp.status === "completed") {
+    console.log("Follow-up:", followUp.output);
+  }
+} else if (result.status === "failed") {
+  console.error("Run failed:", result.error);
+}
 ```
-
-Short-lived processes should await `execution.evaluations` before exiting if
-they need every judge result to finish and persist.
-
-### Production and Serverless builds
-
-For Serverless Framework projects, install `serverless-esbuild` and register
-the Orcha integration after it:
-
-```bash
-npm install --save-dev serverless-esbuild
-```
-
-```yaml
-plugins:
-  - serverless-esbuild
-  - orchajs/serverless
-```
-
-Serverless Framework v4 users must opt out of its built-in builder before
-loading `serverless-esbuild`:
-
-```yaml
-build:
-  esbuild: false
-```
-
-No separate `orchajs build` command or deployment script is required. During
-`serverless package` and `serverless deploy`, the integration adds Orcha to the
-existing esbuild pipeline. It preserves other esbuild plugins, compiles the
-registry, and replaces exact `orchajs` imports with the generated production
-runtime. It rejects configurations that externalize `orchajs`, because those
-would copy the full development package into the Lambda artifact.
-
-`serverless-plugin-typescript` and plain `tsc` do not bundle dependencies.
-Remove that build plugin when switching the service to `serverless-esbuild`.
-Keep `serverless-esbuild` before `orchajs/serverless` and before
-`serverless-offline`.
-
-For non-Serverless esbuild applications, add `orchaPlugin()` from
-`orchajs/esbuild` to the build that bundles the application:
-
-```js
-const { orchaPlugin } = require("orchajs/esbuild");
-
-module.exports = {
-  bundle: true,
-  plugins: [orchaPlugin()],
-};
-```
-
-For an unbundled production application built with plain `tsc` or
-`serverless-plugin-typescript`, run:
-
-```bash
-npx orchajs build
-```
-
-Package `.orcha/dist/manifest.json` with the application. AWS Lambda is
-detected automatically; other unbundled environments should set
-`NODE_ENV=production` or `ORCHA_USE_BUILD=1`. The normal `orchajs` import and
-`orcha.init()` call then load the compiled manifest synchronously, so the
-`orcha/` agent source folders do not need to be deployed.
-
-When Serverless Framework performs the packaging without the Orcha plugin,
-explicitly include the generated directory:
-
-```yaml
-package:
-  patterns:
-    - ".orcha/dist/**"
-```
-
-Older Serverless configurations can use `package.include` instead:
-
-```yaml
-package:
-  include:
-    - ".orcha/dist/**"
-```
-
-Verify the packaged artifact rather than only the workspace:
-
-```bash
-npx orchajs build
-test -f .orcha/dist/manifest.json
-yarn serverless package
-unzip -l .serverless/*.zip | grep ".orcha/dist/manifest.json"
-```
-
-This compatibility path still deploys the regular `orchajs` runtime and its
-dependencies. Use the esbuild integration above when deployment size matters;
-it replaces the package import with `.orcha/dist/bundle.js` and removes
-compiler-only code.
-
-Bundled production CI should package the same way as deployment and verify
-that:
-
-- the build generated `.orcha/dist/bundle.js` and
-  `.orcha/dist/manifest.json`;
-- bundled handlers contain no unresolved bare `orchajs` import or require;
-- the deployment archive does not contain `node_modules/orchajs`.
-
-Do not exclude `.orcha/**` when using a deployment path that copies the
-generated runtime instead of inlining it. This integration keeps compiler,
-playground, unused providers, and optional runtimes out of deployed handlers.
 
 ---
 
-## What's in this repo right now
+## Common mistakes to avoid (Read before generating code)
 
-- [x] Registry compiler + `orchajs build`
-- [x] Model Action Protocol — client actions and opt-in native/sandboxed local actions
-- [x] Provider-neutral Anthropic, Bedrock, DeepSeek, OpenAI, Google GenAI, and Vertex AI adapters
-- [x] Stateful sessions — Node JSONL/SQLite replay and client-action pause/resume
-- [x] Registered `/skills` with lazy, durable instruction loading
-- [x] Agent `/tests` with durable test-prefixed logs and explicit CI gating
-- [x] Registered LLM-judged `/evaluations`
-- [ ] Agent `/guardrails`
-- [x] Production compiler and `orchajs build`
-- [x] Lightweight CLI for init, validation, execution, tests, and builds
-
-See [`ROADMAP.md`](./ROADMAP.md) for what's coming after — guardrails,
-OpenTelemetry tracing, MCP interop adapters, and remote session storage remain
-deliberately out of scope for the first release.
+1. **Always load `.env` in your app entrypoint.** Standalone CLI commands (`npx orchajs run/test/playground`) load `.env` automatically, **the library does not**. In Node.js apps, import `"dotenv/config"` (or run `node --env-file=.env`) **before** importing `./orcha/index.js`.
+2. **Always import `./orcha/index.js` before calling `orcha.<agentName>`.** Import `{ orcha }` from `"orchajs"` and your registry file once at app startup. Never invent path-based calls like `orcha.run("./agent")`.
+3. **Ensure compiler devDependencies exist in manual installs.** `npx orchajs init` installs `esbuild`, `chokidar`, and `dotenv` automatically. If you ran `npm install orchajs` manually, also run:
+   ```bash
+   npm install --save-dev esbuild chokidar dotenv
+   ```
+4. **CommonJS projects work too:**
+   ```js
+   require("dotenv").config();
+   const { orcha } = require("orchajs");
+   require("./orcha");
+   ```
+5. **Configure your bundler for React / Next.js / React Native / esbuild:**
+   - **Next.js (`next.config.ts`)**: `export default async () => withOrcha({});` from `orchajs/next`
+   - **React + Vite (`vite.config.ts`)**: `plugins: [orchaVitePlugin(), react()]` from `orchajs/vite`
+   - **React + Webpack**: `OrchaWebpackPlugin` from `orchajs/webpack`
+   - **Expo (`metro.config.js`)**: `withOrchaExpo(getDefaultConfig(__dirname))` from `orchajs/expo` + `@react-native-async-storage/async-storage`
+   - **Bare React Native (`metro.config.js`)**: `withOrchaMetro(getDefaultConfig(__dirname))` from `orchajs/metro` + `@react-native-async-storage/async-storage`
+   - **esbuild / Serverless**: `orchaPlugin()` from `orchajs/esbuild`, or `orchajs/serverless` after `serverless-esbuild`
+   - **Unbundled `tsc` production builds**: run `npx orchajs build`, ship `.orcha/dist/**`, and set `NODE_ENV=production` or `ORCHA_USE_BUILD=1`.
+6. **Respect browser & mobile boundaries:** Browser and React Native builds support `openai`, `anthropic`, `deepseek`, `googlegenai`, and `amarsia.inference: true`. `bedrock`, `vertexai`, `actions.runtime: "sandbox"`, and `stdio` MCP connections are Node.js-only.
+7. **Node.js version:** Requires Node.js `>=18.20.8` (`>=20` for `googlegenai` and `vertexai`).
+8. **Await `execution.evaluations` in short-lived scripts:** `execution.result` resolves immediately without waiting for async LLM judges; `await execution.evaluations` if your CLI script or job exits right after.
 
 ---
 
-## Status
+## Essential CLI commands
 
-This project is being built in the open by a solo maintainer. It's not yet stable enough to take contributions productively — the core convention and API are still moving. `CONTRIBUTING.md` will open up once the shape settles.
+```bash
+npx orchajs init                               # Add Orcha to an existing project
+npx orchajs dev                                # Validate & watch orcha/** offline
+npx orchajs playground                         # Open visual Playground at localhost:4310
+npx orchajs run exampleAgent --input "Hello"   # Run an agent from the terminal
+npx orchajs test                               # Run all contract tests (and evaluations)
+npx orchajs build                              # Compile .orcha/dist/ offline for production
+npx orchajs migrate-storage --to sqlite        # Migrate JSONL sessions ↔ SQLite
+```
 
-In the meantime: [star the repo](.) to follow along, open an issue if you hit something worth flagging, or watch for weekly build-in-public updates on [X/Twitter](.).
+---
+
+## Complete documentation
+
+All documentation is available at **[orcha.sh/docs](https://orcha.sh/docs)** and in LLM-friendly Markdown:
+
+- **LLM Index:** [orcha.sh/llms.txt](https://orcha.sh/llms.txt)
+- **Full LLM Reference (single file):** [orcha.sh/llms-full.txt](https://orcha.sh/llms-full.txt)
+- **Per-page Markdown:** append `.mdx` to any doc URL (e.g. `https://orcha.sh/docs/actions.mdx`)
+
+### Core guides
+- [Getting Started](https://orcha.sh/docs)
+- [Create Your First Agent](https://orcha.sh/docs/first-agent)
+- [Folder Structure](https://orcha.sh/docs/folder-structure)
+- [Agent Configuration & Runtime API](https://orcha.sh/docs/agent)
+- [CLI Reference](https://orcha.sh/docs/cli)
+
+### Capabilities
+- [Actions (Local, Sandboxed & Client Tools)](https://orcha.sh/docs/actions)
+- [Skills (Lazy-Loaded Procedures)](https://orcha.sh/docs/skills)
+- [Subagents (Parent-Child Delegation)](https://orcha.sh/docs/subagents)
+- [Agent Tests (Deterministic Contract Tests)](https://orcha.sh/docs/tests)
+- [Evaluations (Async LLM Judges)](https://orcha.sh/docs/evaluations)
+- [Multimodal Input & Tool Results](https://orcha.sh/docs/multimodal)
+- [MCP Connections (Streamable HTTP & Stdio)](https://orcha.sh/docs/mcp)
+
+### Tutorials & Complete Examples
+- [Basic Agent](https://orcha.sh/docs/tutorial/basic-agent)
+- [Agent with Skills](https://orcha.sh/docs/tutorial/skills)
+- [Agent that Takes Action](https://orcha.sh/docs/tutorial/actions)
+- [Human in the Loop (Client Actions)](https://orcha.sh/docs/tutorial/client-actions)
+- [Agent with Subagents](https://orcha.sh/docs/tutorial/subagents)
+- [Test an Agent](https://orcha.sh/docs/tutorial/tests)
+- [Evaluate an Agent](https://orcha.sh/docs/tutorial/evaluations)
+- [Deploy to Production](https://orcha.sh/docs/tutorial/production)
+
+### Durable Sessions API
+- [Start a Session (`run`)](https://orcha.sh/docs/sessions/start)
+- [Resume a Session (`resume`)](https://orcha.sh/docs/sessions/resume)
+- [Get Session Snapshot (`get`)](https://orcha.sh/docs/sessions/get)
+- [Read User History (`history`)](https://orcha.sh/docs/sessions/history)
+- [List Sessions (`list`)](https://orcha.sh/docs/sessions/list)
+- [Update Metadata (`update`)](https://orcha.sh/docs/sessions/update)
+- [Pause & Interrupt (`pause`)](https://orcha.sh/docs/sessions/pause)
+- [Inspect Raw Events (`events`)](https://orcha.sh/docs/sessions/events)
+
+### Infrastructure, Providers & Amarsia
+- [Model Providers (OpenAI, Anthropic, DeepSeek, Gemini, Vertex AI, Bedrock)](https://orcha.sh/docs/model-providers)
+- [Storage (JSONL, SQLite, IndexedDB, AsyncStorage, Amarsia Cloud)](https://orcha.sh/docs/storage)
+- [Telemetry (Amarsia Analytics & OpenTelemetry GenAI)](https://orcha.sh/docs/telemetry)
+- [Orcha Dev Playground](https://orcha.sh/docs/dev-playground)
+- [Amarsia Platform & Managed Inference](https://amarsia.com)
 
 ---
 
