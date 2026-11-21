@@ -1,5 +1,11 @@
 # create-orcha
 
+## 0.4.6
+
+### Patch Changes
+
+- [#148](https://github.com/Amarsia/orcha/pull/148) [`bfaf270`](https://github.com/Amarsia/orcha/commit/bfaf270b7b7efc494dec27f4717c5125343f0614) Thanks [@anuj-sia](https://github.com/anuj-sia)! - Add banner asset, rewrite README for 1-shot LLM and framework onboarding, and add npm keywords and author metadata for package discoverability.
+
 ## 0.4.5
 
 ### Patch Changes
