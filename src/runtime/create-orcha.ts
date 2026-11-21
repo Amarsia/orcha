@@ -10,7 +10,7 @@ import { setOrchaRuntimeContext } from "./context.js";
 import { createInferenceGenerator } from "./optional-features.js";
 import {
   CompositeRunTelemetryClient,
-  createOpenTelemetryClient,
+  resolveOpenTelemetryClient,
 } from "../telemetry/open-telemetry.js";
 import type { RuntimePlatform } from "./platform.js";
 import type {
@@ -166,10 +166,9 @@ class OrchaRuntimeCore implements Orcha {
     if (configuration.amarsia?.key) {
       telemetryClients.push(new AmarsiaTelemetryClient(configuration.amarsia));
     }
-    if (configuration.telemetry?.otel) {
-      telemetryClients.push(
-        createOpenTelemetryClient(configuration.telemetry.otel),
-      );
+    const otelClient = resolveOpenTelemetryClient(configuration.telemetry?.otel);
+    if (otelClient) {
+      telemetryClients.push(otelClient);
     }
     const telemetry =
       telemetryClients.length === 0

@@ -6,26 +6,45 @@ import type {
 } from "@opentelemetry/api";
 import type {
   AmarsiaRunFact,
+  RunTelemetryCaptureNeeds,
   RunTelemetryClient,
   RunTelemetryDetails,
   RunTelemetryModelCall,
 } from "../amarsia/analytics.js";
-
-export type OpenTelemetryConfiguration =
-  | true
-  | {
-      endpoint: string;
-      headers?: Record<string, string>;
-    };
+import type {
+  OpenTelemetryConfiguration,
+  OpenTelemetryOptions,
+  OpenTelemetryRedactContext,
+  OpenTelemetryRedactor,
+} from "../types.js";
 
 const MAX_QUEUED_RUNS = 1_000;
 const MAX_CONCURRENT_EXPORTS = 2;
+const DEFAULT_SERVICE_NAME = "orchajs";
+
+interface ResolvedCaptureConfiguration {
+  content: boolean;
+  actionIO: boolean;
+  evaluationDetail: boolean;
+}
+
+interface ResolvedOpenTelemetrySettings {
+  capture: ResolvedCaptureConfiguration;
+  redact?: OpenTelemetryRedactor;
+}
 
 export class CompositeRunTelemetryClient implements RunTelemetryClient {
   readonly #clients: RunTelemetryClient[];
 
   constructor(clients: RunTelemetryClient[]) {
     this.#clients = clients;
+  }
+
+  get captureNeeds(): RunTelemetryCaptureNeeds {
+    return {
+      content: this.#clients.some((client) => client.captureNeeds?.content === true),
+      actionIO: this.#clients.some((client) => client.captureNeeds?.actionIO === true),
+    };
   }
 
   enqueue(fact: AmarsiaRunFact, details?: RunTelemetryDetails): void {
@@ -65,15 +84,112 @@ export class CompositeRunTelemetryClient implements RunTelemetryClient {
   }
 }
 
+export function resolveOpenTelemetryClient(
+  configuration: OpenTelemetryConfiguration | undefined,
+  env: Record<string, string | undefined> = readProcessEnv(),
+): RunTelemetryClient | undefined {
+  if (configuration === false) {
+    return undefined;
+  }
+
+  const envEndpoint = nonEmptyString(env.OTEL_EXPORTER_OTLP_ENDPOINT);
+  const envHeaders = parseKeyValuePairs(env.OTEL_EXPORTER_OTLP_HEADERS);
+  const envResourceAttributes = parseKeyValuePairs(
+    env.OTEL_RESOURCE_ATTRIBUTES,
+  );
+  const envServiceName = nonEmptyString(env.OTEL_SERVICE_NAME);
+  const envCaptureContent = parseBooleanEnv(
+    env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT,
+  );
+
+  if (configuration === undefined) {
+    if (!envEndpoint) {
+      return undefined;
+    }
+    const serviceName =
+      envServiceName ??
+      nonEmptyString(envResourceAttributes["service.name"]) ??
+      DEFAULT_SERVICE_NAME;
+    return new OtlpHttpTelemetryClient({
+      endpoint: envEndpoint,
+      headers: envHeaders,
+      resourceAttributes: {
+        "telemetry.sdk.language": "nodejs",
+        ...envResourceAttributes,
+        "service.name": serviceName,
+      },
+      capture: {
+        content: envCaptureContent ?? false,
+        actionIO: false,
+        evaluationDetail: true,
+      },
+    });
+  }
+
+  if (configuration === true) {
+    return new GlobalOpenTelemetryClient({
+      capture: {
+        content: envCaptureContent ?? false,
+        actionIO: false,
+        evaluationDetail: true,
+      },
+    });
+  }
+
+  const options: OpenTelemetryOptions = configuration;
+  if (options.endpoint !== undefined && options.endpoint.trim() === "") {
+    throw new Error("telemetry.otel.endpoint must be a non-empty URL.");
+  }
+
+  const capture: ResolvedCaptureConfiguration = {
+    content: options.capture?.content ?? envCaptureContent ?? false,
+    actionIO: options.capture?.actionIO ?? false,
+    evaluationDetail: options.capture?.evaluationDetail ?? true,
+  };
+
+  const effectiveEndpoint = nonEmptyString(options.endpoint) ?? envEndpoint;
+  if (!effectiveEndpoint) {
+    return new GlobalOpenTelemetryClient({
+      capture,
+      redact: options.redact,
+    });
+  }
+
+  const explicitResourceAttributes = options.resourceAttributes ?? {};
+  const serviceName =
+    nonEmptyString(options.serviceName) ??
+    nonEmptyString(explicitResourceAttributes["service.name"]) ??
+    envServiceName ??
+    nonEmptyString(envResourceAttributes["service.name"]) ??
+    DEFAULT_SERVICE_NAME;
+
+  return new OtlpHttpTelemetryClient({
+    endpoint: effectiveEndpoint,
+    headers: mergeHeaders(envHeaders, options.headers),
+    resourceAttributes: {
+      "telemetry.sdk.language": "nodejs",
+      ...envResourceAttributes,
+      ...explicitResourceAttributes,
+      "service.name": serviceName,
+    },
+    capture,
+    redact: options.redact,
+  });
+}
+
 export function createOpenTelemetryClient(
   configuration: OpenTelemetryConfiguration,
+  env?: Record<string, string | undefined>,
 ): RunTelemetryClient {
-  return configuration === true
-    ? new GlobalOpenTelemetryClient()
-    : new OtlpHttpTelemetryClient(configuration);
+  const client = resolveOpenTelemetryClient(configuration, env);
+  if (!client) {
+    throw new Error("OpenTelemetry is disabled.");
+  }
+  return client;
 }
 
 class GlobalOpenTelemetryClient implements RunTelemetryClient {
+  readonly #settings: ResolvedOpenTelemetrySettings;
   readonly #pendingProjections = new Set<Promise<void>>();
   readonly #pendingEmissions = new Set<Promise<void>>();
   readonly #emissionChains = new Map<string, Promise<void>>();
@@ -85,6 +201,17 @@ class GlobalOpenTelemetryClient implements RunTelemetryClient {
       context: Context;
     }
   >();
+
+  constructor(settings: ResolvedOpenTelemetrySettings) {
+    this.#settings = settings;
+  }
+
+  get captureNeeds(): RunTelemetryCaptureNeeds {
+    return {
+      content: this.#settings.capture.content,
+      actionIO: this.#settings.capture.actionIO,
+    };
+  }
 
   enqueue(fact: AmarsiaRunFact, details?: RunTelemetryDetails): void {
     const previous = this.#emissionChains.get(fact.event_id) ?? Promise.resolve();
@@ -114,14 +241,14 @@ class GlobalOpenTelemetryClient implements RunTelemetryClient {
       this.#startSpan(api, tracer, fact, details);
     if (fact.status === "running") return;
     const { span, context: parentContext } = active;
-    span.setAttributes(runAttributes(fact));
+    span.setAttributes(runAttributes(fact, details, this.#settings));
     for (const modelCall of details?.modelCalls ?? []) {
       const modelSpan = tracer.startSpan(
         `chat ${modelCall.model}`,
         {
           kind: api.SpanKind.CLIENT,
           startTime: new Date(modelCall.started_at),
-          attributes: modelCallAttributes(fact, modelCall),
+          attributes: modelCallAttributes(fact, modelCall, this.#settings),
         },
         parentContext,
       );
@@ -134,17 +261,7 @@ class GlobalOpenTelemetryClient implements RunTelemetryClient {
         {
           kind: api.SpanKind.INTERNAL,
           startTime: new Date(action.started_at),
-          attributes: {
-            "gen_ai.operation.name": "execute_tool",
-            "gen_ai.tool.name": action.name,
-            "gen_ai.tool.type": "function",
-            "gen_ai.tool.call.id": action.call_id,
-            "gen_ai.agent.name": fact.agent_external_id,
-            "gen_ai.conversation.id": fact.session_id,
-            "orcha.span.type": "action",
-            "orcha.action.call_id": action.call_id,
-            "orcha.action.duration_ms": action.duration_ms,
-          },
+          attributes: actionAttributes(fact, action, details, this.#settings),
         },
         parentContext,
       );
@@ -157,15 +274,12 @@ class GlobalOpenTelemetryClient implements RunTelemetryClient {
           code: api.SpanStatusCode.ERROR,
           message: action.error_message,
         });
-        if (action.error_code) {
-          actionSpan.setAttribute("error.type", action.error_code);
-        }
       } else {
         actionSpan.setStatus({ code: api.SpanStatusCode.OK });
       }
       actionSpan.end(new Date(action.ended_at));
     }
-    for (const event of evaluationResultEvents(fact)) {
+    for (const event of evaluationResultEvents(fact, this.#settings)) {
       span.addEvent(
         event.name,
         event.attributes,
@@ -204,7 +318,7 @@ class GlobalOpenTelemetryClient implements RunTelemetryClient {
       {
         kind: api.SpanKind.INTERNAL,
         startTime: new Date(fact.started_at),
-        attributes: runAttributes(fact),
+        attributes: runAttributes(fact, details, this.#settings),
       },
       parentContext,
     );
@@ -265,6 +379,8 @@ class GlobalOpenTelemetryClient implements RunTelemetryClient {
 class OtlpHttpTelemetryClient implements RunTelemetryClient {
   readonly #endpoint: string;
   readonly #headers: Record<string, string>;
+  readonly #resourceAttributes: Attributes;
+  readonly #settings: ResolvedOpenTelemetrySettings;
   readonly #queue = new Map<string, OtlpSpan[]>();
   readonly #activeRuns = new Map<
     string,
@@ -279,6 +395,9 @@ class OtlpHttpTelemetryClient implements RunTelemetryClient {
   constructor(options: {
     endpoint: string;
     headers?: Record<string, string>;
+    resourceAttributes: Attributes;
+    capture: ResolvedCaptureConfiguration;
+    redact?: OpenTelemetryRedactor;
   }) {
     const endpoint = options.endpoint.trim().replace(/\/+$/, "");
     if (!endpoint) {
@@ -288,6 +407,18 @@ class OtlpHttpTelemetryClient implements RunTelemetryClient {
       ? endpoint
       : `${endpoint}/v1/traces`;
     this.#headers = options.headers ?? {};
+    this.#resourceAttributes = options.resourceAttributes;
+    this.#settings = {
+      capture: options.capture,
+      redact: options.redact,
+    };
+  }
+
+  get captureNeeds(): RunTelemetryCaptureNeeds {
+    return {
+      content: this.#settings.capture.content,
+      actionIO: this.#settings.capture.actionIO,
+    };
   }
 
   enqueue(fact: AmarsiaRunFact, details?: RunTelemetryDetails): void {
@@ -307,7 +438,7 @@ class OtlpHttpTelemetryClient implements RunTelemetryClient {
         "OpenTelemetry queue is full; dropping the oldest queued run.",
       );
     }
-    this.#queue.set(fact.event_id, otlpSpans(fact, details));
+    this.#queue.set(fact.event_id, otlpSpans(fact, details, this.#settings));
     if (this.#queue.size >= 20) {
       void this.#flush();
     } else {
@@ -367,6 +498,7 @@ class OtlpHttpTelemetryClient implements RunTelemetryClient {
             error_retryable: true,
           },
           active.details,
+          this.#settings,
         ),
       );
     }
@@ -400,7 +532,7 @@ class OtlpHttpTelemetryClient implements RunTelemetryClient {
     const entries = [...this.#queue.entries()].slice(0, 20);
     for (const [id] of entries) this.#queue.delete(id);
     const spans = entries.flatMap(([, value]) => value);
-    const body = JSON.stringify(otlpRequest(spans));
+    const body = JSON.stringify(otlpRequest(spans, this.#resourceAttributes));
     const operation = fetch(this.#endpoint, {
       method: "POST",
       headers: {
@@ -437,8 +569,12 @@ class OtlpHttpTelemetryClient implements RunTelemetryClient {
   }
 }
 
-function runAttributes(fact: AmarsiaRunFact): Attributes {
-  return {
+function runAttributes(
+  fact: AmarsiaRunFact,
+  details: RunTelemetryDetails | undefined,
+  settings: ResolvedOpenTelemetrySettings,
+): Attributes {
+  const attributes: Attributes = {
     "gen_ai.operation.name": "invoke_agent",
     "gen_ai.agent.id": fact.agent_external_id,
     "gen_ai.agent.name": fact.agent_external_id,
@@ -452,7 +588,15 @@ function runAttributes(fact: AmarsiaRunFact): Attributes {
     "orcha.span.type": "agent_run",
     "orcha.agent.id": fact.agent_external_id,
     "orcha.session.id": fact.session_id,
-    "orcha.run.duration_ms": fact.duration_ms ?? 0,
+    "orcha.run.duration_ms":
+      fact.duration_ms ??
+      (fact.ended_at
+        ? Math.max(
+            0,
+            new Date(fact.ended_at).getTime() -
+              new Date(fact.started_at).getTime(),
+          )
+        : 0),
     "orcha.run.model_duration_ms": fact.model_duration_ms,
     "orcha.run.action_duration_ms": fact.action_duration_ms,
     "orcha.usage.reasoning_tokens": fact.reasoning_tokens ?? 0,
@@ -473,13 +617,47 @@ function runAttributes(fact: AmarsiaRunFact): Attributes {
       ? { "gen_ai.response.finish_reasons": [fact.stop_reason] }
       : {}),
   };
+
+  if (settings.capture.content) {
+    if (details?.inputMessages && details.inputMessages.length > 0) {
+      const value = formatCapturedValue(
+        details.inputMessages,
+        {
+          spanType: "agent_run",
+          attribute: "gen_ai.input.messages",
+          agentId: fact.agent_external_id,
+          sessionId: fact.session_id,
+          runNumber: fact.run_number,
+        },
+        settings.redact,
+      );
+      if (value !== undefined) attributes["gen_ai.input.messages"] = value;
+    }
+    if (details?.outputMessages && details.outputMessages.length > 0) {
+      const value = formatCapturedValue(
+        details.outputMessages,
+        {
+          spanType: "agent_run",
+          attribute: "gen_ai.output.messages",
+          agentId: fact.agent_external_id,
+          sessionId: fact.session_id,
+          runNumber: fact.run_number,
+        },
+        settings.redact,
+      );
+      if (value !== undefined) attributes["gen_ai.output.messages"] = value;
+    }
+  }
+
+  return attributes;
 }
 
 function modelCallAttributes(
   fact: AmarsiaRunFact,
   modelCall: RunTelemetryModelCall,
+  settings: ResolvedOpenTelemetrySettings,
 ): Attributes {
-  return {
+  const attributes: Attributes = {
     "gen_ai.operation.name": "chat",
     "gen_ai.provider.name": modelCall.provider,
     "gen_ai.request.model": modelCall.model,
@@ -499,14 +677,124 @@ function modelCallAttributes(
       ? { "gen_ai.response.finish_reasons": [modelCall.finish_reason] }
       : {}),
   };
+
+  if (settings.capture.content) {
+    if (modelCall.inputMessages && modelCall.inputMessages.length > 0) {
+      const value = formatCapturedValue(
+        modelCall.inputMessages,
+        {
+          spanType: "chat",
+          attribute: "gen_ai.input.messages",
+          agentId: fact.agent_external_id,
+          sessionId: fact.session_id,
+          runNumber: fact.run_number,
+          model: modelCall.model,
+        },
+        settings.redact,
+      );
+      if (value !== undefined) attributes["gen_ai.input.messages"] = value;
+    }
+    if (modelCall.outputMessages && modelCall.outputMessages.length > 0) {
+      const value = formatCapturedValue(
+        modelCall.outputMessages,
+        {
+          spanType: "chat",
+          attribute: "gen_ai.output.messages",
+          agentId: fact.agent_external_id,
+          sessionId: fact.session_id,
+          runNumber: fact.run_number,
+          model: modelCall.model,
+        },
+        settings.redact,
+      );
+      if (value !== undefined) attributes["gen_ai.output.messages"] = value;
+    }
+  }
+
+  return attributes;
+}
+
+function actionAttributes(
+  fact: AmarsiaRunFact,
+  action: AmarsiaRunFact["actions"][number],
+  details: RunTelemetryDetails | undefined,
+  settings: ResolvedOpenTelemetrySettings,
+): Attributes {
+  const attributes: Attributes = {
+    "gen_ai.operation.name": "execute_tool",
+    "gen_ai.tool.name": action.name,
+    "gen_ai.tool.type": "function",
+    "gen_ai.tool.call.id": action.call_id,
+    "gen_ai.agent.name": fact.agent_external_id,
+    "gen_ai.conversation.id": fact.session_id,
+    "orcha.span.type": "action",
+    "orcha.action.call_id": action.call_id,
+    "orcha.action.duration_ms": action.duration_ms,
+    ...(action.error_code ? { "error.type": action.error_code } : {}),
+  };
+
+  if (settings.capture.actionIO) {
+    const io = details?.actionIO?.[action.call_id];
+    if (io?.arguments !== undefined) {
+      const value = formatCapturedValue(
+        io.arguments,
+        {
+          spanType: "action",
+          attribute: "gen_ai.tool.call.arguments",
+          agentId: fact.agent_external_id,
+          sessionId: fact.session_id,
+          runNumber: fact.run_number,
+          actionName: action.name,
+        },
+        settings.redact,
+      );
+      if (value !== undefined) attributes["gen_ai.tool.call.arguments"] = value;
+    }
+    if (io?.output !== undefined) {
+      const value = formatCapturedValue(
+        io.output,
+        {
+          spanType: "action",
+          attribute: "gen_ai.tool.call.result",
+          agentId: fact.agent_external_id,
+          sessionId: fact.session_id,
+          runNumber: fact.run_number,
+          actionName: action.name,
+        },
+        settings.redact,
+      );
+      if (value !== undefined) attributes["gen_ai.tool.call.result"] = value;
+    }
+  }
+
+  return attributes;
 }
 
 function evaluationResultEvents(
   fact: AmarsiaRunFact,
+  settings: ResolvedOpenTelemetrySettings,
 ): Array<{ name: string; attributes: Attributes }> {
   const events: Array<{ name: string; attributes: Attributes }> = [];
+  const includeDetail = settings.capture.evaluationDetail;
+
   for (const evaluation of fact.evaluations) {
     if (evaluation.metrics.length === 0) {
+      const errorMessage =
+        includeDetail && evaluation.error_message
+          ? redactString(
+              evaluation.error_message,
+              {
+                spanType: "evaluation",
+                attribute: "orcha.evaluation.error_message",
+                agentId: fact.agent_external_id,
+                sessionId: fact.session_id,
+                runNumber: fact.run_number,
+                evaluationName: evaluation.name,
+              },
+              settings.redact,
+            )
+          : undefined;
+
       events.push({
         name: "gen_ai.evaluation.result",
         attributes: {
@@ -516,7 +804,9 @@ function evaluationResultEvents(
           ...(evaluation.error_message
             ? {
                 "error.type": "evaluation_error",
-                "orcha.evaluation.error_message": evaluation.error_message,
+                ...(errorMessage !== undefined
+                  ? { "orcha.evaluation.error_message": errorMessage }
+                  : {}),
               }
             : {}),
         },
@@ -524,17 +814,49 @@ function evaluationResultEvents(
       continue;
     }
     for (const metric of evaluation.metrics) {
+      const explanation = includeDetail
+        ? redactString(
+            metric.reasoning,
+            {
+              spanType: "evaluation",
+              attribute: "gen_ai.evaluation.explanation",
+              agentId: fact.agent_external_id,
+              sessionId: fact.session_id,
+              runNumber: fact.run_number,
+              evaluationName: evaluation.name,
+            },
+            settings.redact,
+          )
+        : undefined;
+      const evidence =
+        includeDetail && metric.evidence.length > 0
+          ? redactStringArray(
+              metric.evidence,
+              {
+                spanType: "evaluation",
+                attribute: "orcha.evaluation.evidence",
+                agentId: fact.agent_external_id,
+                sessionId: fact.session_id,
+                runNumber: fact.run_number,
+                evaluationName: evaluation.name,
+              },
+              settings.redact,
+            )
+          : undefined;
+
       events.push({
         name: "gen_ai.evaluation.result",
         attributes: {
           "gen_ai.evaluation.name": metric.name,
           "gen_ai.evaluation.score.value": metric.score,
           "gen_ai.evaluation.score.label": metric.passed ? "pass" : "fail",
-          "gen_ai.evaluation.explanation": metric.reasoning,
+          ...(explanation !== undefined
+            ? { "gen_ai.evaluation.explanation": explanation }
+            : {}),
           "orcha.evaluation.name": evaluation.name,
           "orcha.evaluation.duration_ms": evaluation.duration_ms,
-          ...(metric.evidence.length > 0
-            ? { "orcha.evaluation.evidence": metric.evidence }
+          ...(evidence && evidence.length > 0
+            ? { "orcha.evaluation.evidence": evidence }
             : {}),
         },
       });
@@ -572,7 +894,8 @@ interface OtlpAttribute {
 
 function otlpSpans(
   fact: AmarsiaRunFact,
-  details?: RunTelemetryDetails,
+  details: RunTelemetryDetails | undefined,
+  settings: ResolvedOpenTelemetrySettings,
 ): OtlpSpan[] {
   const rootSessionId =
     details?.lineage?.rootSessionId ??
@@ -588,6 +911,10 @@ function otlpSpans(
   );
   const rootSpanId = stableHex(`span:${fact.event_id}`, 16);
   const parentId = parentEventId(fact, details);
+  const rootAttributes = runAttributes(fact, details, settings);
+  if (fact.status === "failed" && fact.error_code) {
+    rootAttributes["error.type"] = fact.error_code;
+  }
   const root: OtlpSpan = {
     traceId,
     spanId: rootSpanId,
@@ -598,9 +925,9 @@ function otlpSpans(
     kind: 1,
     startTimeUnixNano: unixNanos(fact.started_at),
     endTimeUnixNano: unixNanos(fact.ended_at ?? fact.started_at),
-    attributes: otlpAttributes(runAttributes(fact)),
+    attributes: otlpAttributes(rootAttributes),
     events: [
-      ...evaluationResultEvents(fact).map((event) => ({
+      ...evaluationResultEvents(fact, settings).map((event) => ({
         timeUnixNano: unixNanos(fact.ended_at ?? fact.started_at),
         name: event.name,
         attributes: otlpAttributes(event.attributes),
@@ -633,7 +960,7 @@ function otlpSpans(
       kind: 3,
       startTimeUnixNano: unixNanos(modelCall.started_at),
       endTimeUnixNano: unixNanos(modelCall.ended_at),
-      attributes: otlpAttributes(modelCallAttributes(fact, modelCall)),
+      attributes: otlpAttributes(modelCallAttributes(fact, modelCall, settings)),
       status: { code: 1 },
     }),
   );
@@ -646,18 +973,7 @@ function otlpSpans(
       kind: 1,
       startTimeUnixNano: unixNanos(action.started_at),
       endTimeUnixNano: unixNanos(action.ended_at),
-      attributes: otlpAttributes({
-        "gen_ai.operation.name": "execute_tool",
-        "gen_ai.tool.name": action.name,
-        "gen_ai.tool.type": "function",
-        "gen_ai.tool.call.id": action.call_id,
-        "gen_ai.agent.name": fact.agent_external_id,
-        "gen_ai.conversation.id": fact.session_id,
-        "orcha.span.type": "action",
-        "orcha.action.call_id": action.call_id,
-        "orcha.action.duration_ms": action.duration_ms,
-        ...(action.error_code ? { "error.type": action.error_code } : {}),
-      }),
+      attributes: otlpAttributes(actionAttributes(fact, action, details, settings)),
       events:
         action.status === "failed"
           ? [
@@ -695,15 +1011,12 @@ function parentEventId(
   return `${fact.parent_agent_external_id}:${fact.parent_session_id}:${details.lineage.parentRunNumber}`;
 }
 
-function otlpRequest(spans: OtlpSpan[]) {
+function otlpRequest(spans: OtlpSpan[], resourceAttributes: Attributes) {
   return {
     resourceSpans: [
       {
         resource: {
-          attributes: otlpAttributes({
-            "service.name": "orchajs",
-            "telemetry.sdk.language": "nodejs",
-          }),
+          attributes: otlpAttributes(resourceAttributes),
         },
         scopeSpans: [
           {
@@ -743,6 +1056,120 @@ function otlpAttributes(attributes: Attributes): OtlpAttribute[] {
     }
   }
   return output;
+}
+
+function applyRedaction(
+  value: unknown,
+  context: OpenTelemetryRedactContext,
+  redact?: OpenTelemetryRedactor,
+): unknown {
+  if (!redact) return value;
+  try {
+    return redact(value, context);
+  } catch (error) {
+    console.warn(
+      `OpenTelemetry redaction hook failed for ${context.attribute}.`,
+      error,
+    );
+    return "[redaction_error]";
+  }
+}
+
+function formatCapturedValue(
+  value: unknown,
+  context: OpenTelemetryRedactContext,
+  redact?: OpenTelemetryRedactor,
+): string | undefined {
+  const processed = applyRedaction(value, context, redact);
+  if (processed === undefined || processed === null) return undefined;
+  return typeof processed === "string" ? processed : JSON.stringify(processed);
+}
+
+function redactString(
+  value: string,
+  context: OpenTelemetryRedactContext,
+  redact?: OpenTelemetryRedactor,
+): string | undefined {
+  const processed = applyRedaction(value, context, redact);
+  if (processed === undefined || processed === null) return undefined;
+  return typeof processed === "string" ? processed : JSON.stringify(processed);
+}
+
+function redactStringArray(
+  value: string[],
+  context: OpenTelemetryRedactContext,
+  redact?: OpenTelemetryRedactor,
+): string[] | undefined {
+  const processed = applyRedaction(value, context, redact);
+  if (processed === undefined || processed === null) return undefined;
+  if (Array.isArray(processed)) {
+    return processed.map((item) =>
+      typeof item === "string" ? item : JSON.stringify(item),
+    );
+  }
+  return [typeof processed === "string" ? processed : JSON.stringify(processed)];
+}
+
+function readProcessEnv(): Record<string, string | undefined> {
+  return typeof process !== "undefined" && process.env ? process.env : {};
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseBooleanEnv(value: string | undefined): boolean | undefined {
+  const normalized = nonEmptyString(value)?.toLowerCase();
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+  return undefined;
+}
+
+function parseKeyValuePairs(raw: string | undefined): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!raw) return result;
+  for (const segment of raw.split(",")) {
+    const trimmed = segment.trim();
+    if (!trimmed) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex <= 0) continue;
+    const key = trimmed.slice(0, eqIndex).trim();
+    if (!key) continue;
+    const rawValue = trimmed.slice(eqIndex + 1).trim();
+    result[key] = safeDecodeURIComponent(rawValue);
+  }
+  return result;
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function mergeHeaders(
+  envHeaders: Record<string, string>,
+  explicitHeaders?: Record<string, string>,
+): Record<string, string> {
+  if (!explicitHeaders) return { ...envHeaders };
+  const merged: Record<string, string> = { ...envHeaders };
+  const keyLookup = new Map<string, string>();
+  for (const key of Object.keys(merged)) {
+    keyLookup.set(key.toLowerCase(), key);
+  }
+  for (const [key, value] of Object.entries(explicitHeaders)) {
+    const existingKey = keyLookup.get(key.toLowerCase());
+    if (existingKey && existingKey !== key) {
+      delete merged[existingKey];
+    }
+    merged[key] = value;
+    keyLookup.set(key.toLowerCase(), key);
+  }
+  return merged;
 }
 
 function unixNanos(value: string): string {

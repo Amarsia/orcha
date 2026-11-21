@@ -517,7 +517,8 @@ orcha.init({
 });
 ```
 
-Or send standard OTLP/HTTP JSON directly to a collector:
+Or send standard OTLP/HTTP JSON directly to a collector, with optional
+per-category capture controls and a redaction hook:
 
 ```js
 orcha.init({
@@ -525,17 +526,78 @@ orcha.init({
   telemetry: {
     otel: {
       endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
-      headers: { authorization: `Bearer ${process.env.OTEL_TOKEN}` }
+      headers: { authorization: `Bearer ${process.env.OTEL_TOKEN}` },
+      capture: {
+        content: false,          // gen_ai.input.messages / gen_ai.output.messages
+        actionIO: false,         // gen_ai.tool.call.arguments / gen_ai.tool.call.result
+        evaluationDetail: true,  // explanation, evidence, and error messages
+      },
+      redact(value, context) {
+        // Return transformed value, or `undefined` to omit the attribute.
+        return value;
+      }
     }
   }
 });
 ```
 
 Collector base URLs automatically receive the `/v1/traces` suffix. Passing an
-endpoint already ending in `/v1/traces` leaves it unchanged. Prompts, model
-responses, action arguments, and action outputs are never included. Delegated
+endpoint already ending in `/v1/traces` leaves it unchanged. Delegated
 subagents share the root agent's trace. Calling `orcha.close()` marks any active
 run as interrupted before flushing telemetry.
+
+#### Standard OpenTelemetry environment variables
+
+Standard environment variables are used as defaults when omitted in
+`orcha.init()`, and explicit configuration always wins. If `telemetry.otel` is
+omitted and `OTEL_EXPORTER_OTLP_ENDPOINT` is set, OTLP/HTTP export is
+auto-enabled; set `telemetry: { otel: false }` to disable it explicitly.
+
+| Environment variable | Effect |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Default OTLP/HTTP collector endpoint or base URL. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Comma-separated `key=value` headers merged under explicit `headers`. |
+| `OTEL_SERVICE_NAME` | Default `service.name` resource attribute (fallback `"orchajs"`). |
+| `OTEL_RESOURCE_ATTRIBUTES` | Comma-separated `key=value` OTLP resource attributes merged under explicit `resourceAttributes`. |
+| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | Set to `"true"` to enable `capture.content` by default unless overridden. |
+
+#### Exact attributes emitted per span type
+
+By default (`capture: { content: false, actionIO: false, evaluationDetail: true }`),
+prompts, model responses, action arguments, and action outputs are never
+exported. The tables below list every attribute and event emitted so you can
+audit what leaves your infrastructure.
+
+**Resource attributes (OTLP/HTTP export):**
+
+- `service.name` (`telemetry.otel.serviceName`, `OTEL_SERVICE_NAME`, `service.name` in `OTEL_RESOURCE_ATTRIBUTES`, or `"orchajs"`)
+- `telemetry.sdk.language` (`"nodejs"`)
+- Any entries from `OTEL_RESOURCE_ATTRIBUTES` and `telemetry.otel.resourceAttributes`
+
+**`invoke_agent <agent_id>` span (Kind: `INTERNAL`):**
+
+- Default: `gen_ai.operation.name` (`"invoke_agent"`), `gen_ai.agent.id`, `gen_ai.agent.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.conversation.id`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `orcha.span.type` (`"agent_run"`), `orcha.agent.id`, `orcha.session.id`, `orcha.run.number`, `orcha.run.status`, `orcha.run.duration_ms`, `orcha.run.model_duration_ms`, `orcha.run.action_duration_ms`, `orcha.usage.reasoning_tokens`, `orcha.usage.cache_read_tokens`, `orcha.usage.cache_write_tokens`, `orcha.action.count`, `orcha.action.success_count`, `orcha.action.failure_count`, `orcha.subagent.count`, `orcha.evaluation.count`
+- Conditional: `orcha.parent.agent_id`, `orcha.parent.session_id`, `gen_ai.response.finish_reasons`, `error.type` (when failed or interrupted)
+- Opt-in (`capture.content: true`): `gen_ai.input.messages`, `gen_ai.output.messages` (JSON-encoded OTel GenAI message arrays)
+- Span events: `gen_ai.evaluation.result` (one per evaluation/metric), `exception` (`exception.type`, `exception.message` when failed or interrupted)
+
+**`chat <model>` span (Kind: `CLIENT`, child of `invoke_agent`):**
+
+- Default: `gen_ai.operation.name` (`"chat"`), `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.conversation.id`, `gen_ai.agent.name`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `orcha.usage.reasoning_tokens`, `orcha.usage.cache_read_tokens`, `orcha.usage.cache_write_tokens`, `orcha.model.duration_ms`
+- Conditional: `gen_ai.response.id`, `gen_ai.response.finish_reasons`
+- Opt-in (`capture.content: true`): `gen_ai.input.messages`, `gen_ai.output.messages`
+
+**`execute_tool <action_name>` span (Kind: `INTERNAL`, child of `invoke_agent`):**
+
+- Default: `gen_ai.operation.name` (`"execute_tool"`), `gen_ai.tool.name`, `gen_ai.tool.type` (`"function"`), `gen_ai.tool.call.id`, `gen_ai.agent.name`, `gen_ai.conversation.id`, `orcha.span.type` (`"action"`), `orcha.action.call_id`, `orcha.action.duration_ms`
+- Conditional: `error.type` (when failed)
+- Opt-in (`capture.actionIO: true`): `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`
+- Span events: `exception` (`exception.type`, `exception.message` when failed)
+
+**`gen_ai.evaluation.result` span event (on `invoke_agent`):**
+
+- Always included: `gen_ai.evaluation.name`, `gen_ai.evaluation.score.value` (per metric), `gen_ai.evaluation.score.label`, `orcha.evaluation.name` (when per metric), `orcha.evaluation.duration_ms`, `error.type` (when evaluation errored)
+- Controlled by `capture.evaluationDetail` (default `true`): `gen_ai.evaluation.explanation`, `orcha.evaluation.evidence`, `orcha.evaluation.error_message` (pre-sanitized for common secrets/PII, and omitted when `evaluationDetail: false`)
 
 The CLI provides the same focused workflows without introducing a separate
 application runtime:
