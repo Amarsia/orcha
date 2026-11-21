@@ -1,7 +1,7 @@
 {
   "name": "create-orcha",
   "version": "0.4.5",
-  "description": "Create a complete OrchaJS project with example agents and a local playground.",
+  "description": "Create a JavaScript or TypeScript AI agent project with OrchaJS, tools, tests, and local playground.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -13,11 +13,23 @@
   "bugs": {
     "url": "https://github.com/Amarsia/orcha/issues"
   },
+  "author": {
+    "name": "Amarsia",
+    "url": "https://amarsia.com"
+  },
   "keywords": [
     "ai",
     "agents",
+    "ai-agents",
+    "agent-framework",
     "orcha",
-    "scaffold"
+    "orchajs",
+    "create-orcha",
+    "mcp",
+    "typescript",
+    "javascript",
+    "scaffold",
+    "amarsia"
   ],
   "bin": {
     "create-orcha": "./bin/create-orcha.js"
