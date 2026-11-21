@@ -173,7 +173,6 @@
   "files": [
     "dist",
     "dist-cjs",
-    "assets",
     "README.md",
     "LICENSE"
   ],

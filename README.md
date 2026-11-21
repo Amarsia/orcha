@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./assets/orcha-banner.png" alt="OrchaJS — An agent is a folder. Works on top of your existing JS app." width="100%" />
+<img src="https://raw.githubusercontent.com/Amarsia/orcha/main/assets/orcha-banner.png" alt="OrchaJS — An agent is a folder. Works on top of your existing JS app." width="100%" />
 
 <br />
 <br />
