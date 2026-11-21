@@ -101,6 +101,58 @@ export type AgentRegistration =
       subagents?: Record<string, SubagentRegistration>;
     };
 
+export interface OpenTelemetryCaptureConfiguration {
+  /**
+   * Capture prompt and completion messages (`gen_ai.input.messages` and
+   * `gen_ai.output.messages`).
+   * Defaults to `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` or `false`.
+   */
+  content?: boolean;
+  /**
+   * Capture tool/action arguments and outputs (`gen_ai.tool.call.arguments` and
+   * `gen_ai.tool.call.result`). Defaults to `false`.
+   */
+  actionIO?: boolean;
+  /**
+   * Capture evaluation reasoning, evidence, and error details on
+   * `gen_ai.evaluation.result` events. Defaults to `true`.
+   */
+  evaluationDetail?: boolean;
+}
+
+export interface OpenTelemetryRedactContext {
+  spanType: "agent_run" | "chat" | "action" | "evaluation";
+  attribute: string;
+  agentId: string;
+  sessionId: string;
+  runNumber: number;
+  model?: string;
+  actionName?: string;
+  evaluationName?: string;
+}
+
+export type OpenTelemetryRedactor = (
+  value: unknown,
+  context: OpenTelemetryRedactContext,
+) => unknown;
+
+export interface OpenTelemetryOptions {
+  /** OTLP/HTTP collector endpoint or base URL. Defaults to `OTEL_EXPORTER_OTLP_ENDPOINT`. */
+  endpoint?: string;
+  /** HTTP headers sent on OTLP/HTTP requests. Merged over `OTEL_EXPORTER_OTLP_HEADERS`. */
+  headers?: Record<string, string>;
+  /** Service name for OTLP resource attributes. Defaults to `OTEL_SERVICE_NAME` or `"orchajs"`. */
+  serviceName?: string;
+  /** Additional resource attributes for OTLP export. Merged over `OTEL_RESOURCE_ATTRIBUTES`. */
+  resourceAttributes?: Record<string, string | number | boolean>;
+  /** Per-category opt-in controls for sensitive span attributes. */
+  capture?: OpenTelemetryCaptureConfiguration;
+  /** Optional hook to transform or strip captured attribute values before export. */
+  redact?: OpenTelemetryRedactor;
+}
+
+export type OpenTelemetryConfiguration = boolean | OpenTelemetryOptions;
+
 export interface OrchaInitConfiguration {
   providers?: ProviderInitConfigurations;
   agents: Record<string, AgentRegistration>;
@@ -114,14 +166,11 @@ export interface OrchaInitConfiguration {
   telemetry?: {
     /**
      * `true` uses the application's global OpenTelemetry provider.
-     * An endpoint sends OTLP/HTTP JSON directly to that collector.
+     * `false` disables OpenTelemetry even when `OTEL_*` environment variables are set.
+     * An options object configures capture controls, redaction, and optional OTLP/HTTP export.
+     * When omitted, OTLP/HTTP export is auto-enabled if `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
      */
-    otel?:
-      | true
-      | {
-          endpoint: string;
-          headers?: Record<string, string>;
-        };
+    otel?: OpenTelemetryConfiguration;
   };
   actions?: LocalActionRuntimeConfiguration;
   mcp?: ProjectConfiguration["mcp"];

@@ -32,6 +32,27 @@ const MAX_CONCURRENT_FLUSHES = 2;
 
 export type AmarsiaRunFact = AmarsiaTelemetryRunV1;
 
+export interface RunTelemetryCaptureNeeds {
+  content?: boolean;
+  actionIO?: boolean;
+}
+
+export interface OtelGenAIMessagePart {
+  type: string;
+  [key: string]: unknown;
+}
+
+export interface OtelGenAIMessage {
+  role: string;
+  parts: OtelGenAIMessagePart[];
+  finish_reason?: string;
+}
+
+export interface RunTelemetryActionIO {
+  arguments?: unknown;
+  output?: unknown;
+}
+
 export interface RunTelemetryModelCall {
   provider: string;
   model: string;
@@ -45,10 +66,15 @@ export interface RunTelemetryModelCall {
   cache_write_tokens: number;
   response_id?: string;
   finish_reason?: string;
+  inputMessages?: OtelGenAIMessage[];
+  outputMessages?: OtelGenAIMessage[];
 }
 
 export interface RunTelemetryDetails {
   modelCalls: RunTelemetryModelCall[];
+  inputMessages?: OtelGenAIMessage[];
+  outputMessages?: OtelGenAIMessage[];
+  actionIO?: Record<string, RunTelemetryActionIO>;
   lineage?: {
     parentRunNumber?: number;
     rootSessionId?: string;
@@ -57,6 +83,7 @@ export interface RunTelemetryDetails {
 }
 
 export interface RunTelemetryClient {
+  readonly captureNeeds?: RunTelemetryCaptureNeeds;
   enqueue(fact: AmarsiaRunFact, details?: RunTelemetryDetails): void;
   updateActiveRun(fact: AmarsiaRunFact): void;
   trackProjection(projection: Promise<void>): void;
@@ -361,6 +388,8 @@ export function withRunTelemetry(options: {
                 projectRunTelemetryDetails(
                   projection.runs.get(run) ?? [],
                   projection.sessionCreated,
+                  projection.messages,
+                  client.captureNeeds,
                 ),
               );
             }
@@ -399,6 +428,8 @@ export function withRunTelemetry(options: {
                 projectRunTelemetryDetails(
                   projection.runs.get(run) ?? [],
                   projection.sessionCreated,
+                  projection.messages,
+                  client.captureNeeds,
                 ),
               );
             }
@@ -430,6 +461,7 @@ export const withAmarsiaTelemetry = withRunTelemetry;
 interface SessionProjection {
   readonly seenSequences: Set<number>;
   readonly runs: Map<number, SessionEvent[]>;
+  readonly messages: SessionEvent[];
   sessionCreated?: SessionEvent;
   isTest: boolean;
 }
@@ -438,6 +470,7 @@ function createProjection(events: SessionEvent[]): SessionProjection {
   const projection: SessionProjection = {
     seenSequences: new Set(),
     runs: new Map(),
+    messages: [],
     isTest: false,
   };
   appendToProjection(projection, events);
@@ -457,6 +490,9 @@ function appendToProjection(
       projection.sessionCreated = event;
       const metadata = asRecord(event.data.metadata);
       projection.isTest = metadata?.orchaTest === true;
+    }
+    if (event.type === "message.created") {
+      projection.messages.push(event);
     }
     if (typeof event.run !== "number") continue;
     const runEvents = projection.runs.get(event.run);
@@ -627,8 +663,40 @@ function projectRunFact(
 function projectRunTelemetryDetails(
   runEvents: SessionEvent[],
   sessionCreated?: SessionEvent,
+  sessionMessages: SessionEvent[] = [],
+  captureNeeds?: RunTelemetryCaptureNeeds,
 ): RunTelemetryDetails {
   const lineage = asRecord(sessionCreated?.data.lineage);
+  const captureContent = captureNeeds?.content === true;
+  const captureActionIO = captureNeeds?.actionIO === true;
+  const sortedSessionMessages = captureContent
+    ? [...sessionMessages].sort((left, right) => left.sequence - right.sequence)
+    : [];
+  const runMessageEvents = captureContent
+    ? runEvents.filter((event) => event.type === "message.created")
+    : [];
+  const firstAssistantSequence = captureContent
+    ? runMessageEvents.find((event) => event.data.role === "assistant")?.sequence
+    : undefined;
+  const runInputMessages = captureContent
+    ? runMessageEvents
+        .filter(
+          (event) =>
+            firstAssistantSequence === undefined ||
+            event.sequence < firstAssistantSequence,
+        )
+        .map(toOtelGenAIMessage)
+    : undefined;
+  const lastAssistantEvent = captureContent
+    ? [...runMessageEvents]
+        .reverse()
+        .find((event) => event.data.role === "assistant")
+    : undefined;
+  const runOutputMessages =
+    captureContent && lastAssistantEvent
+      ? [toOtelGenAIMessage(lastAssistantEvent)]
+      : undefined;
+
   return {
     modelCalls: runEvents
       .filter(
@@ -664,8 +732,23 @@ function projectRunTelemetryDetails(
           ...(typeof event.data.stopReason === "string"
             ? { finish_reason: event.data.stopReason }
             : {}),
+          ...(captureContent
+            ? {
+                inputMessages: sortedSessionMessages
+                  .filter((message) => message.sequence < event.sequence)
+                  .map(toOtelGenAIMessage),
+                outputMessages: [toOtelGenAIMessage(event)],
+              }
+            : {}),
         };
       }),
+    ...(runInputMessages && runInputMessages.length > 0
+      ? { inputMessages: runInputMessages }
+      : {}),
+    ...(runOutputMessages && runOutputMessages.length > 0
+      ? { outputMessages: runOutputMessages }
+      : {}),
+    ...(captureActionIO ? { actionIO: projectActionIO(runEvents) } : {}),
     ...(lineage
       ? {
           lineage: {
@@ -682,6 +765,174 @@ function projectRunTelemetryDetails(
         }
       : {}),
   };
+}
+
+function projectActionIO(
+  runEvents: SessionEvent[],
+): Record<string, RunTelemetryActionIO> | undefined {
+  const ioByCallId: Record<string, RunTelemetryActionIO> = {};
+  for (const event of runEvents) {
+    const callId =
+      typeof event.data.callId === "string" ? event.data.callId : undefined;
+    if (!callId) continue;
+    if (event.type === "action.requested") {
+      ioByCallId[callId] = {
+        ...ioByCallId[callId],
+        ...(event.data.arguments !== undefined
+          ? { arguments: event.data.arguments }
+          : {}),
+      };
+    } else if (
+      event.type === "action.completed" ||
+      event.type === "action.failed"
+    ) {
+      const hasOutput = event.data.output !== undefined;
+      const hasContents = event.data.contents !== undefined;
+      if (hasOutput || hasContents) {
+        ioByCallId[callId] = {
+          ...ioByCallId[callId],
+          output: hasContents
+            ? { output: event.data.output, contents: event.data.contents }
+            : event.data.output,
+        };
+      }
+    }
+  }
+  return Object.keys(ioByCallId).length > 0 ? ioByCallId : undefined;
+}
+
+function toOtelGenAIMessage(event: SessionEvent): OtelGenAIMessage {
+  const role =
+    typeof event.data.role === "string" ? event.data.role : "user";
+  const parts = toOtelGenAIParts(event.data.content);
+  const finishReason =
+    typeof event.data.stopReason === "string"
+      ? event.data.stopReason
+      : undefined;
+  return {
+    role,
+    parts,
+    ...(finishReason ? { finish_reason: finishReason } : {}),
+  };
+}
+
+function toOtelGenAIParts(content: unknown): OtelGenAIMessagePart[] {
+  if (typeof content === "string") {
+    return [{ type: "text", content }];
+  }
+  if (!Array.isArray(content)) {
+    return content === undefined
+      ? []
+      : [{ type: "text", content: JSON.stringify(content) }];
+  }
+  const parts: OtelGenAIMessagePart[] = [];
+  for (const rawBlock of content) {
+    const block = asRecord(rawBlock);
+    if (!block) continue;
+    const blockType =
+      typeof block.type === "string"
+        ? block.type
+        : typeof block.callId === "string" && "output" in block
+          ? "tool_result"
+          : undefined;
+    switch (blockType) {
+      case "text":
+        parts.push({
+          type: "text",
+          content: typeof block.text === "string" ? block.text : "",
+        });
+        break;
+      case "reasoning":
+        if (typeof block.text === "string" && block.text.length > 0) {
+          parts.push({
+            type: "reasoning",
+            content: block.text,
+          });
+        }
+        break;
+      case "json":
+        parts.push({
+          type: "text",
+          content: JSON.stringify(
+            block.data !== undefined ? block.data : (block.value ?? null),
+          ),
+        });
+        break;
+      case "tool_call":
+        parts.push({
+          type: "tool_call",
+          ...(typeof block.callId === "string" ? { id: block.callId } : {}),
+          ...(typeof block.name === "string" ? { name: block.name } : {}),
+          ...(block.arguments !== undefined
+            ? { arguments: block.arguments }
+            : {}),
+        });
+        break;
+      case "tool_result":
+        parts.push({
+          type: "tool_call_response",
+          ...(typeof block.callId === "string" ? { id: block.callId } : {}),
+          ...(typeof block.name === "string" ? { name: block.name } : {}),
+          response:
+            block.contents !== undefined
+              ? { output: block.output, contents: block.contents }
+              : (block.output ?? null),
+          ...(block.isError === true ? { is_error: true } : {}),
+        });
+        break;
+      case "file":
+      case "image":
+      case "audio":
+      case "video":
+      case "document":
+      case "url": {
+        const mimeType =
+          typeof block.mimeType === "string"
+            ? block.mimeType
+            : "application/octet-stream";
+        const modality =
+          blockType === "image" ||
+          blockType === "audio" ||
+          blockType === "video"
+            ? blockType
+            : mimeType.startsWith("image/")
+              ? "image"
+              : mimeType.startsWith("audio/")
+                ? "audio"
+                : mimeType.startsWith("video/")
+                  ? "video"
+                  : "document";
+        const uri =
+          typeof block.fileUri === "string"
+            ? block.fileUri
+            : typeof block.url === "string"
+              ? block.url
+              : undefined;
+        if (uri) {
+          parts.push({
+            type: "uri",
+            modality,
+            mime_type: mimeType,
+            uri,
+          });
+        } else {
+          parts.push({
+            type: "blob",
+            modality,
+            mime_type: mimeType,
+            ...(typeof block.filename === "string"
+              ? { filename: block.filename }
+              : {}),
+          });
+        }
+        break;
+      }
+      default:
+        parts.push({ ...block, type: String(blockType ?? "unknown") });
+        break;
+    }
+  }
+  return parts;
 }
 
 function normalizeUsage(
